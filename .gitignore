@@ -3,3 +3,16 @@
 *.log
 /.vscode
 /.claude
+
+# UPFS 构建产物
+*.o
+upfs
+upfs_asan
+*.dSYM/
+
+# 虚拟盘镜像（运行时生成）
+*.img
+
+# 系统文件
+.DS_Store
+.idea/
