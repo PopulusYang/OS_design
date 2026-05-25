@@ -1,3 +1,5 @@
 /build
 *.exe
 *.log
+/.vscode
+/.claude
