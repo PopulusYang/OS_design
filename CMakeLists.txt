@@ -20,6 +20,7 @@ add_executable(OS_design
     src/allocator.c
     src/dir_sys.c
     src/file_sys.c
+    src/user_mgmt.c
 )
 
 # 包含头文件目录
