@@ -18,6 +18,9 @@ int fs_umount(void);
 // 将内存超级块同步到磁盘 1# 块
 int fs_sync_superblock(void);
 
+// 实时持久化：回写所有 dirty i 节点、超级块，并保存镜像文件
+int fs_sync_disk(void);
+
 // 获取内存中的超级块副本（只读访问；修改请通过分配器接口）
 const SuperBlock *fs_get_superblock(void);
 

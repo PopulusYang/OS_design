@@ -56,12 +56,12 @@ static void ui_banner(void)
     fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "║" ANSI_RESET "  ", stdout);
     fputs(ANSI_BOLD ANSI_ROSE "UPFS" ANSI_RESET, stdout);
     fputs(ANSI_MAUVE " · Unix File System Simulator", stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "                          ║\n", stdout);
+    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "                       ║\n", stdout);
     fputs(ANSI_RESET, stdout);
 
     fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "║" ANSI_RESET "  ", stdout);
     fputs(ANSI_DIM ANSI_MAUVE "Glass Terminal — cold-elegant cyber shell", stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "                    ║\n", stdout);
+    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "               ║\n", stdout);
     fputs(ANSI_RESET, stdout);
 
     fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE, stdout);
@@ -535,6 +535,7 @@ static int dispatch_command(int argc, char **argv)
             ui_err("mkdir 失败");
             return -1;
         }
+        fs_sync_disk();
         ui_ok("目录已创建");
         return 0;
     }
@@ -580,6 +581,7 @@ static int dispatch_command(int argc, char **argv)
             ui_err("create 失败");
             return -1;
         }
+        fs_sync_disk();
         ui_ok("文件已创建");
         return 0;
     }
@@ -589,7 +591,11 @@ static int dispatch_command(int argc, char **argv)
             ui_err("用法: write <path> <data>");
             return -1;
         }
-        return cmd_write_existing(argv[1], argv[2]);
+        if (cmd_write_existing(argv[1], argv[2]) != 0) {
+            return -1;
+        }
+        fs_sync_disk();
+        return 0;
     }
 
     if (strcmp(cmd, "cat") == 0) {
@@ -605,6 +611,7 @@ static int dispatch_command(int argc, char **argv)
             ui_err("删除失败");
             return -1;
         }
+        fs_sync_disk();
         ui_ok("文件已删除");
         return 0;
     }

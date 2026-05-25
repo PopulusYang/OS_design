@@ -21,6 +21,9 @@ int disk_load(const char *disk_path);
 // 将内存中完整虚拟盘镜像写入宿主机文件（覆盖写）
 int disk_save(const char *disk_path);
 
+// 将内存镜像写回当前已记录的磁盘路径（实时持久化）
+int disk_sync(void);
+
 // 关闭虚拟盘，释放内存；不会自动 save
 void disk_shutdown(void);
 

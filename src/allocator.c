@@ -436,6 +436,41 @@ int fs_sync_superblock(void)
     return 0;
 }
 
+int fs_sync_disk(void)
+{
+    int i;
+    int rc = 0;
+
+    if (!g_fs_mounted) {
+        return -1;
+    }
+
+    // 回写所有缓存的 dirty i 节点到内存盘
+    for (i = 0; i < TOTAL_INODES; i++) {
+        if (!g_inode_pool[i].in_use) {
+            continue;
+        }
+        if (g_inode_pool[i].in.m_flags & MINODE_DIRTY) {
+            if (write_disk_inode(g_inode_pool[i].in.m_inode_no,
+                                 &g_inode_pool[i].in.m_dinode) != 0) {
+                rc = -1;
+            }
+        }
+    }
+
+    // 回写超级块到内存盘
+    if (fs_sync_superblock() != 0) {
+        rc = -1;
+    }
+
+    // 将内存盘完整写入宿主机镜像文件
+    if (disk_sync() != 0) {
+        rc = -1;
+    }
+
+    return rc;
+}
+
 int fs_umount(void)
 {
     int i;

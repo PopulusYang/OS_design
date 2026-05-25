@@ -121,6 +121,17 @@ int disk_save(const char *disk_path)
     return 0;
 }
 
+int disk_sync(void)
+{
+    if (g_disk_mem == NULL) {
+        return -1;
+    }
+    if (g_disk_path[0] == '\0') {
+        return -1;
+    }
+    return disk_save(g_disk_path);
+}
+
 void disk_shutdown(void)
 {
     if (g_disk_mem != NULL) {
