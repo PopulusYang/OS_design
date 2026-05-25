@@ -124,9 +124,12 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
             if (!create_flag) {
                 return -1;
             }
-            phys = (uint16_t)balloc();
-            if ((int)phys < 0) {
-                return -1;
+            {
+                int blk = balloc();
+                if (blk < 0) {
+                    return -1;
+                }
+                phys = (uint16_t)blk;
             }
             d->d_direct[logical_blk] = phys;
             ip->m_flags |= MINODE_DIRTY;
@@ -156,9 +159,12 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
             if (!create_flag) {
                 return -1;
             }
-            phys = (uint16_t)balloc();
-            if ((int)phys < 0) {
-                return -1;
+            {
+                int blk = balloc();
+                if (blk < 0) {
+                    return -1;
+                }
+                phys = (uint16_t)blk;
             }
             if (index_set(d->d_sindirect, slot, phys) != 0) {
                 bfree((int)phys);
@@ -216,9 +222,12 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
             if (!create_flag) {
                 return -1;
             }
-            l0_blk = (uint16_t)balloc();
-            if ((int)l0_blk < 0) {
-                return -1;
+            {
+                int blk = balloc();
+                if (blk < 0) {
+                    return -1;
+                }
+                l0_blk = (uint16_t)blk;
             }
             if (index_set(l1_blk, idx2, l0_blk) != 0) {
                 bfree((int)l0_blk);

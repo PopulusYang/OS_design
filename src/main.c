@@ -234,6 +234,8 @@ static void cwd_normalize(void)
 
 static void cwd_set(const char *path)
 {
+    char tmp[CWD_BUF_SIZE * 2];
+
     if (path == NULL || path[0] == '\0') {
         return;
     }
@@ -241,10 +243,11 @@ static void cwd_set(const char *path)
         strncpy(g_cwd, path, CWD_BUF_SIZE - 1);
     } else {
         if (strcmp(g_cwd, "/") == 0) {
-            snprintf(g_cwd, CWD_BUF_SIZE, "/%s", path);
+            snprintf(tmp, sizeof(tmp), "/%s", path);
         } else {
-            snprintf(g_cwd, CWD_BUF_SIZE, "%s/%s", g_cwd, path);
+            snprintf(tmp, sizeof(tmp), "%s/%s", g_cwd, path);
         }
+        strncpy(g_cwd, tmp, CWD_BUF_SIZE - 1);
     }
     g_cwd[CWD_BUF_SIZE - 1] = '\0';
     cwd_normalize();

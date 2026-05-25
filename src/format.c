@@ -5,6 +5,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+
+#define FORMAT_LOG(fmt, ...) fprintf(stderr, "[format] " fmt "\n", ##__VA_ARGS__)
 
 // 引导块魔数，用于识别本文件系统镜像
 static const char BOOT_MAGIC[] = "UPFSBOOT";
@@ -211,19 +214,23 @@ int format(const char *disk_path)
     int i;
 
     if (disk_path == NULL || disk_path[0] == '\0') {
+        FORMAT_LOG("错误：磁盘路径为空");
         return -1;
     }
 
     if (disk_create() != 0) {
+        FORMAT_LOG("错误：内存分配失败");
         return -1;
     }
 
     if (init_boot_block() != 0) {
+        FORMAT_LOG("错误：引导块写入失败");
         disk_shutdown();
         return -1;
     }
 
     if (clear_inode_zone() != 0) {
+        FORMAT_LOG("错误：i节点区清零失败");
         disk_shutdown();
         return -1;
     }
@@ -243,6 +250,7 @@ int format(const char *disk_path)
     sb.s_block_total = (uint32_t)DATA_ZONE_BLOCKS;
 
     if (init_group_linked_free_blocks(&sb, free_blks, free_cnt) != 0) {
+        FORMAT_LOG("错误：空闲块栈初始化失败");
         disk_shutdown();
         return -1;
     }
@@ -250,16 +258,20 @@ int format(const char *disk_path)
     init_free_inode_stack(&sb);
 
     if (write_block(SUPERBLOCK_BLOCKNO, &sb) != 0) {
+        FORMAT_LOG("错误：超级块写入失败");
         disk_shutdown();
         return -1;
     }
 
     if (init_root_directory() != 0) {
+        FORMAT_LOG("错误：根目录初始化失败");
         disk_shutdown();
         return -1;
     }
 
     if (disk_save(disk_path) != 0) {
+        FORMAT_LOG("错误：镜像文件保存失败 (path=%s, errno=%d: %s)",
+                   disk_path, errno, strerror(errno));
         disk_shutdown();
         return -1;
     }
