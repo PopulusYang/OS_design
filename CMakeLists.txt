@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.10)
 # 项目名称和版本
 project(OS_design VERSION 1.0 LANGUAGES CXX)
 
-# 设置 C 标准
+# 设置 CXX 标准
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

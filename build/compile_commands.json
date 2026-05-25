@@ -1,8 +1,0 @@
-[
-{
-  "directory": "/home/ywxzgr/projects/OS_design/build",
-  "command": "/usr/bin/g++  -I/home/ywxzgr/projects/OS_design/include -g -std=gnu++11 -o CMakeFiles/OS_design.dir/src/main.cpp.o -c /home/ywxzgr/projects/OS_design/src/main.cpp",
-  "file": "/home/ywxzgr/projects/OS_design/src/main.cpp",
-  "output": "CMakeFiles/OS_design.dir/src/main.cpp.o"
-}
-]

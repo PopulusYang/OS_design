@@ -1,3 +1,0 @@
-/home/ywxzgr/projects/OS_design/build/CMakeFiles/OS_design.dir
-/home/ywxzgr/projects/OS_design/build/CMakeFiles/edit_cache.dir
-/home/ywxzgr/projects/OS_design/build/CMakeFiles/rebuild_cache.dir
