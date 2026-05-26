@@ -27,11 +27,18 @@ add_executable(OS_design
     src/kernel/process.c
     src/kernel/scheduler.c
     src/kernel/syscall.c
+    src/kernel/kernel_shared.c
     # 用户管理
     src/user/user_mgmt.c
     src/user/env.c
     # 预置程序
     src/binaries.c
+    # TCP 服务端
+    src/serve.c
+    # 汇编器
+    src/assembler.c
+    # 编辑器
+    src/editor.c
 )
 
 # 包含头文件目录

@@ -16,11 +16,21 @@ Language: C17, compiled with GCC/Clang. Target: Linux/macOS (POSIX). No external
 # CMake (preferred)
 cmake -B build -S . -DCMAKE_C_FLAGS="-D_GNU_SOURCE"
 cmake --build build
-./build/bin/OS_design
+./build/bin/OS_design              # interactive shell
+./build/bin/OS_design --serve      # TCP multi-terminal server (:8080 HTTP, :4096 raw TCP)
+./build/bin/OS_design --serve 9999 # custom TCP port
 
 # Makefile (alternative)
 make && ./upfs
 ```
+
+### TCP Server Mode (`--serve`)
+
+In `--serve` mode, UPFS acts as a multi-terminal daemon:
+- **Port 8080**: HTTP server serving the terminal web page + WebSocket upgrade at `/ws/*`
+- **Port 4096** (or custom): Raw TCP terminal — connect with `nc localhost 4096` or `telnet`
+- Each connection forks a child process running `upfs_session()`; the parent polls and forwards I/O
+- A standalone WebSocket bridge is also available: `script/websrv` (connect it to a raw TCP UPFS on :4096)
 
 ## Directory Structure
 
@@ -28,6 +38,8 @@ make && ./upfs
 src/
   main.c              # Interactive shell entry point
   binaries.h/c        # Pre-built demo program binaries (.upx format)
+  assembler.h/c       # Two-pass assembler: .s source → .upx binary
+  serve.h/c           # TCP multi-terminal server (HTTP + WebSocket + raw TCP)
   fs/                 # File system layer
     disk_io.h/c       # Block-level read/write, disk persistence
     format.h/c        # mkfs: superblock, free blocks, root dir
@@ -51,6 +63,8 @@ include/
 
 ```
 Shell (main.c)  ───  run, ps, env, export, unset, + all FS commands
+    │
+    ├── serve.c ─── TCP multi-terminal server (--serve mode)
     │
 Process Mgmt ─── Scheduler ─── Syscall Interface
     │               │               │
@@ -137,7 +151,7 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 **Directories**: `mkdir`, `cd`, `pwd`, `ls`
 **Files**: `create`, `write`, `cat`, `rm`
 **Users**: `useradd`, `login`, `logout`, `whoami`, `passwd`, `users`
-**Process/Env**: `run`, `ps`, `env`, `export`, `unset`
+**Process/Env**: `asm`, `run`, `ps`, `env`, `export`, `unset`
 **Other**: `help`, `clear`, `exit`
 
 ## Key Implementation Notes
@@ -149,3 +163,4 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 - Passwords: salted 256-bit iterative hash (10000 rounds), stored in /etc/passwd
 - Environment: /etc/environment (system) + ~/.env (per-user)
 - Demo binaries injected during format into /bin/
+- Assembly language reference: `doc/asm-reference.md`

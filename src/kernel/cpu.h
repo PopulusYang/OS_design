@@ -79,13 +79,15 @@ enum {
 #define SYSCALL_CREATE    17
 #define SYSCALL_DELETE    18
 #define SYSCALL_MKDIR     19
+#define SYSCALL_HOST_EDIT  20   // 调用宿主编编辑器
+#define SYSCALL_HOST_ASM   21   // 调用宿主汇编器
 
 // VM 执行上下文
+// 始终嵌入在 PCB 中，通过 container_of 可反推 PCB 指针
 typedef struct CPUContext {
     uint32_t regs[CPU_NUM_REGS];  // R0–R15
     uint32_t pc;                   // 程序计数器（指令索引，非字节偏移）
     uint32_t flags;                // ZF 等
-    uint32_t *page_table;          // 指向进程页表（数组，长度 MEM_MAX_PROCESS_PAGES）
     uint32_t  ticks_left;          // 本时间片剩余指令数
     // 回传信息
     int       sycall_halt;         // 0=正常, 1=HALT, 2=SYSCALL
@@ -93,7 +95,7 @@ typedef struct CPUContext {
 } CPUContext;
 
 // 初始化 VM 上下文
-void cpu_init(CPUContext *ctx, uint32_t *page_table, uint32_t entry_pc, uint32_t stack_top);
+void cpu_init(CPUContext *ctx, uint32_t entry_pc, uint32_t stack_top);
 
 // 执行一条指令，返回 0 继续，1 应调度（HALT/SYSCALL/时间片耗尽）
 int  cpu_step(CPUContext *ctx);

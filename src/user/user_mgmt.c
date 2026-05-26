@@ -191,11 +191,11 @@ void user_gen_salt(char *hex_out)
 
 static int passwd_exists(void)
 {
-    int fd = open(PASSWD_PATH, O_RDONLY);
+    int fd = vfs_open(PASSWD_PATH, O_RDONLY);
     if (fd < 0) {
         return 0;
     }
-    close(fd);
+    vfs_close(fd);
     return 1;
 }
 
@@ -215,13 +215,13 @@ int user_db_load(void)
         return 0;
     }
 
-    fd = open(PASSWD_PATH, O_RDONLY);
+    fd = vfs_open(PASSWD_PATH, O_RDONLY);
     if (fd < 0) {
         return -1;
     }
 
-    total = read(fd, buf, (int)sizeof(buf) - 1);
-    close(fd);
+    total = vfs_read(fd, buf, (int)sizeof(buf) - 1);
+    vfs_close(fd);
 
     if (total <= 0) {
         g_user_inited = 1;
@@ -321,13 +321,13 @@ int user_db_save(void)
 
     // 先创建新文件（若已有则删掉重建）
     if (passwd_exists()) {
-        delete(PASSWD_PATH);
+        vfs_delete(PASSWD_PATH);
     }
-    if (create(PASSWD_PATH, 0644) != 0) {
+    if (vfs_create(PASSWD_PATH, 0644) != 0) {
         return -1;
     }
 
-    fd = open(PASSWD_PATH, O_WRONLY);
+    fd = vfs_open(PASSWD_PATH, O_WRONLY);
     if (fd < 0) {
         return -1;
     }
@@ -341,17 +341,17 @@ int user_db_save(void)
                      ua->ua_salt,
                      ua->ua_home);
         if (n < 0 || n >= (int)sizeof(line)) {
-            close(fd);
+            vfs_close(fd);
             return -1;
         }
-        if (write(fd, line, n) != n) {
-            close(fd);
+        if (vfs_write(fd, line, n) != n) {
+            vfs_close(fd);
             return -1;
         }
         total += n;
     }
 
-    close(fd);
+    vfs_close(fd);
     return 0;
 }
 
@@ -367,9 +367,9 @@ int user_init(void)
     if (!passwd_exists()) {
         // 可能需要创建 /etc 目录（对于旧镜像的兼容）
         // 尝试直接创建文件，若父目录不存在则先 mkdir
-        if (create(PASSWD_PATH, 0644) != 0) {
+        if (vfs_create(PASSWD_PATH, 0644) != 0) {
             vfs_mkdir("/etc", 0755);
-            create(PASSWD_PATH, 0644);
+            vfs_create(PASSWD_PATH, 0644);
         }
     }
 

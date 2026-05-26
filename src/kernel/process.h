@@ -18,7 +18,7 @@ extern "C" {
 #define PROC_NAME_LEN          32
 #define PROC_STACK_PAGES       4      // 默认 16KB 栈
 #define PROC_STACK_SIZE        (PROC_STACK_PAGES * MEM_PAGE_SIZE)
-#define PROC_STACK_TOP         0x7FFFFFFFU  // 用户栈顶（虚拟地址）
+#define PROC_STACK_TOP         0x01000000U  // 用户栈顶（16MB 地址空间顶端）
 
 enum {
     PROC_FREE    = 0,

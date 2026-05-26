@@ -72,8 +72,7 @@ static uint32_t counter_text[] = {
     CPU_ENCODE(OP_ADD,  5, 5, 4, 0),            // R5 = '0' + counter
     CPU_ENCODE(OP_ST,   0, 6, 5, 0),            // [R6] = digit
     CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            // R1 = 1 (stdout)
-    CPU_ENCODE(OP_MOVI, 2, 0, 0, 0),            // R2 = R6
-    CPU_ENCODE(OP_ADD,  2, 6, 0, 0),            // R2 = R6 (buf addr)
+    CPU_ENCODE(OP_MOV,  2, 6, 0, 0),            // R2 = R6 (buf addr)
     CPU_ENCODE(OP_MOVI, 3, 0, 0, 1),            // R3 = 1 (len)
     CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         // write
     // newline
@@ -87,7 +86,7 @@ static uint32_t counter_text[] = {
     // cmp
     CPU_ENCODE(OP_MOVI, 8, 0, 0, 10),           // R8 = 10
     CPU_ENCODE(OP_CMP,  0, 4, 8, 0),            // CMP R4, R8
-    CPU_ENCODE(OP_JNZ,  0, 0, 0, -17),          // JNZ loop_start (rel=-17)
+    CPU_ENCODE(OP_JNZ,  0, 0, 0, -16),          // JNZ loop_start (rel=-16)
     CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         // exit(0)
 };
 
@@ -115,6 +114,12 @@ static int    g_counter_size = 0;
 static uint8_t g_echo_buf[BIN_BUF_SIZE];
 static int    g_echo_size = 0;
 
+static uint8_t g_vim_buf[BIN_BUF_SIZE];
+static int    g_vim_size = 0;
+
+static uint8_t g_asm_buf[BIN_BUF_SIZE];
+static int    g_asm_size = 0;
+
 static int g_inited = 0;
 
 static void init_binaries(void)
@@ -136,31 +141,58 @@ static void init_binaries(void)
         echo_text, sizeof(echo_text)/4,
         echo_data, sizeof(echo_data), 0, 4096);
     if (g_echo_size < 0) g_echo_size = 0;
+
+    // ---- vim: 编辑文件 (SYSCALL_HOST_EDIT) ----
+    static uint32_t vim_text[] = {
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 20),   // HOST_EDIT (reads stdin)
+        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       // R1 = 0
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    // EXIT(0)
+    };
+    g_vim_size = build_upx(g_vim_buf, BIN_BUF_SIZE,
+        vim_text, sizeof(vim_text)/4, NULL, 0, 0, 256);
+    if (g_vim_size < 0) g_vim_size = 0;
+
+    // ---- asm: 汇编器 (SYSCALL_HOST_ASM) ----
+    static uint32_t asm_text[] = {
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 21),   // HOST_ASM (reads stdin)
+        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       // R1 = 0
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    // EXIT(0)
+    };
+    g_asm_size = build_upx(g_asm_buf, BIN_BUF_SIZE,
+        asm_text, sizeof(asm_text)/4, NULL, 0, 0, 256);
+    if (g_asm_size < 0) g_asm_size = 0;
 }
 
-static DemoBinary g_demos[] = {
+#define DEMO_COUNT 5
+static DemoBinary g_demos[DEMO_COUNT] = {
     { "/bin/hello",   NULL, 0 },
     { "/bin/counter", NULL, 0 },
     { "/bin/echo",    NULL, 0 },
+    { "/bin/vim",     NULL, 0 },
+    { "/bin/as",      NULL, 0 },
 };
+
+static void fill_demos(void) {
+    g_demos[0].data = g_hello_buf;   g_demos[0].size = (size_t)g_hello_size;
+    g_demos[1].data = g_counter_buf; g_demos[1].size = (size_t)g_counter_size;
+    g_demos[2].data = g_echo_buf;    g_demos[2].size = (size_t)g_echo_size;
+    g_demos[3].data = g_vim_buf;     g_demos[3].size = (size_t)g_vim_size;
+    g_demos[4].data = g_asm_buf;     g_demos[4].size = (size_t)g_asm_size;
+}
 
 const DemoBinary *binaries_get_all(int *count)
 {
     init_binaries();
-    g_demos[0].data = g_hello_buf;   g_demos[0].size = (size_t)g_hello_size;
-    g_demos[1].data = g_counter_buf; g_demos[1].size = (size_t)g_counter_size;
-    g_demos[2].data = g_echo_buf;    g_demos[2].size = (size_t)g_echo_size;
-    if (count) *count = 3;
+    fill_demos();
+    if (count) *count = DEMO_COUNT;
     return g_demos;
 }
 
 const DemoBinary *binaries_find(const char *name)
 {
     init_binaries();
-    g_demos[0].data = g_hello_buf;   g_demos[0].size = (size_t)g_hello_size;
-    g_demos[1].data = g_counter_buf; g_demos[1].size = (size_t)g_counter_size;
-    g_demos[2].data = g_echo_buf;    g_demos[2].size = (size_t)g_echo_size;
-    for (int i = 0; i < 3; i++)
+    fill_demos();
+    for (int i = 0; i < DEMO_COUNT; i++)
         if (strcmp(g_demos[i].name, name) == 0)
             return &g_demos[i];
     return NULL;

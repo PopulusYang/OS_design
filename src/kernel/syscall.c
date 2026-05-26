@@ -8,10 +8,16 @@
 // 注意：这些函数使用外部 User 上下文，在 syscall 中需要切换
 #include "fs/file_sys.h"
 #include "fs/dir_sys.h"
+#include "fs/allocator.h"
 #include "user/env.h"
+#include "assembler.h"
+#include "editor.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
 
 // 为 syscall 操作临时绑定用户上下文（使用当前 Shell User 的绑定）
 // 注意：实际实现中所有文件操作通过 file_sys 接口，该接口内部使用 dir_get_user()
@@ -88,13 +94,13 @@ void syscall_dispatch(PCB *p, uint32_t no)
         *ret = p->p_pid;
         break;
 
-    case SYSCALL_OPEN: { // open(path, flags) → fd
+    case SYSCALL_OPEN: { // vfs_open(path, flags) → fd
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
-        int fs_fd = open(path, (uint16_t)arg2);
+        int fs_fd = vfs_open(path, (uint16_t)arg2);
         if (fs_fd < 0) { *ret = (uint32_t)-1; break; }
         int pfd = proc_alloc_fd(p);
-        if (pfd < 0) { close(fs_fd); *ret = (uint32_t)-1; break; }
+        if (pfd < 0) { vfs_close(fs_fd); *ret = (uint32_t)-1; break; }
         p->p_ofile[pfd].fd_type = PROC_FD_FILE;
         p->p_ofile[pfd].fd_fs_fd = fs_fd;
         p->p_ofile[pfd].fd_mode = (int)arg2;
@@ -103,15 +109,15 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_CLOSE: // close(fd)
+    case SYSCALL_CLOSE: // vfs_close(fd)
         if ((int)arg1 >= 0 && (int)arg1 < PROC_MAX_FD && p->p_ofile[arg1].fd_type == PROC_FD_FILE) {
-            close(p->p_ofile[arg1].fd_fs_fd);
+            vfs_close(p->p_ofile[arg1].fd_fs_fd);
         }
         proc_free_fd(p, (int)arg1);
         *ret = 0;
         break;
 
-    case SYSCALL_READ: { // read(fd, buf, count) → n
+    case SYSCALL_READ: { // vfs_read(fd, buf, count) → n
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
@@ -119,9 +125,22 @@ void syscall_dispatch(PCB *p, uint32_t no)
             // 从文件读取到内核临时缓冲，再拷贝到用户空间
             char tmp[512];
             int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
-            int n = read(pfd->fd_fs_fd, tmp, chunk);
+            int n = vfs_read(pfd->fd_fs_fd, tmp, chunk);
             if (n <= 0) { *ret = (uint32_t)-1; break; }
             for (int i = 0; i < n; i++) {
+                uint32_t phys;
+                if (cpu_virt_to_phys(&p->p_cpu, arg2 + (uint32_t)i, &phys) == 0)
+                    mem_write8(phys, (uint8_t)tmp[i]);
+            }
+            *ret = (uint32_t)n;
+        } else if (fd <= 2 && pfd->fd_type == 0) {
+            // stdin (fd=0): 从宿主机终端读取字节
+            char tmp[512];
+            int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
+            ssize_t n = read(STDIN_FILENO, tmp, (size_t)chunk);
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { *ret = 0; break; }
+            if (n <= 0) { *ret = (uint32_t)-1; break; }
+            for (ssize_t i = 0; i < n; i++) {
                 uint32_t phys;
                 if (cpu_virt_to_phys(&p->p_cpu, arg2 + (uint32_t)i, &phys) == 0)
                     mem_write8(phys, (uint8_t)tmp[i]);
@@ -133,7 +152,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_WRITE: { // write(fd, buf, count) → n
+    case SYSCALL_WRITE: { // vfs_write(fd, buf, count) → n
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
@@ -146,7 +165,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
                     tmp[i] = (char)mem_read8(phys);
                 else { chunk = i; break; }
             }
-            int n = write(pfd->fd_fs_fd, tmp, chunk);
+            int n = vfs_write(pfd->fd_fs_fd, tmp, chunk);
             *ret = (uint32_t)(n > 0 ? n : -1);
         } else if (pfd->fd_type == 0 && fd == 1) {
             // stdout (fd=1): 直接写到终端
@@ -229,17 +248,17 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_CREATE: { // create(path, mode)
+    case SYSCALL_CREATE: { // vfs_create(path, mode)
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
-        *ret = create(path, (uint16_t)arg2) == 0 ? 0 : (uint32_t)-1;
+        *ret = vfs_create(path, (uint16_t)arg2) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_DELETE: { // delete(path)
+    case SYSCALL_DELETE: { // vfs_delete(path)
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
-        *ret = delete(path) == 0 ? 0 : (uint32_t)-1;
+        *ret = vfs_delete(path) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
@@ -247,6 +266,118 @@ void syscall_dispatch(PCB *p, uint32_t no)
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = vfs_mkdir(path, (uint16_t)arg2) == 0 ? 0 : (uint32_t)-1;
+        break;
+    }
+
+    case SYSCALL_HOST_EDIT: { // VFS ↔ 宿主编编辑器桥接
+        char path[512]; int i = 0;
+        printf("File: "); fflush(stdout);
+        while (i < 510) {
+            char c;
+            if (read(STDIN_FILENO, &c, 1) != 1) continue;
+            if (c == '\n' || c == '\r') break;
+            if (c == 127 || c == '\b') { if (i > 0) { i--; printf("\b \b"); } continue; }
+            if (c >= 32 && c < 127) { path[i++] = c; printf("%c", c); }
+            fflush(stdout);
+        }
+        path[i] = '\0'; printf("\r\n"); fflush(stdout);
+        if (!path[0]) { *ret = 0; break; }
+        // VFS 桥接：导出→编辑→导入
+        char tmp[256];
+        snprintf(tmp, sizeof(tmp), "/tmp/upfs_vim_sys_%d", getpid());
+        MemINode *ip = namei(path);
+        if (ip) {
+            iput(ip);
+            int fd = vfs_open(path, O_RDONLY);
+            if (fd >= 0) {
+                char buf[8192]; int total = 0, n;
+                while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+                vfs_close(fd);
+                FILE *f = fopen(tmp, "w");
+                if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+            }
+        }
+        printf("\033[2J\033[H"); fflush(stdout);
+        editor_open(tmp);
+        printf("\033[2J\033[H"); fflush(stdout);
+        FILE *f = fopen(tmp, "r");
+        if (f) {
+            fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+            if (sz > 0) {
+                char *buf = malloc((size_t)(sz + 1));
+                if (buf) {
+                    fread(buf, 1, (size_t)sz, f);
+                    vfs_delete(path);
+                    if (vfs_create(path, 0644) != 0) { vfs_delete(path); vfs_create(path, 0644); }
+                    int fd = vfs_open(path, O_WRONLY);
+                    if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                    free(buf);
+                }
+            } else {
+                vfs_delete(path); vfs_create(path, 0644);
+            }
+            fclose(f);
+        }
+        unlink(tmp);
+        *ret = 0;
+        break;
+    }
+
+    case SYSCALL_HOST_ASM: { // VFS ↔ 宿主汇编器桥接
+        char src[512], out[512]; int si = 0, oi = 0;
+        printf("Source: "); fflush(stdout);
+        while (si < 510) {
+            char c;
+            if (read(STDIN_FILENO, &c, 1) != 1) continue;
+            if (c == '\n' || c == '\r') break;
+            if (c == 127 || c == '\b') { if (si > 0) { si--; printf("\b \b"); } } else if (c >= 32 && c < 127) { src[si++] = c; printf("%c", c); }
+            fflush(stdout);
+        }
+        src[si] = '\0'; printf("\r\n"); fflush(stdout);
+        printf("Output: "); fflush(stdout);
+        while (oi < 510) {
+            char c;
+            if (read(STDIN_FILENO, &c, 1) != 1) continue;
+            if (c == '\n' || c == '\r') break;
+            if (c == 127 || c == '\b') { if (oi > 0) { oi--; printf("\b \b"); } } else if (c >= 32 && c < 127) { out[oi++] = c; printf("%c", c); }
+            fflush(stdout);
+        }
+        out[oi] = '\0'; printf("\r\n"); fflush(stdout);
+        char ts[256], to[256];
+        snprintf(ts, sizeof(ts), "/tmp/upfs_asm_src_sys_%d", getpid());
+        snprintf(to, sizeof(to), "/tmp/upfs_asm_out_sys_%d", getpid());
+        // 导出
+        { MemINode *ip = namei(src);
+          if (!ip) { printf("Source not found\n"); *ret = 0; break; }
+          iput(ip);
+          int fd = vfs_open(src, O_RDONLY);
+          if (fd >= 0) {
+              char buf[8192]; int total = 0, n;
+              while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+              vfs_close(fd);
+              FILE *f = fopen(ts, "w");
+              if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+          } }
+        assemble_file(ts, to);
+        // 导入
+        { FILE *f = fopen(to, "rb");
+          if (f) {
+              fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+              if (sz > 0) {
+                  char *buf = malloc((size_t)sz);
+                  if (buf) {
+                      fread(buf, 1, (size_t)sz, f);
+                      vfs_delete(out);
+                      if (vfs_create(out, 0644) != 0) { vfs_delete(out); vfs_create(out, 0644); }
+                      int fd = vfs_open(out, O_WRONLY);
+                      if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                      free(buf);
+                  }
+              }
+              fclose(f);
+          } }
+        unlink(ts); unlink(to);
+        *ret = 0;
         break;
     }
 

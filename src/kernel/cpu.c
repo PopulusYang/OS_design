@@ -1,6 +1,7 @@
 // cpu.c —— VM 执行引擎实现
 
 #include "kernel/cpu.h"
+#include "kernel/process.h"
 #include "kernel/memory.h"
 #include <string.h>
 #include <stdio.h>
@@ -11,23 +12,27 @@
 #define VIRT_PAGE_MASK    (VIRT_PAGE_SIZE - 1)
 #define VIRT_PAGE_SHIFT   VIRT_PAGE_BITS
 
-void cpu_init(CPUContext *ctx, uint32_t *page_table, uint32_t entry_pc, uint32_t stack_top)
+// CPUContext 始终嵌入在 PCB 中，反向推导 PCB 指针
+#define CPU_TO_PCB(ctx) \
+    ((PCB *)((char *)(ctx) - offsetof(PCB, p_cpu)))
+
+void cpu_init(CPUContext *ctx, uint32_t entry_pc, uint32_t stack_top)
 {
     memset(ctx, 0, sizeof(*ctx));
     ctx->pc = entry_pc;
     ctx->regs[CPU_REG_SP] = stack_top;
-    ctx->page_table = page_table;
     ctx->ticks_left = CPU_TIMESLICE;
     ctx->sycall_halt = 0;
 }
 
 int cpu_virt_to_phys(const CPUContext *ctx, uint32_t virt_addr, uint32_t *out_phys)
 {
-    if (ctx == NULL || ctx->page_table == NULL || out_phys == NULL) return -1;
+    if (ctx == NULL || out_phys == NULL) return -1;
     uint32_t page_idx = virt_addr >> VIRT_PAGE_SHIFT;
     uint32_t offset = virt_addr & VIRT_PAGE_MASK;
     if (page_idx >= MEM_MAX_PROCESS_PAGES) return -1;
-    uint32_t phys_page = ctx->page_table[page_idx];
+    PCB *p = CPU_TO_PCB(ctx);
+    uint32_t phys_page = p->p_page_table[page_idx];
     if (phys_page == 0) return -1;
     *out_phys = (phys_page * VIRT_PAGE_SIZE) + offset;
     return 0;
@@ -63,13 +68,14 @@ void cpu_write8(CPUContext *ctx, uint32_t virt_addr, uint8_t val)
 
 int cpu_map_page(CPUContext *ctx, uint32_t virt_addr)
 {
-    if (ctx == NULL || ctx->page_table == NULL) return -1;
+    if (ctx == NULL) return -1;
     uint32_t page_idx = virt_addr >> VIRT_PAGE_SHIFT;
     if (page_idx >= MEM_MAX_PROCESS_PAGES) return -1;
-    if (ctx->page_table[page_idx] != 0) return 0; // 已映射
+    PCB *p = CPU_TO_PCB(ctx);
+    if (p->p_page_table[page_idx] != 0) return 0; // 已映射
     int phys_page = mem_alloc_pages(1);
     if (phys_page < 0) return -1;
-    ctx->page_table[page_idx] = (uint32_t)phys_page;
+    p->p_page_table[page_idx] = (uint32_t)phys_page;
     return 0;
 }
 
@@ -232,10 +238,9 @@ int cpu_step(CPUContext *ctx)
         break;
     }
 
-    // 时间片耗尽？
+    // 时间片耗尽 → 返回调度点（由调度器重置 ticks_left）
     if (ctx->ticks_left == 0) {
-        ctx->ticks_left = CPU_TIMESLICE;
-        return 1; // 调度点
+        return 1;
     }
     return 0;
 }

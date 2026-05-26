@@ -1,4 +1,6 @@
 // disk_io.c —— 虚拟磁盘底层块读写与宿主机文件持久化
+//
+// disk_load 使用 mmap MAP_SHARED，fork 后父子进程共享同一磁盘内存。
 
 #include "fs/disk_io.h"
 
@@ -6,12 +8,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
-// 全局虚拟盘内存模拟区指针；由 disk_create / disk_load 分配，disk_shutdown 释放
+// 全局虚拟盘内存模拟区指针；由 disk_create（calloc）/ disk_load（mmap）分配
 static uint8_t *g_disk_mem = NULL;
 
-// 虚拟盘镜像在宿主机上的路径缓存（可选，供调试）
+// mmap 相关
+static int    g_disk_fd   = -1;
+static size_t g_disk_size = 0;
+
+// 虚拟盘镜像在宿主机上的路径缓存
 static char g_disk_path[512];
 
 // 标记内存内容是否曾通过 write_block 修改（预留，供增量同步扩展）
@@ -34,54 +43,69 @@ static int disk_check_block(int block_no, const void *buf)
 
 int disk_create(void)
 {
+    // 先释放旧映射
+    if (g_disk_fd >= 0) { close(g_disk_fd); g_disk_fd = -1; }
     if (g_disk_mem != NULL) {
-        free(g_disk_mem);
+        if (g_disk_size > 0) munmap(g_disk_mem, g_disk_size);
+        else free(g_disk_mem);
         g_disk_mem = NULL;
     }
+    g_disk_size = 0;
 
-    // calloc 保证初始内容为全零，避免未初始化盘块被误读
+    // calloc 保证初始内容为全零（format 阶段临时用）
     g_disk_mem = (uint8_t *)calloc((size_t)TOTAL_DISK_BLOCKS, (size_t)BLOCK_SIZE);
-    if (g_disk_mem == NULL) {
-        return -1;
-    }
+    if (g_disk_mem == NULL) return -1;
 
     g_disk_dirty = 0;
     g_disk_path[0] = '\0';
+    g_disk_fd = -1;
     return 0;
 }
 
 int disk_load(const char *disk_path)
 {
-    FILE *fp;
-    size_t expect_size;
-    size_t nread;
+    struct stat st;
+    int    fd;
+    void  *map;
+    size_t expect;
 
-    if (disk_path == NULL || disk_path[0] == '\0') {
+    if (disk_path == NULL || disk_path[0] == '\0') return -1;
+
+    expect = (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
+
+    fd = open(disk_path, O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "[disk_io] open(%s) failed: %s\n", disk_path, strerror(errno));
         return -1;
     }
 
-    if (disk_create() != 0) {
+    if (fstat(fd, &st) != 0 || (size_t)st.st_size != expect) {
+        fprintf(stderr, "[disk_io] fstat size mismatch: have=%ld expect=%zu\n",
+                (long)st.st_size, expect);
+        close(fd);
         return -1;
     }
 
-    fp = fopen(disk_path, "rb");
-    if (fp == NULL) {
-        disk_shutdown();
+    map = mmap(NULL, expect, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map == MAP_FAILED) {
+        fprintf(stderr, "[disk_io] mmap failed: %s\n", strerror(errno));
+        close(fd);
         return -1;
     }
 
-    expect_size = (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
-    nread = fread(g_disk_mem, 1, expect_size, fp);
-    fclose(fp);
-
-    if (nread != expect_size) {
-        disk_shutdown();
-        return -1;
+    // 释放旧内存
+    if (g_disk_mem != NULL) {
+        if (g_disk_fd >= 0) munmap(g_disk_mem, g_disk_size);
+        else free(g_disk_mem);
     }
+
+    g_disk_mem  = (uint8_t *)map;
+    g_disk_fd   = fd;
+    g_disk_size = expect;
+    g_disk_dirty = 0;
 
     strncpy(g_disk_path, disk_path, sizeof(g_disk_path) - 1);
     g_disk_path[sizeof(g_disk_path) - 1] = '\0';
-    g_disk_dirty = 0;
     return 0;
 }
 
@@ -113,36 +137,24 @@ static void ensure_parent_dir(const char *file_path)
 
 int disk_save(const char *disk_path)
 {
-    FILE *fp;
-    size_t total_size;
-    size_t nwrite;
+    size_t total_size = (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
 
-    if (g_disk_mem == NULL) {
-        return -1;
-    }
-    if (disk_path == NULL || disk_path[0] == '\0') {
-        return -1;
-    }
+    if (g_disk_mem == NULL) return -1;
+    if (disk_path == NULL || disk_path[0] == '\0') return -1;
 
-    ensure_parent_dir(disk_path);
-
-    fp = fopen(disk_path, "wb");
-    if (fp == NULL) {
-        return -1;
-    }
-
-    total_size = (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
-    nwrite = fwrite(g_disk_mem, 1, total_size, fp);
-    if (nwrite != total_size) {
+    // mmap 模式：只需 msync；calloc 模式：写文件
+    if (g_disk_fd >= 0) {
+        ensure_parent_dir(disk_path);
+        if (msync(g_disk_mem, g_disk_size, MS_SYNC) != 0) return -1;
+    } else {
+        FILE *fp;
+        ensure_parent_dir(disk_path);
+        fp = fopen(disk_path, "wb");
+        if (fp == NULL) return -1;
+        if (fwrite(g_disk_mem, 1, total_size, fp) != total_size) { fclose(fp); return -1; }
+        if (fflush(fp) != 0) { fclose(fp); return -1; }
         fclose(fp);
-        return -1;
     }
-
-    if (fflush(fp) != 0) {
-        fclose(fp);
-        return -1;
-    }
-    fclose(fp);
 
     strncpy(g_disk_path, disk_path, sizeof(g_disk_path) - 1);
     g_disk_path[sizeof(g_disk_path) - 1] = '\0';
@@ -152,11 +164,11 @@ int disk_save(const char *disk_path)
 
 int disk_sync(void)
 {
-    if (g_disk_mem == NULL) {
-        return -1;
-    }
-    if (g_disk_path[0] == '\0') {
-        return -1;
+    if (g_disk_mem == NULL) return -1;
+    if (g_disk_path[0] == '\0') return -1;
+    // mmap 模式：msync；calloc 模式：写文件
+    if (g_disk_fd >= 0) {
+        return msync(g_disk_mem, g_disk_size, MS_SYNC) == 0 ? 0 : -1;
     }
     return disk_save(g_disk_path);
 }
@@ -164,9 +176,17 @@ int disk_sync(void)
 void disk_shutdown(void)
 {
     if (g_disk_mem != NULL) {
-        free(g_disk_mem);
+        if (g_disk_fd >= 0) {
+            msync(g_disk_mem, g_disk_size, MS_SYNC);
+            munmap(g_disk_mem, g_disk_size);
+            close(g_disk_fd);
+            g_disk_fd = -1;
+        } else {
+            free(g_disk_mem);
+        }
         g_disk_mem = NULL;
     }
+    g_disk_size = 0;
     g_disk_dirty = 0;
     g_disk_path[0] = '\0';
 }

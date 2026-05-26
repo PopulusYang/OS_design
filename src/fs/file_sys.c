@@ -316,7 +316,7 @@ static void file_truncate(MemINode *ip)
     ip->m_flags |= MINODE_DIRTY;
 }
 
-int create(const char *path, uint16_t mode)
+int vfs_create(const char *path, uint16_t mode)
 {
     User       *u;
     char        parent_path[PATH_BUF_SIZE];
@@ -384,7 +384,7 @@ int create(const char *path, uint16_t mode)
     return 0;
 }
 
-int open(const char *path, uint16_t mode)
+int vfs_open(const char *path, uint16_t mode)
 {
     User          *u;
     MemINode      *ip;
@@ -440,7 +440,7 @@ int open(const char *path, uint16_t mode)
     return fd;
 }
 
-int read(int fd, void *buf, int count)
+int vfs_read(int fd, void *buf, int count)
 {
     User          *u;
     OpenFileTable *oft;
@@ -507,7 +507,7 @@ int read(int fd, void *buf, int count)
     return total;
 }
 
-int write(int fd, const void *buf, int count)
+int vfs_write(int fd, const void *buf, int count)
 {
     User          *u;
     OpenFileTable *oft;
@@ -576,7 +576,7 @@ int write(int fd, const void *buf, int count)
     return total;
 }
 
-int close(int fd)
+int vfs_close(int fd)
 {
     User          *u;
     OpenFileTable *oft;
@@ -605,7 +605,7 @@ int close(int fd)
     return 0;
 }
 
-int delete(const char *path)
+int vfs_delete(const char *path)
 {
     char        parent_path[PATH_BUF_SIZE];
     char        name[MAX_FILENAME_LEN + 1];

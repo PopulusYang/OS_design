@@ -52,12 +52,12 @@ static int env_parse_line(char *line, EnvVar *var)
 
 static int env_load_file(const char *path, EnvVar *arr, int *count, int is_system)
 {
-    int fd = open(path, O_RDONLY);
+    int fd = vfs_open(path, O_RDONLY);
     if (fd < 0) return -1;
 
     char buf[4096];
-    int n = read(fd, buf, (int)sizeof(buf) - 1);
-    close(fd);
+    int n = vfs_read(fd, buf, (int)sizeof(buf) - 1);
+    vfs_close(fd);
     if (n <= 0) return 0;
 
     buf[n] = '\0';
@@ -82,18 +82,18 @@ static int env_load_file(const char *path, EnvVar *arr, int *count, int is_syste
 static int env_save_file(const char *path, EnvVar *arr, int count)
 {
     // 删除旧文件
-    delete(path);
-    if (create(path, 0644) != 0) return -1;
+    vfs_delete(path);
+    if (vfs_create(path, 0644) != 0) return -1;
 
-    int fd = open(path, O_WRONLY);
+    int fd = vfs_open(path, O_WRONLY);
     if (fd < 0) return -1;
 
     char line[ENV_LINE_MAX];
     for (int i = 0; i < count; i++) {
         int n = snprintf(line, sizeof(line), "%s=%s\n", arr[i].key, arr[i].val);
-        if (n > 0) write(fd, line, n);
+        if (n > 0) vfs_write(fd, line, n);
     }
-    close(fd);
+    vfs_close(fd);
     return 0;
 }
 

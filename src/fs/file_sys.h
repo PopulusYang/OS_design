@@ -15,22 +15,22 @@ extern "C" {
 #define OF_WRLOCKED             0x0020U
 
 // 创建普通文件（若已存在则失败）
-int create(const char *path, uint16_t mode);
+int vfs_create(const char *path, uint16_t mode);
 
 // 打开文件，返回 fd（0 .. MAX_OPEN_FILES-1），失败返回 -1
-int open(const char *path, uint16_t mode);
+int vfs_open(const char *path, uint16_t mode);
 
 // 从 fd 读取最多 count 字节，返回实际读取字节数，错误返回 -1
-int read(int fd, void *buf, int count);
+int vfs_read(int fd, void *buf, int count);
 
 // 向 fd 写入 count 字节，返回实际写入字节数，错误返回 -1
-int write(int fd, const void *buf, int count);
+int vfs_write(int fd, const void *buf, int count);
 
 // 关闭 fd，释放 i 节点读写锁与引用
-int close(int fd);
+int vfs_close(int fd);
 
 // 删除文件（删除目录项并回收数据块与 i 节点）
-int delete(const char *path);
+int vfs_delete(const char *path);
 
 #ifdef __cplusplus
 }

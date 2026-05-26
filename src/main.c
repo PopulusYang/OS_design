@@ -8,16 +8,22 @@
 #include "fs/file_sys.h"
 #include "user/user_mgmt.h"
 #include "user/env.h"
+#include "kernel_shared.h"
 #include "kernel/memory.h"
 #include "kernel/process.h"
 #include "kernel/scheduler.h"
 #include "kernel/syscall.h"
 #include "binaries.h"
+#include "serve.h"
+#include "assembler.h"
+#include "editor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <dirent.h>
 #include <termios.h>
 
 // ANSI styling
@@ -332,6 +338,7 @@ static int shell_mount(const char *path)
     if (g_mounted) { ui_err("Already mounted, umount first"); return -1; }
     if (!disk_file_exists(use_path)) { ui_err("Disk image not found; format first"); return -1; }
     if (fs_mount(use_path) != 0) { ui_err("Mount failed: corrupted image or wrong format"); return -1; }
+    shared_set_disk(use_path);
 
     if (path && path[0] && path != g_disk_path) {
         strncpy(g_disk_path, use_path, sizeof(g_disk_path) - 1);
@@ -416,6 +423,7 @@ static int shell_format(const char *path)
 
     // Mount the new filesystem
     if (fs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
+    shared_set_disk(use_path);
 
     memset(g_users, 0, sizeof(g_users));
     g_current_user_idx = 0;
@@ -443,9 +451,49 @@ static int shell_format(const char *path)
         int bc = 0;
         const DemoBinary *demos = binaries_get_all(&bc);
         for (int i = 0; i < bc; i++) {
-            int fd = open(demos[i].name, O_WRONLY);
-            if (fd < 0) { create(demos[i].name, 0755); fd = open(demos[i].name, O_WRONLY); }
-            if (fd >= 0) { write(fd, demos[i].data, (int)demos[i].size); close(fd); }
+            int fd = vfs_open(demos[i].name, O_WRONLY);
+            if (fd < 0) { vfs_create(demos[i].name, 0755); fd = vfs_open(demos[i].name, O_WRONLY); }
+            if (fd >= 0) { vfs_write(fd, demos[i].data, (int)demos[i].size); vfs_close(fd); }
+        }
+    }
+
+    // 注入 involve_src/*.asm 到 /src
+    {
+        vfs_mkdir("/src", 0755);
+        const char *search[] = { "involve_src", "../involve_src", "../../involve_src" };
+        const char *src_dir = NULL;
+        for (size_t si = 0; si < sizeof(search)/sizeof(search[0]); si++) {
+            DIR *d = opendir(search[si]);
+            if (d) { src_dir = search[si]; closedir(d); break; }
+        }
+        if (src_dir) {
+            DIR *d = opendir(src_dir);
+            if (d) {
+                struct dirent *de;
+                while ((de = readdir(d)) != NULL) {
+                    size_t nl = strlen(de->d_name);
+                    if (nl > 4 && strcmp(de->d_name + nl - 4, ".asm") == 0) {
+                        char host_path[512], vfs_path[512];
+                        snprintf(host_path, sizeof(host_path), "%s/%s", src_dir, de->d_name);
+                        snprintf(vfs_path,  sizeof(vfs_path),  "/src/%s", de->d_name);
+                        FILE *f = fopen(host_path, "r");
+                        if (f) {
+                            fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+                            char *buf = malloc((size_t)(sz + 1));
+                            if (buf) {
+                                fread(buf, 1, (size_t)sz, f);
+                                vfs_delete(vfs_path);
+                                vfs_create(vfs_path, 0644);
+                                int fd = vfs_open(vfs_path, O_WRONLY);
+                                if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                                free(buf);
+                            }
+                            fclose(f);
+                        }
+                    }
+                }
+                closedir(d);
+            }
         }
     }
 
@@ -606,6 +654,8 @@ static void cmd_help(void)
     printf("  %susers%s                        list all users\n", ANSI_ROSE, ANSI_RESET);
     printf("\n");
     printf("%s%s  Processes & Env%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
+    printf("  %sasm%s    <source.s> [out.upx]  assemble .upx binary\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %svim%s    <file>                edit a file (host filesystem)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %srun%s    <binary>              run a program\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sps%s                          list processes\n", ANSI_ROSE, ANSI_RESET);
     printf("  %senv%s                          show environment variables\n", ANSI_ROSE, ANSI_RESET);
@@ -630,30 +680,30 @@ static int cmd_cat(const char *path)
     if (require_mounted()) return -1;
     if (path == NULL) { ui_err("Usage: cat <path>"); return -1; }
 
-    int fd = open(path, O_RDONLY);
+    int fd = vfs_open(path, O_RDONLY);
     if (fd < 0) { ui_err("Cannot open file"); return -1; }
 
     char buf[512]; int n;
     printf("%s", ANSI_MAUVE);
-    while ((n = read(fd, buf, (int)sizeof(buf) - 1)) > 0) { buf[n] = '\0'; fputs(buf, stdout); }
+    while ((n = vfs_read(fd, buf, (int)sizeof(buf) - 1)) > 0) { buf[n] = '\0'; fputs(buf, stdout); }
     printf("%s", ANSI_RESET);
-    if (n < 0) { close(fd); ui_err("Read failed"); return -1; }
+    if (n < 0) { vfs_close(fd); ui_err("Read failed"); return -1; }
     putchar('\n');
-    close(fd);
+    vfs_close(fd);
     return 0;
 }
 
 static int cmd_write_existing(const char *path, const char *data)
 {
-    int fd = open(path, O_WRONLY);
+    int fd = vfs_open(path, O_WRONLY);
     if (fd < 0) {
-        if (create(path, 0644) != 0) { ui_err("Cannot create or open file"); return -1; }
-        fd = open(path, O_WRONLY);
+        if (vfs_create(path, 0644) != 0) { ui_err("Cannot create or open file"); return -1; }
+        fd = vfs_open(path, O_WRONLY);
         if (fd < 0) { ui_err("Open failed"); return -1; }
     }
     int len = (int)strlen(data);
-    int n = write(fd, data, len);
-    close(fd);
+    int n = vfs_write(fd, data, len);
+    vfs_close(fd);
     if (n != len) { ui_err("Write failed"); return -1; }
     ui_ok("Write successful");
     return 0;
@@ -805,19 +855,45 @@ static int cmd_run(const char *path)
 {
     if (path == NULL) { ui_err("Usage: run <binary>"); return -1; }
 
+    // 裸文件名 → 自动加上 ./ 前缀，相对于当前目录解析
+    char resolved[256];
+    if (strchr(path, '/') == NULL) {
+        snprintf(resolved, sizeof(resolved), "./%s", path);
+    } else {
+        strncpy(resolved, path, sizeof(resolved) - 1);
+        resolved[sizeof(resolved) - 1] = '\0';
+    }
+
     PCB *p = proc_alloc();
     if (p == NULL) { ui_err("Failed to allocate process"); return -1; }
     strncpy(p->p_name, path, PROC_NAME_LEN - 1);
     p->p_cwd_ino = current_user()->u_cdir;
 
-    if (proc_exec(p, path) != 0) {
+    if (proc_exec(p, resolved) != 0) {
         proc_free(p);
         ui_err("Failed to load program");
         return -1;
     }
     sched_enqueue(p);
+    // 切换到原始终端模式，让 VM 程序能捕获每次按键（含方向键）
+    struct termios old_tio;
+    tcgetattr(STDIN_FILENO, &old_tio);
+    struct termios raw = old_tio;
+    raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_iflag &= (tcflag_t)~(IXON | ICRNL | BRKINT);
+    raw.c_oflag &= (tcflag_t)~(OPOST);
+    raw.c_cflag |= CS8;
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
     // 运行调度循环
     while (sched_tick() == 0) {}
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_tio);
+
+    // 回收进程（未通过 fork 创建，需手动清理）
+    if (p->p_state == PROC_ZOMBIE) {
+        proc_free(p);
+    }
     return 0;
 }
 
@@ -891,6 +967,115 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "format") == 0) return shell_format(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
     if (strcmp(cmd, "mount") == 0 || strcmp(cmd, "restore") == 0) return shell_mount(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
     if (strcmp(cmd, "umount") == 0) return shell_umount() == 0 ? 0 : -1;
+    if (strcmp(cmd, "asm") == 0) {
+        if (argc >= 2 && strcmp(argv[1], "--help") == 0) {
+            printf("UPFS Assembler v0.1.0\n\n");
+            printf("Usage: asm <source.s> [output.upx]\n\n");
+            printf("  source.s     Assembly source file (.s / .asm)\n");
+            printf("  output.upx   Output binary (default: a.upx)\n");
+            return 0;
+        }
+        if (argc < 2) { ui_err("Usage: asm <source.s> [output.upx]"); return -1; }
+        const char *out_name = argc > 2 ? argv[2] : "a.upx";
+        // VFS → 宿主机桥接：导出源文件→汇编→导入输出
+        char tmp_src[256], tmp_out[256];
+        snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_asm_src_%d", getpid());
+        snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_asm_out_%d", getpid());
+        // 1. 导出 VFS 源文件
+        {
+            MemINode *ip = namei(argv[1]);
+            if (!ip) { ui_err("Source file not found"); return -1; }
+            iput(ip);
+            int fd = vfs_open(argv[1], O_RDONLY);
+            if (fd < 0) { ui_err("Cannot open source"); return -1; }
+            char buf[8192]; int total = 0, n;
+            while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+            vfs_close(fd);
+            FILE *f = fopen(tmp_src, "w");
+            if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+        }
+        // 2. 汇编
+        if (assemble_file(tmp_src, tmp_out) != 0) { unlink(tmp_src); unlink(tmp_out); ui_err("Assembly failed"); return -1; }
+        // 3. 导入输出到 VFS
+        {
+            FILE *f = fopen(tmp_out, "rb");
+            if (f) {
+                fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+                if (sz > 0) {
+                    char *buf = malloc((size_t)sz);
+                    if (buf) {
+                        fread(buf, 1, (size_t)sz, f);
+                        vfs_delete(out_name);
+                        if (vfs_create(out_name, 0644) != 0) {
+                            vfs_delete(out_name);
+                            vfs_create(out_name, 0644);
+                        }
+                        int fd = vfs_open(out_name, O_WRONLY);
+                        if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                        free(buf);
+                    }
+                }
+                fclose(f);
+            }
+        }
+        unlink(tmp_src); unlink(tmp_out);
+        ui_ok("Assembly complete"); return 0;
+    }
+    if (strcmp(cmd, "vim") == 0) {
+        if (argc < 2) { ui_err("Usage: vim <file>"); return -1; }
+        // VFS ↔ 宿主编编辑器桥接：导出→编辑→导入
+        char tmp_path[256];
+        snprintf(tmp_path, sizeof(tmp_path), "/tmp/upfs_vim_%d", getpid());
+        // 1. 如果 VFS 文件存在，导出到临时文件
+        MemINode *ip = namei(argv[1]);
+        if (ip != NULL) {
+            iput(ip);
+            int fd = vfs_open(argv[1], O_RDONLY);
+            if (fd >= 0) {
+                char buf[4096]; int total = 0, n;
+                while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0)
+                    total += n;
+                vfs_close(fd);
+                FILE *tf = fopen(tmp_path, "w");
+                if (tf) { fwrite(buf, 1, (size_t)total, tf); fclose(tf); }
+            }
+        }
+        // 2. 打开宿主编编辑器
+        printf("\033[2J\033[H"); fflush(stdout);
+        editor_open(tmp_path);
+        printf("\033[2J\033[H"); fflush(stdout);
+        // 3. 读回临时文件，写回 VFS
+        FILE *tf = fopen(tmp_path, "r");
+        if (tf) {
+            fseek(tf, 0, SEEK_END); long sz = ftell(tf); rewind(tf);
+            if (sz > 0) {
+                char *buf = malloc((size_t)(sz + 1));
+                if (buf) {
+                    fread(buf, 1, (size_t)sz, tf);
+                    // 确保干净文件：删→建（保证 d_size=0）
+                    vfs_delete(argv[1]);
+                    if (vfs_create(argv[1], 0644) != 0) {
+                        vfs_delete(argv[1]);
+                        vfs_create(argv[1], 0644);
+                    }
+                    int fd = vfs_open(argv[1], O_WRONLY);
+                    if (fd >= 0) {
+                        vfs_write(fd, buf, (int)sz);
+                        vfs_close(fd);
+                    }
+                    free(buf);
+                }
+            } else {
+                // 空文件：删掉重建（保证干净）
+                vfs_delete(argv[1]);
+                vfs_create(argv[1], 0644);
+            }
+            fclose(tf);
+        }
+        unlink(tmp_path);
+        ui_banner();
+        return 0;
+    }
 
     if (require_mounted()) return -1;
 
@@ -928,7 +1113,7 @@ static int dispatch_command(int argc, char **argv)
         uint16_t mode = 0644;
         if (argc < 2) { ui_err("Usage: create <path> [mode]"); return -1; }
         if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0644"); return -1; }
-        if (create(argv[1], mode) != 0) { ui_err("create failed"); return -1; }
+        if (vfs_create(argv[1], mode) != 0) { ui_err("create failed"); return -1; }
         fs_sync_disk(); ui_ok("File created"); return 0;
     }
     if (strcmp(cmd, "write") == 0) {
@@ -940,7 +1125,7 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "cat") == 0) return cmd_cat(argv[1]);
     if (strcmp(cmd, "rm") == 0 || strcmp(cmd, "delete") == 0) {
         if (argc < 2) { ui_err("Usage: rm <path>"); return -1; }
-        if (delete(argv[1]) != 0) { ui_err("Delete failed"); return -1; }
+        if (vfs_delete(argv[1]) != 0) { ui_err("Delete failed"); return -1; }
         fs_sync_disk(); ui_ok("File deleted"); return 0;
     }
     if (strcmp(cmd, "useradd") == 0) {
@@ -993,18 +1178,44 @@ static int dispatch_command(int argc, char **argv)
     return -1;
 }
 
-// ---------- Main loop ----------
+// ---------- 会话入口（可被 serve.c 以 socket fd 调用） ----------
 
-int main(void)
+extern int dup2(int oldfd, int newfd);
+
+int upfs_session(int in_fd, int out_fd)
 {
+    // 非 --serve 模式下初始化本地内核（--serve 下父进程已创建共享内核）
+    if (g_kernel == NULL) kernel_local_init();
+
+    if (dup2(out_fd, 1) < 0) return 1;   // stdout
+    if (dup2(out_fd, 2) < 0) return 1;   // stderr
+    if (dup2(in_fd,  0) < 0) return 1;   // stdin
+
     char line[LINE_BUF_SIZE];
     char *argv[MAX_ARGS];
     int exit_flag = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stdin,  NULL, _IONBF, 0);
     ui_banner();
-    startup_disk_probe();
-    ui_info("Type  help  for command list");
+    const char *shared = shared_disk_path();
+    if (shared && shared[0]) {
+        strncpy(g_disk_path, shared, sizeof(g_disk_path) - 1);
+        g_disk_path[sizeof(g_disk_path) - 1] = '\0';
+        if (disk_file_exists(g_disk_path)) {
+            printf("\n");
+            ui_ok("Shared disk detected");
+            printf("    %sLocation:%s %s\n", ANSI_DIM, ANSI_RESET, g_disk_path);
+            shell_mount(g_disk_path);
+        } else {
+            printf("\n");
+            ui_info("Shared disk not accessible, scanning locally...");
+            startup_disk_probe();
+        }
+    } else {
+        startup_disk_probe();
+    }
+    if (!g_mounted) ui_info("Type  help  for command list");
     fflush(stdout);
 
     while (!exit_flag) {
@@ -1018,5 +1229,18 @@ int main(void)
 
     if (g_mounted) { user_db_save(); env_system_save(); proc_shutdown(); mem_shutdown(); fs_umount(); }
     ui_ok("Goodbye");
+    fflush(stdout);
     return 0;
+}
+
+// ---------- Main（交互模式 / --serve 模式） ----------
+
+int main(int argc, char *argv[])
+{
+    if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
+        int port = 4096;
+        if (argc >= 3) port = atoi(argv[2]);
+        return serve_main(port);
+    }
+    return upfs_session(0, 1);  // stdin=0, stdout=1
 }
