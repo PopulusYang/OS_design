@@ -1,9 +1,9 @@
 // file_sys.c —— 文件系统调用与混合索引块分配、i 节点读写锁
 
-#include "file_sys.h"
-#include "dir_sys.h"
-#include "allocator.h"
-#include "disk_io.h"
+#include "fs/file_sys.h"
+#include "fs/dir_sys.h"
+#include "fs/allocator.h"
+#include "fs/disk_io.h"
 
 #include <string.h>
 

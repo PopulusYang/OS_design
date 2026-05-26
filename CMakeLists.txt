@@ -15,12 +15,23 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # 添加可执行文件
 add_executable(OS_design
     src/main.c
-    src/disk_io.c
-    src/format.c
-    src/allocator.c
-    src/dir_sys.c
-    src/file_sys.c
-    src/user_mgmt.c
+    # 文件系统层
+    src/fs/disk_io.c
+    src/fs/format.c
+    src/fs/allocator.c
+    src/fs/dir_sys.c
+    src/fs/file_sys.c
+    # 内核层
+    src/kernel/memory.c
+    src/kernel/cpu.c
+    src/kernel/process.c
+    src/kernel/scheduler.c
+    src/kernel/syscall.c
+    # 用户管理
+    src/user/user_mgmt.c
+    src/user/env.c
+    # 预置程序
+    src/binaries.c
 )
 
 # 包含头文件目录
@@ -29,6 +40,6 @@ target_include_directories(OS_design PRIVATE
     src
 )
 
-# 链接 pthread（如需要）
+# 链接 pthread
 find_package(Threads REQUIRED)
 target_link_libraries(OS_design PRIVATE Threads::Threads)

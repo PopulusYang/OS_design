@@ -1,8 +1,8 @@
 // dir_sys.c —— 路径解析 namei 与 mkdir / chdir / dir_list
 
-#include "dir_sys.h"
-#include "allocator.h"
-#include "disk_io.h"
+#include "fs/dir_sys.h"
+#include "fs/allocator.h"
+#include "fs/disk_io.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -546,7 +546,7 @@ static int dir_init_dots(MemINode *dir_ip, uint16_t parent_ino, int dir_blk)
     return 0;
 }
 
-int mkdir(const char *path, uint16_t mode)
+int vfs_mkdir(const char *path, uint16_t mode)
 {
     char        parent_path[PATH_BUF_SIZE];
     char        name[MAX_FILENAME_LEN + 1];

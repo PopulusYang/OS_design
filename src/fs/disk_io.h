@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 // 默认虚拟盘镜像文件名
-#define DEFAULT_DISK_PATH       "vfs_disk.img"
+#define DEFAULT_DISK_PATH       "testimg/vfs_disk.img"
 
 // 在内存中创建空白虚拟盘（calloc），若已有旧镜像则先释放
 int disk_create(void);

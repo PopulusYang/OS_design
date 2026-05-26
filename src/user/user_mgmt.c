@@ -5,9 +5,10 @@
 //
 // 口令哈希：256-bit 状态迭代混合，10000 轮，不可逆。
 
-#include "user_mgmt.h"
-#include "file_sys.h"
-#include "dir_sys.h"
+#include "user/user_mgmt.h"
+#include "fs/file_sys.h"
+#include "fs/dir_sys.h"
+#include "fs/allocator.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,7 +202,7 @@ static int passwd_exists(void)
 int user_db_load(void)
 {
     int  fd;
-    char buf[PASSWD_LINE_MAX + 1];
+    char buf[4096];  // 足够容纳所有用户条目
     int  total;
     int  line_start;
     int  pos;
@@ -219,15 +220,12 @@ int user_db_load(void)
         return -1;
     }
 
-    total = read(fd, buf, PASSWD_LINE_MAX);
+    total = read(fd, buf, (int)sizeof(buf) - 1);
     close(fd);
 
     if (total <= 0) {
         g_user_inited = 1;
         return 0;
-    }
-    if (total > PASSWD_LINE_MAX) {
-        total = PASSWD_LINE_MAX;
     }
     buf[total] = '\0';
 
@@ -245,7 +243,6 @@ int user_db_load(void)
         {
             UserAccount *ua = &g_users[g_user_count];
             char         line[PASSWD_LINE_MAX];
-            char        *saveptr;
             char        *token;
             int           field;
 
@@ -262,7 +259,6 @@ int user_db_load(void)
 
             field = 0;
             token = line;
-            saveptr = line;
             while (token != NULL && field < 5) {
                 char *next = strchr(token, ':');
                 if (next != NULL) {
@@ -311,13 +307,22 @@ int user_db_save(void)
     int  fd;
     int  i;
     int  n;
+    int  total = 0;
 
-    // 删除旧文件
+    // 确保 /etc 目录存在（兼容旧镜像）
+    {
+        MemINode *etc_ip = namei("/etc");
+        if (etc_ip == NULL) {
+            vfs_mkdir("/etc", 0755);
+        } else {
+            iput(etc_ip);
+        }
+    }
+
+    // 先创建新文件（若已有则删掉重建）
     if (passwd_exists()) {
         delete(PASSWD_PATH);
     }
-
-    // 创建新文件
     if (create(PASSWD_PATH, 0644) != 0) {
         return -1;
     }
@@ -343,6 +348,7 @@ int user_db_save(void)
             close(fd);
             return -1;
         }
+        total += n;
     }
 
     close(fd);
@@ -362,7 +368,7 @@ int user_init(void)
         // 可能需要创建 /etc 目录（对于旧镜像的兼容）
         // 尝试直接创建文件，若父目录不存在则先 mkdir
         if (create(PASSWD_PATH, 0644) != 0) {
-            mkdir("/etc", 0755);
+            vfs_mkdir("/etc", 0755);
             create(PASSWD_PATH, 0644);
         }
     }
@@ -447,7 +453,9 @@ int user_add(const char *username, const char *password)
     }
 
     g_user_count++;
-    return user_db_save();
+    if (user_db_save() != 0) return -1;
+    fs_sync_disk();
+    return 0;
 }
 
 int user_verify(const char *username, const char *password)
@@ -575,15 +583,10 @@ int user_create_posix_dirs(uint16_t owner_uid, uint16_t owner_gid)
     (void)owner_uid;
     (void)owner_gid;
 
-    if (mkdir("/home", 0755) != 0) {
-        return -1;
-    }
-    if (mkdir("/root", 0700) != 0) {
-        return -1;
-    }
-    if (mkdir("/etc", 0755) != 0) {
-        return -1;
-    }
+    if (vfs_mkdir("/bin",  0755) != 0) return -1;
+    if (vfs_mkdir("/home", 0755) != 0) return -1;
+    if (vfs_mkdir("/root", 0700) != 0) return -1;
+    if (vfs_mkdir("/etc",  0755) != 0) return -1;
     return 0;
 }
 
@@ -602,5 +605,5 @@ int user_create_home(const char *username, uint16_t uid, uint16_t gid)
     if (n < 0 || n >= (int)sizeof(path)) {
         return -1;
     }
-    return mkdir(path, 0700);
+    return vfs_mkdir(path, 0700);
 }

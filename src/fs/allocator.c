@@ -1,7 +1,7 @@
 // allocator.c —— 成组链接空闲块管理、i 节点分配与内存 i 节点 Hash 缓存
 
-#include "allocator.h"
-#include "disk_io.h"
+#include "fs/allocator.h"
+#include "fs/disk_io.h"
 
 #include <stdio.h>
 #include <string.h>

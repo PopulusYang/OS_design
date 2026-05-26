@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-UPFS — a UNIX file system simulator for an OS course design project. It implements a complete virtual file system on a single disk image file (`vfs_disk.img`), including a custom disk layout, inode-based file metadata, block allocation via group linking, directory management with path resolution, multi-user authentication with salted password hashing, and an interactive shell with ANSI-styled UI.
+UPFS — a UNIX file system + OS kernel simulator for an OS course design project. Implements a virtual file system on a disk image, plus an OS kernel layer with process management, memory management, VM execution engine, time-slice round-robin scheduler, system call interface, multi-user authentication, and environment variables.
 
-Language: C17, compiled with GCC/Clang. Target: Linux/macOS (POSIX).
+Language: C17, compiled with GCC/Clang. Target: Linux/macOS (POSIX). No external dependencies beyond libc and pthreads.
 
 ## Build & Run
 
@@ -19,66 +19,133 @@ cmake --build build
 ./build/bin/OS_design
 
 # Makefile (alternative)
-make
-./upfs
+make && ./upfs
 ```
 
-No external dependencies beyond libc and pthreads.
+## Directory Structure
 
-## Architecture
+```
+src/
+  main.c              # Interactive shell entry point
+  binaries.h/c        # Pre-built demo program binaries (.upx format)
+  fs/                 # File system layer
+    disk_io.h/c       # Block-level read/write, disk persistence
+    format.h/c        # mkfs: superblock, free blocks, root dir
+    allocator.h/c     # Block/inode allocation, inode cache, mount/umount
+    dir_sys.h/c       # Path resolution (namei), mkdir, chdir, ls
+    file_sys.h/c      # File create/open/read/write/close/delete
+  kernel/             # OS kernel layer
+    memory.h/c        # 128MB physical memory, page allocator (4KB pages)
+    cpu.h/c           # 32-bit RISC VM: 18 instructions, fetch-decode-execute
+    process.h/c       # PCB, process table, fork/exec/wait/exit, UPX loader
+    scheduler.h/c     # Round-robin scheduler with time slices (100 instr)
+    syscall.h/c       # 20 system calls bridging VM to FS
+  user/               # User management layer
+    user_mgmt.h/c     # Multi-user accounts, password hashing, /etc/passwd
+    env.h/c            # Environment variables: system + per-user, file-persisted
+include/
+  vfs_core.h          # Shared constants, disk structures, runtime types
+```
 
-The system is organized into six layers, each with a `.c`/`.h` pair in `src/`:
+## Architecture Layers
 
-| Layer | File | Responsibility |
-|-------|------|---------------|
-| **Disk I/O** | `disk_io.c` | Block-level read/write on an in-memory byte array, persisted to/from the `.img` file. `read_block()`/`write_block()` operate on 512-byte logical blocks. |
-| **Format** | `format.c` | `mkfs` — initializes superblock, boot block, free-block group linking stacks, and root directory. |
-| **Allocator** | `allocator.c` | Block allocation via group linking (成组链接法, 50-block stacks). Inode allocation via superblock stack. In-memory inode cache with a 128-bucket hash table, per-inode `pthread_rwlock_t`, and ref-counted `iget`/`iput`. Also handles mount/umount. |
-| **Directory** | `dir_sys.c` | Path resolution (`namei` — resolves absolute/relative paths to MemINode), `mkdir`, `chdir`, `ls`, directory entry link/unlink. |
-| **File** | `file_sys.c` | File create/open/read/write/close/delete. Uses a per-process open file table. The hybrid index scheme supports up to ~32 MiB files (8 direct + 1 single-indirect + 1 double-indirect). |
-| **User Mgmt** | `user_mgmt.c` | Multi-user account management: add/delete users, salted iterative-hash password verification, `/etc/passwd` persistence, POSIX directory creation (`/home`, `/root`, `/etc`). Sits above `file_sys`/`dir_sys`. |
+```
+Shell (main.c)  ───  run, ps, env, export, unset, + all FS commands
+    │
+Process Mgmt ─── Scheduler ─── Syscall Interface
+    │               │               │
+CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
+    │               │               │           │
+    └───────────────┴───────────────┴───────────┘
+                    │
+        File System Layer (fs/)
+                    │
+              Disk I/O (fs/disk_io)
+```
 
-Shared constants and on-disk struct layouts (`SuperBlock`, `DiskINode`, `DirEntry`) plus runtime structs (`MemINode`, `OpenFileTable`, `User`) are defined in `include/vfs_core.h`.
+## VM Instruction Set (32-bit RISC)
 
-The entry point `src/main.c` provides an interactive shell. It auto-detects existing disk images on startup and supports auto-save on exit.
+18 instructions, fixed 32-bit encoding: `[opcode:8][rd:4][rs1:4][rs2:4][imm12:12]`
+16 general registers (R15=SP), PC, FLAGS (ZF).
+
+| Op | Mnemonic | Description |
+|----|----------|-------------|
+| 0x00 | HALT | Stop execution, trigger exit |
+| 0x01 | MOVI | R[rd] = sign-extend(imm12) |
+| 0x02 | MOV | R[rd] = R[rs1] |
+| 0x03 | LD | R[rd] = mem[R[rs1] + imm12] |
+| 0x04 | ST | mem[R[rs1] + imm12] = R[rs2] |
+| 0x05 | ADD | R[rd] = R[rs1] + R[rs2] |
+| 0x06 | SUB | R[rd] = R[rs1] - R[rs2] |
+| 0x07 | MUL | R[rd] = R[rs1] * R[rs2] |
+| 0x08 | DIV | R[rd] = R[rs1] / R[rs2] |
+| 0x09 | AND | R[rd] = R[rs1] & R[rs2] |
+| 0x0A | OR | R[rd] = R[rs1] \| R[rs2] |
+| 0x0B | XOR | R[rd] = R[rs1] ^ R[rs2] |
+| 0x0C | CMP | FLAGS = R[rs1] - R[rs2] |
+| 0x0D | JMP | PC += sign-extend(imm12) |
+| 0x0E | JZ | if ZF: PC += sign-extend(imm12) |
+| 0x0F | JNZ | if !ZF: PC += sign-extend(imm12) |
+| 0x10 | CALL | PUSH PC; PC += imm12 |
+| 0x11 | RET | POP PC |
+| 0x12 | PUSH | SP-=4; mem[SP] = R[rs1] |
+| 0x13 | POP | R[rd] = mem[SP]; SP+=4 |
+| 0x14 | SYSCALL | Trigger syscall n=imm12 |
+| 0x15 | LUI | R[rd] = imm12 << 12 |
+
+## Executable Format (.upx)
+
+```
+[magic:4] "UPX\0"
+[entry:4]  instruction index of entry point
+[text_size:4]  code segment size (bytes)
+[data_size:4]  data segment size
+[bss_size:4]   uninitialized data size
+[stack_size:4] stack size
+[text: text_size]  code
+[data: data_size]  initialized data
+```
+
+## System Calls (20)
+
+| # | Name | Description |
+|---|------|-------------|
+| 0 | EXIT | Exit process |
+| 1 | FORK | Fork process |
+| 2 | EXEC | Load and execute program |
+| 3 | WAIT | Wait for child |
+| 4 | GETPID | Get process ID |
+| 5 | OPEN | Open file |
+| 6 | CLOSE | Close file |
+| 7 | READ | Read from file |
+| 8 | WRITE | Write to file/terminal |
+| 9 | SEEK | Seek file position |
+| 10 | GETCWD | Get current directory |
+| 11 | CHDIR | Change directory |
+| 12 | SBRK | Extend heap |
+| 13 | GETENV | Get environment variable |
+| 14 | SETENV | Set environment variable |
+| 15 | UNSETENV | Remove environment variable |
+| 16 | STAT | Get file status |
+| 17 | CREATE | Create file |
+| 18 | DELETE | Delete file |
+| 19 | MKDIR | Create directory |
 
 ## Shell Commands
 
-**System**: `format [path]`, `mount [path]`, `umount`
-**Directories**: `mkdir <path> [mode]`, `cd <path>`, `pwd`, `ls [path]`
-**Files**: `create <path> [mode]`, `write <path> <data>`, `cat <path>`, `rm <path>`
-**Users**: `useradd <name> <password>`, `login <name> <password>`, `logout`, `whoami`, `passwd <name> <newpass>`, `users`
+**System**: `format`, `mount`, `umount`
+**Directories**: `mkdir`, `cd`, `pwd`, `ls`
+**Files**: `create`, `write`, `cat`, `rm`
+**Users**: `useradd`, `login`, `logout`, `whoami`, `passwd`, `users`
+**Process/Env**: `run`, `ps`, `env`, `export`, `unset`
 **Other**: `help`, `clear`, `exit`
 
-Prompt format: `username:display_path ›` (home directory shown as `~`).
+## Key Implementation Notes
 
-## Multi-User System
-
-- Supports 1–8 users (configurable via `USER_MAX_COUNT` in `user_mgmt.h`).
-- Normal user UIDs start at 1000; root is uid 0.
-- Passwords are hashed with a 256-bit iterative mixing function (10000 rounds) and a random 8-byte salt, stored as hex in `/etc/passwd`.
-- `/etc/passwd` format (one line per user): `username:uid:password_hash_hex:salt_hex:home_dir`
-- On `format`: creates POSIX dirs (`/home`, `/root`, `/etc`), prompts for first username/password, auto-login.
-- On `mount`: loads user DB from `/etc/passwd`, prompts for login.
-- Legacy images (no `/etc/passwd`) are handled gracefully — root login without password.
-
-## Disk Layout
-
-546 blocks of 512 bytes each:
-- Block 0: Boot block (reserved)
-- Block 1: SuperBlock (magic 0x55504653 "UPFS", free block/inode stacks)
-- Blocks 2–33: Inode zone (32 blocks × 16 inodes/block = 512 inodes)
-- Blocks 34–545: Data zone (512 blocks)
-
-Inode 0 is reserved. Inode 1 is the root directory (data block 34).
-
-## Key Concurrency Pattern
-
-Each `MemINode` in the hash cache has its own `pthread_rwlock_t`. File operations acquire read or write locks via `inode_rdlock()`/`inode_wrlock()` and release with `inode_unlock()`. The open file table tracks lock type per fd (`OF_RDLOCKED`/`OF_WRLOCKED` flags) so `close()` can release the correct lock.
-
-## Notes
-
-- `tests/` is currently empty (only `.gitkeep`).
-- The `vfs_disk.img` at repo root is a pre-built demo image. It's in `.gitignore` now but exists from prior commits.
-- `#pragma pack(1)` is used for all on-disk structs to ensure cross-platform layout consistency.
-- `_Static_assert` validates struct sizes at compile time.
+- Each `MemINode` has a `pthread_rwlock_t` for concurrency
+- Memory: 128MB byte array, page allocator with bitmap (4096 pages = 16MB kernel reserved)
+- Processes: max 64, per-process page table (4096 pages max = 16MB)
+- Scheduling: round-robin, 100 instruction time slice
+- Passwords: salted 256-bit iterative hash (10000 rounds), stored in /etc/passwd
+- Environment: /etc/environment (system) + ~/.env (per-user)
+- Demo binaries injected during format into /bin/

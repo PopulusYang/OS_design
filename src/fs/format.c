@@ -1,7 +1,7 @@
 // format.c —— 虚拟盘格式化：超级块、成组链接空闲块栈、根目录初始化
 
-#include "format.h"
-#include "disk_io.h"
+#include "fs/format.h"
+#include "fs/disk_io.h"
 
 #include <stdio.h>
 #include <string.h>

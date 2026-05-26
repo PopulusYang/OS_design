@@ -13,7 +13,10 @@ upfs_asan
 
 # 虚拟盘镜像（运行时生成）
 *.img
+testimg/
 
 # 系统文件
 .DS_Store
 .idea/
+
+*/build

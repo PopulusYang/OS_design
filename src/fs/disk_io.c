@@ -1,11 +1,12 @@
 // disk_io.c —— 虚拟磁盘底层块读写与宿主机文件持久化
 
-#include "disk_io.h"
+#include "fs/disk_io.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 // 全局虚拟盘内存模拟区指针；由 disk_create / disk_load 分配，disk_shutdown 释放
 static uint8_t *g_disk_mem = NULL;
@@ -84,6 +85,32 @@ int disk_load(const char *disk_path)
     return 0;
 }
 
+// 确保路径的父目录存在（例如 "testimg/vfs_disk.img" → mkdir "testimg"）
+static void ensure_parent_dir(const char *file_path)
+{
+    char buf[512];
+
+    strncpy(buf, file_path, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *slash = strrchr(buf, '/');
+    if (slash == NULL) return;
+    *slash = '\0';
+
+    // 简单逐级 mkdir，从根目录或 CWD 开始
+    char *p = buf;
+    if (*p == '/') p++; // 跳过开头的 /
+    while (*p) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(buf, 0755);
+            *p = '/';
+        }
+        p++;
+    }
+    mkdir(buf, 0755); // 最后一级
+}
+
 int disk_save(const char *disk_path)
 {
     FILE *fp;
@@ -96,6 +123,8 @@ int disk_save(const char *disk_path)
     if (disk_path == NULL || disk_path[0] == '\0') {
         return -1;
     }
+
+    ensure_parent_dir(disk_path);
 
     fp = fopen(disk_path, "wb");
     if (fp == NULL) {

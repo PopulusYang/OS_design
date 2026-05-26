@@ -19,7 +19,7 @@ User *dir_get_user(void);
 MemINode *namei(const char *path);
 
 // 创建目录，自动写入 . 与 ..；mode 为权限位（通常 OR IFDIR）
-int mkdir(const char *path, uint16_t mode);
+int vfs_mkdir(const char *path, uint16_t mode);
 
 // 切换当前工作目录
 int chdir(const char *path);

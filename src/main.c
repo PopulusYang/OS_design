@@ -1,17 +1,24 @@
 // main.c —— UPFS 模拟 UNIX Shell 交互主控（多用户版）
 
 #include "vfs_core.h"
-#include "disk_io.h"
-#include "format.h"
-#include "allocator.h"
-#include "dir_sys.h"
-#include "file_sys.h"
-#include "user_mgmt.h"
+#include "fs/disk_io.h"
+#include "fs/format.h"
+#include "fs/allocator.h"
+#include "fs/dir_sys.h"
+#include "fs/file_sys.h"
+#include "user/user_mgmt.h"
+#include "user/env.h"
+#include "kernel/memory.h"
+#include "kernel/process.h"
+#include "kernel/scheduler.h"
+#include "kernel/syscall.h"
+#include "binaries.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <termios.h>
 
 // ANSI styling
 #define ANSI_ROSE           "\033[38;2;205;137;135m"
@@ -191,6 +198,33 @@ static void shell_bind_user(void)
 
 // ---------- Login / user-creation prompts ----------
 
+// 读取密码：终端下禁用回显，非终端（管道）降级为普通 fgets
+static int read_password(char *buf, int max_len)
+{
+    int tty_fd = fileno(stdin);
+    struct termios old_tio, new_tio;
+
+    if (tcgetattr(tty_fd, &old_tio) == 0) {
+        new_tio = old_tio;
+        new_tio.c_lflag &= (tcflag_t)~ECHO;
+        tcsetattr(tty_fd, TCSAFLUSH, &new_tio);
+
+        if (fgets(buf, max_len, stdin) == NULL) {
+            tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
+            return -1;
+        }
+        tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
+    } else {
+        // 非终端输入（管道/重定向），降级为普通读取
+        if (fgets(buf, max_len, stdin) == NULL) return -1;
+    }
+
+    char *nl = strchr(buf, '\n');
+    if (nl) *nl = '\0';
+    printf("\n");
+    return (int)strlen(buf);
+}
+
 // Prompt for username and password; returns uid on success, -1 on failure
 static int shell_login_prompt(void)
 {
@@ -204,8 +238,7 @@ static int shell_login_prompt(void)
 
     printf("%sPassword:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
     fflush(stdout);
-    if (fgets(pass_buf, (int)sizeof(pass_buf), stdin) == NULL) return -1;
-    { char *nl = strchr(pass_buf, '\n'); if (nl) *nl = '\0'; }
+    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) return -1;
 
     int uid = user_verify(user_buf, pass_buf);
     if (uid < 0) {
@@ -239,8 +272,7 @@ static int shell_create_first_user(void)
     for (retry = 0; retry < 3; retry++) {
         printf("%sPassword:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
-        if (fgets(pass_buf, (int)sizeof(pass_buf), stdin) == NULL) return -1;
-        { char *nl = strchr(pass_buf, '\n'); if (nl) *nl = '\0'; }
+        if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) return -1;
 
         if (pass_buf[0] == '\0') { ui_err("Password cannot be empty"); continue; }
         break;
@@ -250,6 +282,17 @@ static int shell_create_first_user(void)
     if (user_add(user_buf, pass_buf) != 0) {
         ui_err("Failed to create user");
         return -1;
+    }
+
+    // 设置 root 密码
+    {
+        char root_pass[128];
+
+        printf("%sSet root password:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
+        fflush(stdout);
+        if (read_password(root_pass, (int)sizeof(root_pass)) >= 0 && root_pass[0] != '\0') {
+            user_add("root", root_pass); // root 已可能存在，忽略错误
+        }
     }
 
     // Login as the new user
@@ -271,6 +314,10 @@ static int shell_create_first_user(void)
         g_user_home[sizeof(g_user_home) - 1] = '\0';
         strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
         g_cwd[CWD_BUF_SIZE - 1] = '\0';
+
+        // 设置用户环境变量
+        env_set_current_user(ua->ua_name);
+        env_user_load(ua->ua_name);
     }
 
     printf("\n");
@@ -299,6 +346,14 @@ static int shell_mount(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
+    // 初始化内核子系统
+    mem_init();
+    proc_init();
+    sched_init();
+    env_init();
+    env_system_load();
+    proc_create_init();
+
     if (user_init() < 0)
         ui_info("Warning: could not load user database");
 
@@ -317,6 +372,9 @@ static int shell_mount(const char *path)
                 if (home_ip) { u->u_cdir = home_ip->m_inode_no; iput(home_ip); }
                 strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
                 g_cwd[CWD_BUF_SIZE - 1] = '\0';
+
+                env_set_current_user(ua->ua_name);
+                env_user_load(ua->ua_name);
             }
             ui_ok("Login successful");
         } else {
@@ -332,6 +390,9 @@ static int shell_umount(void)
 {
     if (!g_mounted) { ui_err("Not mounted"); return -1; }
     user_db_save();
+    env_system_save();
+    proc_shutdown();
+    mem_shutdown();
     if (fs_umount() != 0) { ui_err("Umount failed"); return -1; }
     g_mounted = 0;
     strncpy(g_cwd, "/", sizeof(g_cwd) - 1);
@@ -364,7 +425,10 @@ static int shell_format(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
-    // Create POSIX directories first, then init user DB
+    mem_init(); proc_init(); sched_init(); env_init();
+    env_system_load(); proc_create_init();
+
+    // Create POSIX directories first
     if (user_create_posix_dirs(0, 0) != 0) {
         ui_err("Failed to create POSIX directories");
         return -1;
@@ -373,6 +437,21 @@ static int shell_format(const char *path)
         ui_err("Failed to initialize user database");
         return -1;
     }
+
+    // 注入预置程序到 /bin
+    {
+        int bc = 0;
+        const DemoBinary *demos = binaries_get_all(&bc);
+        for (int i = 0; i < bc; i++) {
+            int fd = open(demos[i].name, O_WRONLY);
+            if (fd < 0) { create(demos[i].name, 0755); fd = open(demos[i].name, O_WRONLY); }
+            if (fd >= 0) { write(fd, demos[i].data, (int)demos[i].size); close(fd); }
+        }
+    }
+
+    // 写入系统环境变量
+    env_set("PATH", "/bin:/usr/bin");
+    env_system_save();
 
     // Create the first user
     if (shell_create_first_user() != 0) {
@@ -388,29 +467,43 @@ static int shell_format(const char *path)
 
 // ---------- Working directory path maintenance ----------
 
-static void cwd_normalize(void)
+// Resolve . and .. components in g_cwd in-place. Always leaves a leading /.
+static void cwd_resolve_dots(void)
 {
-    size_t len;
-    if (g_cwd[0] == '\0') strncpy(g_cwd, "/", CWD_BUF_SIZE - 1);
-    len = strlen(g_cwd);
-    if (len > 1 && g_cwd[len - 1] == '/') g_cwd[len - 1] = '\0';
-}
+    char resolved[CWD_BUF_SIZE];
+    char *dst = resolved;
+    const char *src = g_cwd;
 
-static void cwd_set(const char *path)
-{
-    char tmp[CWD_BUF_SIZE * 2];
-    if (path == NULL || path[0] == '\0') return;
-    if (path[0] == '/') {
-        strncpy(g_cwd, path, CWD_BUF_SIZE - 1);
-    } else {
-        if (strcmp(g_cwd, "/") == 0)
-            snprintf(tmp, sizeof(tmp), "/%s", path);
-        else
-            snprintf(tmp, sizeof(tmp), "%s/%s", g_cwd, path);
-        strncpy(g_cwd, tmp, CWD_BUF_SIZE - 1);
+    while (*src) {
+        while (*src == '/') src++;
+        if (*src == '\0') break;
+
+        const char *end = src;
+        while (*end && *end != '/') end++;
+        size_t len = (size_t)(end - src);
+
+        if (len == 1 && src[0] == '.') {
+            src = end;
+            continue;
+        }
+        if (len == 2 && src[0] == '.' && src[1] == '.') {
+            if (dst > resolved + 1) {
+                dst--;
+                while (dst > resolved && *(dst - 1) != '/') dst--;
+            }
+            src = end;
+            continue;
+        }
+        *dst++ = '/';
+        memmove(dst, src, len);
+        dst += len;
+        src = end;
     }
+
+    if (dst == resolved) *dst++ = '/';
+    *dst = '\0';
+    strncpy(g_cwd, resolved, CWD_BUF_SIZE - 1);
     g_cwd[CWD_BUF_SIZE - 1] = '\0';
-    cwd_normalize();
 }
 
 static void cwd_update_after_cd(const char *arg)
@@ -418,15 +511,18 @@ static void cwd_update_after_cd(const char *arg)
     if (arg == NULL || arg[0] == '\0') return;
     if (strcmp(arg, ".") == 0) return;
 
-    if (strcmp(arg, "..") == 0) {
-        char *slash = strrchr(g_cwd, '/');
-        if (slash && slash != g_cwd) *slash = '\0';
-        else strncpy(g_cwd, "/", CWD_BUF_SIZE - 1);
-        g_cwd[CWD_BUF_SIZE - 1] = '\0';
-        return;
+    char tmp[CWD_BUF_SIZE * 2];
+    if (arg[0] == '/') {
+        strncpy(g_cwd, arg, CWD_BUF_SIZE - 1);
+    } else {
+        if (strcmp(g_cwd, "/") == 0)
+            snprintf(tmp, sizeof(tmp), "/%s", arg);
+        else
+            snprintf(tmp, sizeof(tmp), "%s/%s", g_cwd, arg);
+        strncpy(g_cwd, tmp, CWD_BUF_SIZE - 1);
     }
-    if (arg[0] == '/') { strncpy(g_cwd, arg, CWD_BUF_SIZE - 1); cwd_normalize(); return; }
-    cwd_set(arg);
+    g_cwd[CWD_BUF_SIZE - 1] = '\0';
+    cwd_resolve_dots();
 }
 
 // ---------- Command-line parsing ----------
@@ -503,10 +599,18 @@ static void cmd_help(void)
     printf("%s%s  Users%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
     printf("  %suseradd%s <name> <password>    add a new user\n", ANSI_ROSE, ANSI_RESET);
     printf("  %slogin%s  <name> <password>     switch user\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %ssu%s     [name]                switch user (default root)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %slogout%s                       log out (switch to root)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %swhoami%s                       show current username\n", ANSI_ROSE, ANSI_RESET);
     printf("  %spasswd%s <name> <newpass>      change user password\n", ANSI_ROSE, ANSI_RESET);
     printf("  %susers%s                        list all users\n", ANSI_ROSE, ANSI_RESET);
+    printf("\n");
+    printf("%s%s  Processes & Env%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
+    printf("  %srun%s    <binary>              run a program\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sps%s                          list processes\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %senv%s                          show environment variables\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sexport%s <KEY=VALUE>           set environment variable\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sunset%s  <KEY>                 remove environment variable\n", ANSI_ROSE, ANSI_RESET);
     printf("\n");
     printf("%s%s  Other%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
     printf("  %shelp%s                         show this help\n", ANSI_ROSE, ANSI_RESET);
@@ -562,6 +666,7 @@ static int cmd_useradd(const char *username, const char *password)
     if (username == NULL || password == NULL) { ui_err("Usage: useradd <name> <password>"); return -1; }
     if (user_count() >= USER_MAX_COUNT) { ui_err("User limit reached (max 8)"); return -1; }
     if (user_add(username, password) != 0) { ui_err("Failed to add user (already exists?)"); return -1; }
+    fs_sync_disk();
     ui_ok("User added");
     return 0;
 }
@@ -591,7 +696,53 @@ static int cmd_login(const char *username, const char *password)
     strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
     g_cwd[CWD_BUF_SIZE - 1] = '\0';
 
+    env_set_current_user(ua->ua_name);
+    env_user_load(ua->ua_name);
     ui_ok("Login successful");
+    return 0;
+}
+
+// su [username] — 切换到 root（默认）或指定用户，需要验证目标用户密码
+static int cmd_su(const char *username)
+{
+    const char *target = (username && username[0]) ? username : "root";
+    char pass_buf[128];
+
+    printf("%sPassword [%s]:%s ", ANSI_BOLD ANSI_MAUVE, target, ANSI_RESET);
+    fflush(stdout);
+    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) {
+        ui_err("Failed to read password");
+        return -1;
+    }
+
+    int uid = user_verify(target, pass_buf);
+    if (uid < 0) { ui_err("su: authentication failed"); return -1; }
+
+    const UserAccount *ua = user_find_by_uid((uint16_t)uid);
+    if (ua == NULL) return -1;
+
+    // 保存当前用户 env
+    User *old = current_user();
+    if (old->u_uid != 0) env_user_save(old->u_name);
+
+    // 切换到目标用户
+    memset(old, 0, sizeof(User));
+    strncpy(old->u_name, ua->ua_name, sizeof(old->u_name) - 1);
+    old->u_uid = ua->ua_uid; old->u_gid = ua->ua_gid; old->u_active = 1;
+
+    MemINode *home_ip = namei(ua->ua_home);
+    if (home_ip) { old->u_cdir = home_ip->m_inode_no; iput(home_ip); }
+    else old->u_cdir = ROOT_INODE_NO;
+
+    shell_bind_user();
+    strncpy(g_user_home, ua->ua_home, sizeof(g_user_home) - 1);
+    g_user_home[sizeof(g_user_home) - 1] = '\0';
+    strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
+    g_cwd[CWD_BUF_SIZE - 1] = '\0';
+
+    env_set_current_user(ua->ua_name);
+    env_user_load(ua->ua_name);
+    ui_ok("Switched user");
     return 0;
 }
 
@@ -600,6 +751,7 @@ static int cmd_logout(void)
     User *u = current_user();
     if (u->u_uid == 0) { ui_info("Already root; cannot logout further"); return 0; }
 
+    env_user_save(u->u_name);
     memset(u, 0, sizeof(User));
     strncpy(u->u_name, "root", sizeof(u->u_name) - 1);
     u->u_uid = 0; u->u_gid = 0; u->u_cdir = ROOT_INODE_NO; u->u_active = 1;
@@ -626,6 +778,7 @@ static int cmd_passwd(const char *username, const char *new_password)
         return -1;
     }
     if (user_passwd(username, new_password) != 0) { ui_err("Failed to change password"); return -1; }
+    fs_sync_disk();
     ui_ok("Password changed");
     return 0;
 }
@@ -646,6 +799,85 @@ static int cmd_users(void)
     return 0;
 }
 
+// ---------- 内核命令 ----------
+
+static int cmd_run(const char *path)
+{
+    if (path == NULL) { ui_err("Usage: run <binary>"); return -1; }
+
+    PCB *p = proc_alloc();
+    if (p == NULL) { ui_err("Failed to allocate process"); return -1; }
+    strncpy(p->p_name, path, PROC_NAME_LEN - 1);
+    p->p_cwd_ino = current_user()->u_cdir;
+
+    if (proc_exec(p, path) != 0) {
+        proc_free(p);
+        ui_err("Failed to load program");
+        return -1;
+    }
+    sched_enqueue(p);
+    // 运行调度循环
+    while (sched_tick() == 0) {}
+    return 0;
+}
+
+static int cmd_ps(void)
+{
+    int count = 0;
+    PCB *table = proc_get_table(&count);
+    if (table == NULL) { ui_info("No process table"); return 0; }
+
+    printf("\n");
+    printf("%s%s%-6s %-16s %-10s %s%s\n",
+           ANSI_BOLD, ANSI_MAUVE, "PID", "Name", "State", "", ANSI_RESET);
+    printf("%s----------------------------------------%s\n", ANSI_DIM, ANSI_RESET);
+
+    const char *states[] = { "FREE", "READY", "RUN", "BLOCK", "ZOMBIE" };
+    for (int i = 0; i < count; i++) {
+        if (table[i].p_state == PROC_FREE) continue;
+        printf("  %-6u %-16s %-10s\n",
+               (unsigned)table[i].p_pid, table[i].p_name,
+               states[table[i].p_state < 5 ? table[i].p_state : 0]);
+    }
+    printf("\n");
+    return 0;
+}
+
+static void env_print_cb(const char *name, const char *value, int is_system)
+{
+    printf("  %s%-24s = %s%s%s\n",
+           is_system ? ANSI_DIM : ANSI_RESET,
+           name, value, is_system ? " [sys]" : "", ANSI_RESET);
+}
+
+static int cmd_env(void)
+{
+    printf("\n");
+    env_foreach(env_print_cb);
+    return 0;
+}
+
+static int cmd_export(const char *arg)
+{
+    if (arg == NULL) { ui_err("Usage: export KEY=VALUE"); return -1; }
+    char buf[512];
+    strncpy(buf, arg, sizeof(buf) - 1);
+    char *eq = strchr(buf, '=');
+    if (eq == NULL) { ui_err("Format: export KEY=VALUE"); return -1; }
+    *eq = '\0';
+    if (env_set(buf, eq + 1) != 0) { ui_err("Failed to set variable"); return -1; }
+    ui_ok("Variable set");
+    return 0;
+}
+
+static int cmd_unset(const char *key)
+{
+    if (key == NULL) { ui_err("Usage: unset KEY"); return -1; }
+    if (env_unset(key) != 0) { ui_err("Variable not found"); return -1; }
+    ui_ok("Variable removed");
+    return 0;
+}
+
 // ---------- Command dispatch ----------
 
 static int dispatch_command(int argc, char **argv)
@@ -662,11 +894,14 @@ static int dispatch_command(int argc, char **argv)
 
     if (require_mounted()) return -1;
 
+    // ./xxx → 等同于 run ./xxx
+    if (cmd[0] == '.' && cmd[1] == '/') { return cmd_run(cmd); }
+
     if (strcmp(cmd, "mkdir") == 0) {
         uint16_t mode = 0755;
         if (argc < 2) { ui_err("Usage: mkdir <path> [mode]"); return -1; }
         if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
-        if (mkdir(argv[1], mode) != 0) { ui_err("mkdir failed"); return -1; }
+        if (vfs_mkdir(argv[1], mode) != 0) { ui_err("mkdir failed"); return -1; }
         fs_sync_disk(); ui_ok("Directory created"); return 0;
     }
     if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0) {
@@ -716,6 +951,7 @@ static int dispatch_command(int argc, char **argv)
         if (argc < 3) { ui_err("Usage: login <name> <password>"); return -1; }
         return cmd_login(argv[1], argv[2]);
     }
+    if (strcmp(cmd, "su") == 0) return cmd_su(argc > 1 ? argv[1] : NULL);
     if (strcmp(cmd, "logout") == 0) return cmd_logout();
     if (strcmp(cmd, "whoami") == 0) return cmd_whoami();
     if (strcmp(cmd, "passwd") == 0) {
@@ -723,6 +959,35 @@ static int dispatch_command(int argc, char **argv)
         return cmd_passwd(argv[1], argv[2]);
     }
     if (strcmp(cmd, "users") == 0) return cmd_users();
+    if (strcmp(cmd, "run") == 0) { if (argc < 2) { ui_err("Usage: run <binary>"); return -1; } return cmd_run(argv[1]); }
+    if (strcmp(cmd, "ps") == 0) return cmd_ps();
+    if (strcmp(cmd, "env") == 0) return cmd_env();
+    if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }
+    if (strcmp(cmd, "unset") == 0) { if (argc < 2) { ui_err("Usage: unset KEY"); return -1; } return cmd_unset(argv[1]); }
+
+    // PATH 搜索：在 PATH 目录中查找可执行文件
+    {
+        const char *path_env = env_get_path();
+        if (path_env != NULL) {
+            char path_buf[512];
+            strncpy(path_buf, path_env, sizeof(path_buf) - 1);
+            path_buf[sizeof(path_buf) - 1] = '\0';
+
+            char *save = NULL;
+            char *dir = strtok_r(path_buf, ":", &save);
+            while (dir != NULL) {
+                char full_path[CWD_BUF_SIZE];
+                snprintf(full_path, sizeof(full_path), "%s/%s", dir, cmd);
+                MemINode *ip = namei(full_path);
+                if (ip != NULL) {
+                    int is_reg = (ip->m_dinode.d_mode & IFREG) != 0;
+                    iput(ip);
+                    if (is_reg) return cmd_run(full_path);
+                }
+                dir = strtok_r(NULL, ":", &save);
+            }
+        }
+    }
 
     ui_err("Unknown command. Type  help  for a command list.");
     return -1;
@@ -751,7 +1016,7 @@ int main(void)
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
-    if (g_mounted) { user_db_save(); fs_umount(); }
+    if (g_mounted) { user_db_save(); env_system_save(); proc_shutdown(); mem_shutdown(); fs_umount(); }
     ui_ok("Goodbye");
     return 0;
 }

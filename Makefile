@@ -5,7 +5,12 @@ CFLAGS  ?= -Wall -Wextra -Werror -std=c17 -D_GNU_SOURCE -Iinclude -Isrc
 LDFLAGS ?= -pthread
 
 OUTDIR = out
-SRCS   = src/disk_io.c src/format.c src/allocator.c src/dir_sys.c src/file_sys.c src/user_mgmt.c src/main.c
+SRCS   = src/fs/disk_io.c src/fs/format.c src/fs/allocator.c \
+         src/fs/dir_sys.c src/fs/file_sys.c \
+         src/kernel/memory.c src/kernel/cpu.c src/kernel/process.c \
+         src/kernel/scheduler.c src/kernel/syscall.c \
+         src/user/user_mgmt.c src/user/env.c \
+         src/binaries.c src/main.c
 OBJS   = $(SRCS:src/%.c=$(OUTDIR)/%.o)
 TARGET = upfs
 
@@ -16,11 +21,9 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
-$(OUTDIR)/%.o: src/%.c | $(OUTDIR)
+$(OUTDIR)/%.o: src/%.c
+	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
-
-$(OUTDIR):
-	mkdir -p $(OUTDIR)
 
 clean:
 	rm -rf $(OUTDIR) $(TARGET) vfs_disk.img
