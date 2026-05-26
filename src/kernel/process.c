@@ -103,6 +103,13 @@ void proc_free(PCB *p)
 
 PCB *proc_create_init(void)
 {
+    // 共享模式下 init 可能已被其他终端会话创建
+    PCB *existing = proc_find(0);
+    if (existing) {
+        proc_set_current(existing);
+        return existing;
+    }
+
     PCB *p = proc_alloc();
     if (p == NULL) return NULL;
     p->p_pid = 0;

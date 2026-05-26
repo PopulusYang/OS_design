@@ -294,8 +294,8 @@ static int tcp_listen(int port) {
 
 static void conn_close(int i) {
     if(g_conn[i].fd>=0){close(g_conn[i].fd);g_conn[i].fd=-1;}
+    // 关闭 term_fd 使子进程收到 stdin EOF，触发 upfs_session 正常退出清理
     if(g_conn[i].term_fd>=0){close(g_conn[i].term_fd);g_conn[i].term_fd=-1;}
-    if(g_conn[i].term_pid>0){kill(g_conn[i].term_pid,SIGTERM);g_conn[i].term_pid=0;}
     g_conn[i].type=0;g_conn[i].rlen=0;
     g_pfds[i].fd=-1;g_pfds[i].events=0;
 }

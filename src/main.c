@@ -353,13 +353,18 @@ static int shell_mount(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
-    // 初始化内核子系统
-    mem_init();
-    proc_init();
-    sched_init();
-    env_init();
-    env_system_load();
-    proc_create_init();
+    // 初始化内核子系统（共享模式下仅首次挂载时执行）
+    if (proc_find(0) == NULL) {
+        mem_init();
+        proc_init();
+        sched_init();
+        env_init();
+        env_system_load();
+        proc_create_init();
+    } else {
+        env_init();
+        env_system_load();
+    }
 
     if (user_init() < 0)
         ui_info("Warning: could not load user database");
@@ -1227,7 +1232,17 @@ int upfs_session(int in_fd, int out_fd)
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
-    if (g_mounted) { user_db_save(); env_system_save(); proc_shutdown(); mem_shutdown(); fs_umount(); }
+    // 共享会话退出时不销毁内核状态（其他终端仍在使用）
+    int is_shared_session = (shared_disk_path() != NULL);
+    if (g_mounted) {
+        user_db_save();
+        env_system_save();
+        if (!is_shared_session) {
+            proc_shutdown();
+            mem_shutdown();
+        }
+        fs_umount();
+    }
     ui_ok("Goodbye");
     fflush(stdout);
     return 0;
