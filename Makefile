@@ -8,9 +8,9 @@ OUTDIR = out
 SRCS   = src/fs/disk_io.c src/fs/format.c src/fs/allocator.c \
          src/fs/dir_sys.c src/fs/file_sys.c \
          src/kernel/memory.c src/kernel/cpu.c src/kernel/process.c \
-         src/kernel/scheduler.c src/kernel/syscall.c \
+         src/kernel/scheduler.c src/kernel/syscall.c src/kernel/kernel_shared.c \
          src/user/user_mgmt.c src/user/env.c \
-         src/binaries.c src/main.c src/serve.c src/assembler.c
+         src/binaries.c src/main.c src/serve.c src/assembler.c src/editor.c
 OBJS   = $(SRCS:src/%.c=$(OUTDIR)/%.o)
 TARGET = upfs
 
@@ -26,7 +26,7 @@ $(OUTDIR)/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(OUTDIR) $(TARGET) vfs_disk.img
+	rm -rf $(OUTDIR) $(TARGET) testimg/
 
 run: $(TARGET)
 	./$(TARGET)

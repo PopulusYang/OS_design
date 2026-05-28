@@ -382,7 +382,6 @@ static int handle_insert(int ch) {
     if (ch == '\r' || ch == '\n') {
         // 换行：拆分当前行
         char *line = g_ed.lines[g_ed.cy];
-        int len = (int)strlen(line);
         char *rest = strdup(line + g_ed.cx);
         line[g_ed.cx] = '\0';
         line_insert(g_ed.cy + 1, rest);

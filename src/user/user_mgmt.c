@@ -17,7 +17,7 @@
 
 // ---------- 用户数据库（内存缓存） ----------
 
-static UserAccount g_users[USER_MAX_COUNT];
+static UserAccount g_users[MAX_USERS];
 static int         g_user_count = 0;
 static int         g_user_inited = 0;
 
@@ -235,7 +235,7 @@ int user_db_load(void)
             continue;
         }
 
-        if (g_user_count >= USER_MAX_COUNT) {
+        if (g_user_count >= MAX_USERS) {
             break;
         }
 
@@ -307,7 +307,6 @@ int user_db_save(void)
     int  fd;
     int  i;
     int  n;
-    int  total = 0;
 
     // 确保 /etc 目录存在（兼容旧镜像）
     {
@@ -348,7 +347,6 @@ int user_db_save(void)
             vfs_close(fd);
             return -1;
         }
-        total += n;
     }
 
     vfs_close(fd);
@@ -389,7 +387,7 @@ int user_add(const char *username, const char *password)
     if (strlen(username) == 0 || strlen(username) >= 31) {
         return -1;
     }
-    if (g_user_count >= USER_MAX_COUNT) {
+    if (g_user_count >= MAX_USERS) {
         return -1;
     }
     if (user_find(username) != NULL) {

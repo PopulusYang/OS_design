@@ -19,4 +19,8 @@ testimg/
 .DS_Store
 .idea/
 
+# 杂项 / 本地测试产物
+test.txrt
+script/websrv
+
 */build

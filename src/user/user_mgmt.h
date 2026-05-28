@@ -12,8 +12,7 @@
 extern "C" {
 #endif
 
-// 系统最大用户数（1~8）
-#define USER_MAX_COUNT          8
+// 系统最大用户数见 vfs_core.h 中的 MAX_USERS
 
 // 普通用户起始 UID
 #define USER_UID_BASE           1000

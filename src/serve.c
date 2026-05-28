@@ -136,8 +136,6 @@ static int nb_write(int fd, const void *buf, size_t len) {
     return 0;
 }
 
-static int nb_read(int fd, void *buf, size_t len);
-
 // ---------- WebSocket 帧 ----------
 
 static void ws_send(int fd, const void *msg, int len) {
@@ -242,22 +240,6 @@ static void http_send(int fd, int code, const char *ctype, const char *body, int
         ctype?ctype:"text/plain",blen,extra?extra:"");
     if(nb_write(fd,h,(size_t)n)<0) return;
     if(body&&blen>0) nb_write(fd,body,(size_t)blen);
-}
-
-// ---------- 非阻塞 read 辅助 ----------
-
-static int nb_read(int fd, void *buf, size_t len) {
-    size_t off = 0;
-    while (off < len) {
-        ssize_t n = read(fd, (char *)buf + off, len - off);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return (int)off;
-            return -1;
-        }
-        if (n == 0) return (int)off;
-        off += (size_t)n;
-    }
-    return (int)off;
 }
 
 // ---------- 创建终端子进程 ----------

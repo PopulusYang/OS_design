@@ -719,7 +719,7 @@ static int cmd_write_existing(const char *path, const char *data)
 static int cmd_useradd(const char *username, const char *password)
 {
     if (username == NULL || password == NULL) { ui_err("Usage: useradd <name> <password>"); return -1; }
-    if (user_count() >= USER_MAX_COUNT) { ui_err("User limit reached (max 8)"); return -1; }
+    if (user_count() >= MAX_USERS) { ui_err("User limit reached"); return -1; }
     if (user_add(username, password) != 0) { ui_err("Failed to add user (already exists?)"); return -1; }
     fs_sync_disk();
     ui_ok("User added");
