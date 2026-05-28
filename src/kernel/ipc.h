@@ -1,4 +1,4 @@
-// ipc.h —— System V 风格 IPC：信号量、消息队列、共享内存、命名 FIFO、信号
+
 
 #ifndef IPC_H
 #define IPC_H
@@ -75,25 +75,25 @@ typedef struct IpcTable {
 void ipc_init(void);
 void ipc_shutdown(void);
 
-// ---- 信号 ----
+
 int  ipc_kill(uint32_t pid, int sig);
 void ipc_deliver_signals(struct PCB *p);
 
-// ---- 信号量 ----
+
 int  ipc_semget(int key, int initval);
 int  ipc_semop(int semid, int delta);
 
-// ---- 消息队列 ----
+
 int  ipc_msgget(int key);
 int  ipc_msgsnd(int qid, int type, const char *data, int len);
 int  ipc_msgrcv(int qid, int type, char *data, int max_len, int *out_type);
 
-// ---- 共享内存 ----
+
 int  ipc_shmget(int key, int size);
 int  ipc_shmat(struct PCB *p, int shmid, uint32_t virt_addr);
 int  ipc_shmdt(struct PCB *p, int shmid);
 
-// ---- 命名 FIFO ----
+
 int  ipc_mkfifo(const char *path);
 int  ipc_fifo_open(struct PCB *p, const char *path, uint16_t flags);
 
@@ -101,4 +101,4 @@ int  ipc_fifo_open(struct PCB *p, const char *path, uint16_t flags);
 }
 #endif
 
-#endif // IPC_H
+#endif 

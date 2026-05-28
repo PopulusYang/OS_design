@@ -1,18 +1,14 @@
-// cpu.c —— VM 执行引擎实现
-
 #include "kernel/cpu.h"
 #include "kernel/process.h"
 #include "kernel/memory.h"
 #include <string.h>
 #include <stdio.h>
 
-// 虚拟地址由 [页表索引:12][页内偏移:12] 组成（32-bit 空间，高 20 位为页号）
 #define VIRT_PAGE_BITS    12
 #define VIRT_PAGE_SIZE    4096U
 #define VIRT_PAGE_MASK    (VIRT_PAGE_SIZE - 1)
 #define VIRT_PAGE_SHIFT   VIRT_PAGE_BITS
 
-// CPUContext 始终嵌入在 PCB 中，反向推导 PCB 指针
 #define CPU_TO_PCB(ctx) \
     ((PCB *)((char *)(ctx) - offsetof(PCB, p_cpu)))
 
@@ -72,21 +68,18 @@ int cpu_map_page(CPUContext *ctx, uint32_t virt_addr)
     uint32_t page_idx = virt_addr >> VIRT_PAGE_SHIFT;
     if (page_idx >= MEM_MAX_PROCESS_PAGES) return -1;
     PCB *p = CPU_TO_PCB(ctx);
-    if (p->p_page_table[page_idx] != 0) return 0; // 已映射
+    if (p->p_page_table[page_idx] != 0) return 0;
     int phys_page = mem_alloc_pages(1);
     if (phys_page < 0) return -1;
     p->p_page_table[page_idx] = (uint32_t)phys_page;
     return 0;
 }
 
-// ---------- 单步执行 ----------
-
 int cpu_step(CPUContext *ctx)
 {
     if (ctx == NULL) return 1;
     ctx->ticks_left--;
 
-    // 取指：从虚拟地址 ctx->pc * 4 读取 32-bit 指令
     uint32_t inst = cpu_read32(ctx, ctx->pc * 4);
     uint32_t op = CPU_OPCODE(inst);
     uint32_t rd = CPU_RD(inst);
@@ -225,7 +218,7 @@ int cpu_step(CPUContext *ctx)
     case OP_SYSCALL:
         ctx->sycall_halt = 2;
         ctx->syscall_no = (uint32_t)imm;
-        ctx->pc++; // syscall 返回后从此继续
+        ctx->pc++;
         return 1;
 
     case OP_LUI:
@@ -238,7 +231,6 @@ int cpu_step(CPUContext *ctx)
         break;
     }
 
-    // 时间片耗尽 → 返回调度点（由调度器重置 ticks_left）
     if (ctx->ticks_left == 0) {
         return 1;
     }

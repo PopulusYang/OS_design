@@ -1,4 +1,4 @@
-// kernel_shared.c —— 多终端共享内核状态实现
+
 
 #include "kernel_shared.h"
 #include <stdlib.h>
@@ -7,10 +7,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-// 共享内核实例指针（所有模块通过此指针访问内核状态）
+
 KernelShared *g_kernel = NULL;
 
-// ---- 非共享模式（单终端，malloc） ----
+
 static KernelShared *ks_local_create(void) {
     KernelShared *k = calloc(1, sizeof(KernelShared));
     if (!k) return NULL;
@@ -25,7 +25,7 @@ static KernelShared *ks_local_create(void) {
     return k;
 }
 
-// ---- 共享模式（多终端，mmap MAP_SHARED） ----
+
 KernelShared *kernel_shared_create(void) {
     KernelShared *k = mmap(NULL, sizeof(KernelShared),
                            PROT_READ | PROT_WRITE,
@@ -51,7 +51,7 @@ KernelShared *kernel_shared_create(void) {
 }
 
 KernelShared *kernel_shared_attach(void) {
-    return g_kernel; // fork 后子进程继承 mmap，g_kernel 指针仍然有效
+    return g_kernel; 
 }
 
 void kernel_shared_destroy(KernelShared *k) {

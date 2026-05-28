@@ -1,4 +1,4 @@
-// pipe.c —— 环形缓冲管道实现
+
 
 #include "kernel/pipe.h"
 #include "kernel/scheduler.h"

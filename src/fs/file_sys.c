@@ -1,4 +1,4 @@
-// file_sys.c —— 文件系统调用与混合索引块分配、i 节点读写锁
+
 
 #include "fs/file_sys.h"
 #include "fs/dir_sys.h"
@@ -9,7 +9,7 @@
 
 #define PATH_BUF_SIZE           256
 
-// 判断是否为普通文件
+
 static int inode_is_reg(const MemINode *ip)
 {
     if (ip == NULL) {
@@ -18,7 +18,7 @@ static int inode_is_reg(const MemINode *ip)
     return (ip->m_dinode.d_mode & IFREG) != 0;
 }
 
-// 在用户打开文件表中分配一个空闲 fd
+
 static int alloc_fd(User *u)
 {
     int i;
@@ -34,7 +34,7 @@ static int alloc_fd(User *u)
     return -1;
 }
 
-// 校验 fd 并返回打开文件表项
+
 static OpenFileTable *oft_get(User *u, int fd)
 {
     if (u == NULL || fd < 0 || fd >= MAX_OPEN_FILES) {
@@ -46,7 +46,7 @@ static OpenFileTable *oft_get(User *u, int fd)
     return &u->u_ofile[fd];
 }
 
-// 读取索引块中某一槽位的盘块号
+
 static int index_get(uint16_t idx_blk, uint32_t slot, uint16_t *val_out)
 {
     uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
@@ -64,7 +64,7 @@ static int index_get(uint16_t idx_blk, uint32_t slot, uint16_t *val_out)
     return 0;
 }
 
-// 写入索引块中某一槽位的盘块号
+
 static int index_set(uint16_t idx_blk, uint32_t slot, uint16_t val)
 {
     uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
@@ -79,7 +79,7 @@ static int index_set(uint16_t idx_blk, uint32_t slot, uint16_t val)
     return write_block((int)idx_blk, buf);
 }
 
-// 分配一个新索引块并清零
+
 static int alloc_index_block(uint16_t *idx_out)
 {
     int blk;
@@ -100,12 +100,12 @@ static int alloc_index_block(uint16_t *idx_out)
     return 0;
 }
 
-// 混合索引映射：根据逻辑块号返回物理盘块号；create_flag 非 0 时自动分配
-//
-// 布局：
-//   逻辑 0..7           -> d_direct[]
-//   逻辑 8..8+255       -> d_sindirect 一级间址
-//   逻辑 264..          -> d_dindirect 二级间址
+
+
+
+
+
+
 static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16_t *phys_out)
 {
     DiskINode *d;
@@ -117,7 +117,7 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
 
     d = &ip->m_dinode;
 
-    // 直接索引
+    
     if (logical_blk < 8) {
         phys = d->d_direct[logical_blk];
         if (phys == 0) {
@@ -138,7 +138,7 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
         return 0;
     }
 
-    // 一次间址
+    
     if (logical_blk < 8U + (uint32_t)ADDRS_PER_BLOCK) {
         uint32_t slot = logical_blk - 8U;
 
@@ -176,7 +176,7 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
         return 0;
     }
 
-    // 二次间址
+    
     {
         uint32_t off  = logical_blk - 8U - (uint32_t)ADDRS_PER_BLOCK;
         uint32_t idx1 = off / (uint32_t)ADDRS_PER_BLOCK;
@@ -241,7 +241,7 @@ static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16
     }
 }
 
-// 释放索引块中登记的全部数据块及索引块自身
+
 static void free_index_block(uint16_t idx_blk, int free_self)
 {
     uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
@@ -263,7 +263,7 @@ static void free_index_block(uint16_t idx_blk, int free_self)
     }
 }
 
-// 释放二级间址块链
+
 static void free_dindirect(uint16_t dind_blk)
 {
     uint16_t l1[BLOCK_SIZE / (int)sizeof(uint16_t)];
@@ -283,7 +283,7 @@ static void free_dindirect(uint16_t dind_blk)
     bfree((int)dind_blk);
 }
 
-// 截断文件：回收全部数据块并重置索引
+
 static void file_truncate(MemINode *ip)
 {
     DiskINode *d;
@@ -333,7 +333,7 @@ int vfs_create(const char *path, uint16_t mode)
         return -1;
     }
 
-    // 目标已存在则失败
+    
     {
         MemINode *exist = namei(path);
         if (exist != NULL) {
@@ -406,7 +406,7 @@ int vfs_open(const char *path, uint16_t mode)
         return -1;
     }
 
-    // 写模式（含 O_RDWR）获取互斥写锁；只读模式允许多 fd 共享读锁
+    
     if (mode & (O_WRONLY | O_RDWR)) {
         if (inode_wrlock(ip) != 0) {
             iput(ip);
@@ -545,7 +545,7 @@ int vfs_write(int fd, const void *buf, int count)
         lblk = oft->oft_write_pos / (uint32_t)BLOCK_SIZE;
         off  = oft->oft_write_pos % (uint32_t)BLOCK_SIZE;
 
-        // 混合索引：必要时自动分配直接/一次/二次间址块
+        
         if (file_bmap(ip, lblk, 1, &phys) != 0) {
             return (total > 0) ? total : -1;
         }
@@ -590,7 +590,7 @@ int vfs_close(int fd)
 
     ip = oft->oft_inode;
 
-    // 释放 open 时获取的读/写锁
+    
     if (oft->oft_flags & (OF_RDLOCKED | OF_WRLOCKED)) {
         inode_unlock(ip);
     }
@@ -646,7 +646,7 @@ int vfs_delete(const char *path)
         return -1;
     }
 
-    // 写锁保护删除过程，避免与并发读/写冲突
+    
     if (inode_wrlock(file_ip) != 0) {
         iput(file_ip);
         iput(parent_ip);

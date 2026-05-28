@@ -1,4 +1,4 @@
-// dir_sys.c —— 路径解析 namei 与 mkdir / chdir / dir_list
+
 
 #include "fs/dir_sys.h"
 #include "fs/allocator.h"
@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
-// 当前进程用户指针，由 dir_bind_user 设置
+
 static User *g_cur_user = NULL;
 
 void dir_bind_user(User *u)
@@ -20,7 +20,7 @@ User *dir_get_user(void)
     return g_cur_user;
 }
 
-// 判断 i 节点是否为目录
+
 static int inode_is_dir(const MemINode *ip)
 {
     if (ip == NULL) {
@@ -29,7 +29,7 @@ static int inode_is_dir(const MemINode *ip)
     return (ip->m_dinode.d_mode & IFDIR) != 0;
 }
 
-// 定长目录名比较（最多 MAX_FILENAME_LEN 字符，遇 '\0' 终止）
+
 static int dir_name_equal(const char *name, const DirEntry *de)
 {
     int i;
@@ -53,7 +53,7 @@ static int dir_name_equal(const char *name, const DirEntry *de)
     return name[MAX_FILENAME_LEN] == '\0';
 }
 
-// 将目录项中的定长名复制为 C 字符串
+
 static void dir_name_copy(char *dst, size_t dst_size, const DirEntry *de)
 {
     int i;
@@ -71,7 +71,7 @@ static void dir_name_copy(char *dst, size_t dst_size, const DirEntry *de)
     dst[dst_size - 1] = '\0';
 }
 
-// 校验目录项中的文件名是否合法（非空、无 '/'）
+
 static int dir_name_valid(const char *name)
 {
     size_t len;
@@ -89,7 +89,7 @@ static int dir_name_valid(const char *name)
     return 1;
 }
 
-// 根据混合索引获取文件逻辑块号对应的物理盘块号；仅用于目录/小文件遍历
+
 static int inode_bmap(const DiskINode *d, uint32_t logical_blk, uint16_t *phys_out)
 {
     uint16_t idx_buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
@@ -127,7 +127,7 @@ static int inode_bmap(const DiskINode *d, uint32_t logical_blk, uint16_t *phys_o
     return -1;
 }
 
-// 在目录 i 节点中查找文件名，成功返回 0 并通过 out_ino 输出 i 节点号
+
 static int dir_lookup(const MemINode *dir_ip, const char *name, uint16_t *out_ino)
 {
     uint32_t size;
@@ -168,7 +168,7 @@ static int dir_lookup(const MemINode *dir_ip, const char *name, uint16_t *out_in
     return -1;
 }
 
-// 跳过路径中的连续 '/'
+
 static const char *path_skip_slash(const char *p)
 {
     while (p != NULL && *p == '/') {
@@ -177,7 +177,7 @@ static const char *path_skip_slash(const char *p)
     return p;
 }
 
-// 提取下一路径分量到 name（缓冲区至少 MAX_FILENAME_LEN+1），返回剩余路径指针
+
 static const char *path_next_component(const char *p, char *name)
 {
     int i;
@@ -202,7 +202,7 @@ static const char *path_next_component(const char *p, char *name)
     return p + i;
 }
 
-// 判断剩余路径是否仅含 '/' 或已结束（即当前分量为最后一级）
+
 static int path_is_last_component(const char *rest)
 {
     rest = path_skip_slash(rest);
@@ -212,7 +212,7 @@ static int path_is_last_component(const char *rest)
     return 0;
 }
 
-// 将路径拆分为父目录路径与最终分量名；parent 缓冲至少 PATH_BUF_SIZE
+
 #define PATH_BUF_SIZE           256
 
 static int path_split_parent(const char *path, char *parent, char *name)
@@ -234,7 +234,7 @@ static int path_split_parent(const char *path, char *parent, char *name)
     }
 
     if (last == path) {
-        // "/foo" -> 父路径 "/"
+        
         strncpy(parent, "/", PATH_BUF_SIZE - 1);
         parent[PATH_BUF_SIZE - 1] = '\0';
         strncpy(name, last + 1, MAX_FILENAME_LEN);
@@ -270,7 +270,7 @@ MemINode *namei(const char *path)
         return NULL;
     }
 
-    // 纯 "/" 或 "//"：返回根目录
+    
     if (path[0] == '/') {
         p = path_skip_slash(path + 1);
         if (*p == '\0') {
@@ -352,7 +352,7 @@ MemINode *namei(const char *path)
     return ip;
 }
 
-// 向目录追加或填充空闲目录项
+
 static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
 {
     uint32_t size;
@@ -369,7 +369,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
 
     size = dir_ip->m_dinode.d_size;
 
-    // 第一遍：寻找 de_inode==0 的空槽
+    
     for (pos = 0; pos + DIR_ENTRY_SIZE <= size; pos += DIR_ENTRY_SIZE) {
         uint32_t lblk = pos / (uint32_t)BLOCK_SIZE;
         uint32_t off  = pos % (uint32_t)BLOCK_SIZE;
@@ -401,7 +401,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
         return 0;
     }
 
-    // 无空槽：在目录末尾追加新目录项（必要时分配新数据块）
+    
     {
         uint32_t lblk = size / (uint32_t)BLOCK_SIZE;
         uint32_t off  = size % (uint32_t)BLOCK_SIZE;
@@ -461,7 +461,7 @@ int dir_link_entry(MemINode *dir_ip, const char *name, uint16_t ino)
     return dir_add_entry(dir_ip, name, ino);
 }
 
-// 从目录中删除指定文件名的目录项（不允许删除 . 与 ..）
+
 int dir_unlink_entry(MemINode *dir_ip, const char *name, uint16_t *out_ino)
 {
     uint32_t size;
@@ -516,7 +516,7 @@ int dir_unlink_entry(MemINode *dir_ip, const char *name, uint16_t *out_ino)
     return -1;
 }
 
-// 初始化新建目录的数据块（写入 . 与 ..）
+
 static int dir_init_dots(MemINode *dir_ip, uint16_t parent_ino, int dir_blk)
 {
     char     block_buf[BLOCK_SIZE];
@@ -621,7 +621,7 @@ int vfs_mkdir(const char *path, uint16_t mode)
         return -1;
     }
 
-    // 子目录 .. 指向父目录，父目录链接计数加 1
+    
     parent->m_dinode.d_nlink++;
     parent->m_flags |= MINODE_DIRTY;
 
@@ -652,7 +652,7 @@ int chdir(const char *path)
     return 0;
 }
 
-// 将文件类型位转为可打印字符
+
 static char mode_type_char(uint16_t mode)
 {
     if (mode & IFDIR) {

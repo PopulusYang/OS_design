@@ -1,9 +1,9 @@
-// serve.c —— UPFS 多终端服务端（HTTP + WebSocket + 原始 TCP）
-//
-// :8080 → HTTP（网页 /） + WebSocket（终端 /ws/*）
-// :4096 → 原始 TCP 终端
-//
-// 每终端 fork 子进程（socketpair 通信），主进程 poll 转发。
+
+
+
+
+
+
 
 #include "serve.h"
 #include "kernel_shared.h"
@@ -24,7 +24,7 @@
 
 extern int upfs_session(int in_fd, int out_fd);
 
-// ---------- 多终端共享磁盘选择 ----------
+
 
 static struct {
     volatile int ready;
@@ -44,7 +44,7 @@ void shared_set_disk(const char *path) {
     g_shared->ready = 1;
 }
 
-// ---------- 常量 ----------
+
 
 #define HTML_PORT     8080
 #define TERM_PORT     4096
@@ -52,16 +52,16 @@ void shared_set_disk(const char *path) {
 #define BUF_SIZE      8192
 #define WS_GUID       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-// 连接类型
+
 enum { T_HTTP, T_WS, T_RAW };
 
-// 每个连接的状态
+
 typedef struct {
-    int fd;          // 客户端 socket
-    int type;        // T_HTTP / T_WS / T_RAW
-    int term_fd;     // 终端 socketpair 的一端（父进程持有）
-    int term_pid;    // 终端子进程 PID
-    char rbuf[BUF_SIZE]; // HTTP 请求缓冲 / WebSocket 帧缓冲
+    int fd;          
+    int type;        
+    int term_fd;     
+    int term_pid;    
+    char rbuf[BUF_SIZE]; 
     int  rlen;
 } Conn;
 
@@ -69,7 +69,7 @@ static struct pollfd g_pfds[MAX_CONN];
 static Conn         g_conn[MAX_CONN];
 static int          g_nfds;
 
-// ---------- SHA1 + Base64（WebSocket 握手用）----------
+
 
 typedef struct { uint32_t s[5], c[2]; uint8_t b[64]; } SHA1;
 
@@ -116,7 +116,7 @@ static void b64enc(const uint8_t *in, int len, char *out) {
     out[o]='\0';
 }
 
-// ---------- 非阻塞 write 辅助 ----------
+
 
 static int nb_write(int fd, const void *buf, size_t len) {
     size_t off = 0;
@@ -136,7 +136,7 @@ static int nb_write(int fd, const void *buf, size_t len) {
     return 0;
 }
 
-// ---------- WebSocket 帧 ----------
+
 
 static void ws_send(int fd, const void *msg, int len) {
     uint8_t f[14]; int pos=0;
@@ -153,7 +153,7 @@ static void ws_send(int fd, const void *msg, int len) {
 static int ws_recv(Conn *c, uint8_t *out, int max) {
     int fd = c->fd;
 
-    // 先读新数据到 rbuf
+    
     int room = BUF_SIZE - c->rlen - 1;
     if (room > 0) {
         int n = (int)read(fd, (uint8_t *)c->rbuf + c->rlen, (size_t)room);
@@ -171,10 +171,10 @@ static int ws_recv(Conn *c, uint8_t *out, int max) {
     uint8_t *buf = (uint8_t *)c->rbuf;
     int op = buf[0] & 0x0F;
     if (op == 0x8) return -1;
-    if (op == 0x9) {  // ping → pong
+    if (op == 0x9) {  
         uint8_t pong[2] = {0x8A, 0x00};
         nb_write(fd, pong, 2);
-        // 消耗这 2 字节 ping 头
+        
         int rem = c->rlen - 2;
         if (rem > 0) memmove(buf, buf + 2, (size_t)rem);
         c->rlen = rem;
@@ -206,7 +206,7 @@ static int ws_recv(Conn *c, uint8_t *out, int max) {
     int frame_len = hdr_len + (int)plen;
     if (c->rlen < frame_len) return 0;
 
-    // 完整帧已就绪
+    
     uint8_t *payload = buf + hdr_len;
     if (masked) {
         uint8_t *mk = buf + hdr_len - 4;
@@ -214,7 +214,7 @@ static int ws_recv(Conn *c, uint8_t *out, int max) {
     }
     memcpy(out, payload, (size_t)plen);
 
-    // 移走已消耗的数据
+    
     int remaining = c->rlen - frame_len;
     if (remaining > 0) memmove(buf, buf + frame_len, (size_t)remaining);
     c->rlen = remaining;
@@ -222,11 +222,11 @@ static int ws_recv(Conn *c, uint8_t *out, int max) {
     return (int)plen;
 }
 
-// ---------- HTTP ----------
+
 
 static void http_send(int fd, int code, const char *ctype, const char *body, int blen, const char *extra) {
     char h[1024];
-    // 101 Switching Protocols: no Content-Type/Content-Length
+    
     if (code == 101) {
         int n = snprintf(h, sizeof(h),
             "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\n%s\r\n",
@@ -242,7 +242,7 @@ static void http_send(int fd, int code, const char *ctype, const char *body, int
     if(body&&blen>0) nb_write(fd,body,(size_t)blen);
 }
 
-// ---------- 创建终端子进程 ----------
+
 
 static int term_spawn(void) {
     int sv[2];
@@ -260,7 +260,7 @@ static int term_spawn(void) {
     return sv[0];
 }
 
-// ---------- 绑定/监听 ----------
+
 
 static int tcp_listen(int port) {
     int fd=socket(AF_INET,SOCK_STREAM,0); if(fd<0) return -1;
@@ -272,17 +272,17 @@ static int tcp_listen(int port) {
     return fd;
 }
 
-// ---------- 清理连接 ----------
+
 
 static void conn_close(int i) {
     if(g_conn[i].fd>=0){close(g_conn[i].fd);g_conn[i].fd=-1;}
-    // 关闭 term_fd 使子进程收到 stdin EOF，触发 upfs_session 正常退出清理
+    
     if(g_conn[i].term_fd>=0){close(g_conn[i].term_fd);g_conn[i].term_fd=-1;}
     g_conn[i].type=0;g_conn[i].rlen=0;
     g_pfds[i].fd=-1;g_pfds[i].events=0;
 }
 
-// 分配一个新连接槽位
+
 static int conn_alloc(int fd, int type) {
     for(int i=2;i<MAX_CONN;i++){
         if(g_pfds[i].fd<0){
@@ -296,7 +296,7 @@ static int conn_alloc(int fd, int type) {
     return -1;
 }
 
-// ---------- HTML 页面 ----------
+
 
 static const char PAGE[] =
 "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -408,7 +408,7 @@ static const char PAGE[] =
 "};\n"
 "N();\n</script>\n</body>\n</html>\n";
 
-// ---------- 主循环 ----------
+
 
 int serve_main(int term_port) {
     int l_http, l_term;
@@ -417,18 +417,18 @@ int serve_main(int term_port) {
     signal(SIGPIPE,SIG_IGN);
     signal(SIGCHLD,SIG_IGN);
 
-    // 初始化共享磁盘状态（子进程继承）
+    
     g_shared = mmap(NULL, sizeof(*g_shared), PROT_READ | PROT_WRITE,
                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (g_shared == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); return 1; }
     memset(g_shared, 0, sizeof(*g_shared));
 
-    // 初始化共享内核（子进程继承 mmap）
+    
     if (kernel_shared_create() == NULL) {
         fprintf(stderr, "kernel_shared_create failed\n"); return 1;
     }
 
-    // 初始化
+    
     memset(g_pfds,0,sizeof(g_pfds));
     memset(g_conn,0,sizeof(g_conn));
     for(int i=0;i<MAX_CONN;i++){g_pfds[i].fd=-1;g_conn[i].fd=-1;}
@@ -448,7 +448,7 @@ int serve_main(int term_port) {
         int rc=poll(g_pfds,(nfds_t)g_nfds,50);
         if(rc<0&&errno!=EINTR) break;
 
-        // 清理断开
+        
         for(int i=2;i<g_nfds;i++){
             if(g_pfds[i].fd<0) continue;
             if(g_pfds[i].revents&(POLLERR|POLLHUP)){
@@ -457,7 +457,7 @@ int serve_main(int term_port) {
             }
         }
 
-        // 新连接
+        
         for(int li=0;li<2;li++){
             if(!(g_pfds[li].revents&POLLIN)) continue;
             struct sockaddr_in ca;socklen_t cl=sizeof(ca);
@@ -467,20 +467,20 @@ int serve_main(int term_port) {
             int init_type=(li==0)?T_HTTP:T_RAW;
             int slot=conn_alloc(cfd,init_type);
             if(slot<0){close(cfd);continue;}
-            // 原始 TCP：立即启动终端
+            
             if(init_type==T_RAW){
                 int tfd=term_spawn();
                 if(tfd>=0) g_conn[slot].term_fd=tfd;
             }
         }
 
-        // 处理 I/O
+        
         for(int i=2;i<g_nfds;i++){
             int fd=g_pfds[i].fd;
             if(fd<0) continue;
             Conn *c=&g_conn[i];
 
-            // === HTTP 请求 ===
+            
             if(c->type==T_HTTP&&(g_pfds[i].revents&POLLIN)){
                 int room=BUF_SIZE-1-c->rlen;
                 if(room<=0){conn_close(i);continue;}
@@ -492,7 +492,7 @@ int serve_main(int term_port) {
                 char *end=strstr(c->rbuf,"\r\n\r\n");
                 if(!end){fprintf(stderr,"[http] waiting for header end (have %d bytes)\n",c->rlen);continue;}
 
-                // 取 method + path
+                
                 char *s1=strchr(c->rbuf,' ');
                 char *s2=s1?strchr(s1+1,' '):NULL;
                 if(!s1||!s2){fprintf(stderr,"[http] bad request line\n");conn_close(i);continue;}
@@ -500,7 +500,7 @@ int serve_main(int term_port) {
                 char *path=s1+1;
                 fprintf(stderr,"[http] path=%.*s\n",plen,path);
 
-                // 找 WS key (case-insensitive)
+                
                 char *wsk=NULL;
                 {   char *ln=s2+1;while(*ln==' ')ln++;
                     char *nxt=strstr(ln,"\r\n");if(nxt)nxt+=2;else nxt=ln;
@@ -516,7 +516,7 @@ int serve_main(int term_port) {
                 fprintf(stderr,"[http] wsk=%s\n",wsk?wsk:"(null)");
 
                 if(wsk&&plen>=4&&strncmp(path,"/ws/",4)==0){
-                    // WS 升级
+                    
                     uint8_t hash[20];char akey[64],ext[256],comb[256];
                     snprintf(comb,sizeof(comb),"%s%s",wsk,WS_GUID);
                     sha1_hash((uint8_t*)comb,(int)strlen(comb),hash);
@@ -525,8 +525,8 @@ int serve_main(int term_port) {
                     http_send(fd,101,NULL,NULL,0,ext);
                     c->type=T_WS;c->rlen=0;
                     fprintf(stderr,"[ws] slot=%d upgraded, akey=%s\n",i,akey);
-                    g_pfds[i].revents=0;  // 清除残留 POLLIN，防止误读 WebSocket 帧
-                    // 启动终端
+                    g_pfds[i].revents=0;  
+                    
                     int tfd=term_spawn();
                     fprintf(stderr,"[ws] slot=%d term_spawn → tfd=%d pid=%d\n",i,tfd,g_conn[i].term_pid);
                     if(tfd>=0) c->term_fd=tfd;
@@ -538,10 +538,10 @@ int serve_main(int term_port) {
                     http_send(fd,404,"text/plain",nope,(int)strlen(nope),NULL);
                     conn_close(i);
                 }
-                } // end else (read success)
+                } 
             }
 
-            // === WebSocket → 终端 ===
+            
             if(c->type==T_WS&&(g_pfds[i].revents&POLLIN)){
                 uint8_t payload[BUF_SIZE];
                 int plen=ws_recv(c,payload,BUF_SIZE-1);
@@ -552,7 +552,7 @@ int serve_main(int term_port) {
                 }
             }
 
-            // === 原始 TCP → 终端 ===
+            
             if(c->type==T_RAW&&(g_pfds[i].revents&POLLIN)){
                 char buf[4096];int n=(int)read(fd,buf,sizeof(buf));
                 if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK)){}
@@ -563,7 +563,7 @@ int serve_main(int term_port) {
             }
         }
 
-        // === 终端输出 → 客户端 ===
+        
         for(int i=2;i<g_nfds;i++){
             if(g_pfds[i].fd<0) continue;
             Conn *c=&g_conn[i];

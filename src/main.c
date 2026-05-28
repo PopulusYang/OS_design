@@ -1,4 +1,4 @@
-// main.c —— UPFS 模拟 UNIX Shell 交互主控（多用户版）
+
 
 #include "vfs_core.h"
 #include "fs/disk_io.h"
@@ -28,7 +28,7 @@
 #include <dirent.h>
 #include <termios.h>
 
-// ANSI styling
+
 #define ANSI_ROSE           "\033[38;2;205;137;135m"
 #define ANSI_MAUVE          "\033[38;2;205;172;161m"
 #define ANSI_RESET          "\033[0m"
@@ -43,7 +43,7 @@
 #define MAX_ARGS            32
 #define CWD_BUF_SIZE        512
 
-// Global shell state
+
 static User   g_users[MAX_USERS];
 static int    g_current_user_idx = 0;
 static char   g_disk_path[512] = DEFAULT_DISK_PATH;
@@ -56,7 +56,7 @@ static User *current_user(void)
     return &g_users[g_current_user_idx];
 }
 
-// ---------- Terminal UI ----------
+
 
 static void ui_banner(void)
 {
@@ -95,7 +95,7 @@ static void ui_err(const char *msg)
     printf("%s%s  %s%s\n", ANSI_BOLD, ANSI_ERR, msg, ANSI_RESET);
 }
 
-// Convert cwd to display path: home dir shown as ~
+
 static void cwd_display(char *out, size_t out_size)
 {
     size_t home_len;
@@ -138,7 +138,7 @@ static void ui_prompt(void)
     fputs(ANSI_DIM ANSI_MAUVE " >" ANSI_RESET " ", stdout);
 }
 
-// ---------- Disk detection & mount ----------
+
 
 static int disk_file_exists(const char *path)
 {
@@ -188,7 +188,7 @@ static void startup_disk_probe(void)
     }
 }
 
-// Initialize current user slot as root
+
 static void init_root_user(void)
 {
     User *u = current_user();
@@ -204,9 +204,9 @@ static void shell_bind_user(void)
     dir_bind_user(current_user());
 }
 
-// ---------- Login / user-creation prompts ----------
 
-// 读取密码：终端下禁用回显，非终端（管道）降级为普通 fgets
+
+
 static int read_password(char *buf, int max_len)
 {
     int tty_fd = fileno(stdin);
@@ -223,7 +223,7 @@ static int read_password(char *buf, int max_len)
         }
         tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
     } else {
-        // 非终端输入（管道/重定向），降级为普通读取
+        
         if (fgets(buf, max_len, stdin) == NULL) return -1;
     }
 
@@ -233,7 +233,7 @@ static int read_password(char *buf, int max_len)
     return (int)strlen(buf);
 }
 
-// Prompt for username and password; returns uid on success, -1 on failure
+
 static int shell_login_prompt(void)
 {
     char user_buf[64], pass_buf[128];
@@ -256,7 +256,7 @@ static int shell_login_prompt(void)
     return uid;
 }
 
-// Prompt to create the first user during format
+
 static int shell_create_first_user(void)
 {
     char user_buf[64], pass_buf[128];
@@ -292,18 +292,18 @@ static int shell_create_first_user(void)
         return -1;
     }
 
-    // 设置 root 密码
+    
     {
         char root_pass[128];
 
         printf("%sSet root password:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
         if (read_password(root_pass, (int)sizeof(root_pass)) >= 0 && root_pass[0] != '\0') {
-            user_add("root", root_pass); // root 已可能存在，忽略错误
+            user_add("root", root_pass); 
         }
     }
 
-    // Login as the new user
+    
     {
         const UserAccount *ua = user_find(user_buf);
         if (ua == NULL) return -1;
@@ -323,7 +323,7 @@ static int shell_create_first_user(void)
         strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
         g_cwd[CWD_BUF_SIZE - 1] = '\0';
 
-        // 设置用户环境变量
+        
         env_set_current_user(ua->ua_name);
         env_user_load(ua->ua_name);
     }
@@ -355,7 +355,7 @@ static int shell_mount(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
-    // 初始化内核子系统（共享模式下仅首次挂载时执行）
+    
     if (proc_find(0) == NULL) {
         mem_init();
         proc_init();
@@ -428,7 +428,7 @@ static int shell_format(const char *path)
     }
     ui_ok("Format complete");
 
-    // Mount the new filesystem
+    
     if (fs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
     shared_set_disk(use_path);
 
@@ -443,7 +443,7 @@ static int shell_format(const char *path)
     mem_init(); proc_init(); sched_init(); env_init();
     env_system_load(); proc_create_init();
 
-    // Create POSIX directories first
+    
     if (user_create_posix_dirs(0, 0) != 0) {
         ui_err("Failed to create POSIX directories");
         return -1;
@@ -453,7 +453,7 @@ static int shell_format(const char *path)
         return -1;
     }
 
-    // 注入预置程序到 /bin
+    
     {
         int bc = 0;
         const DemoBinary *demos = binaries_get_all(&bc);
@@ -464,7 +464,7 @@ static int shell_format(const char *path)
         }
     }
 
-    // 注入 involve_src/*.asm 到 /src
+    
     {
         vfs_mkdir("/src", 0755);
         const char *search[] = { "involve_src", "../involve_src", "../../involve_src" };
@@ -504,11 +504,11 @@ static int shell_format(const char *path)
         }
     }
 
-    // 写入系统环境变量
+    
     env_set("PATH", "/bin:/usr/bin");
     env_system_save();
 
-    // Create the first user
+    
     if (shell_create_first_user() != 0) {
         ui_info("Falling back to root user");
         g_current_user_idx = 0;
@@ -520,9 +520,9 @@ static int shell_format(const char *path)
     return 0;
 }
 
-// ---------- Working directory path maintenance ----------
 
-// Resolve . and .. components in g_cwd in-place. Always leaves a leading /.
+
+
 static void cwd_resolve_dots(void)
 {
     char resolved[CWD_BUF_SIZE];
@@ -580,7 +580,7 @@ static void cwd_update_after_cd(const char *arg)
     cwd_resolve_dots();
 }
 
-// ---------- Command-line parsing ----------
+
 
 static char *trim(char *s)
 {
@@ -629,7 +629,7 @@ static int parse_command_line(char *line, char **argv, int max_argc)
     return argc;
 }
 
-// ---------- Command implementations ----------
+
 
 static void cmd_help(void)
 {
@@ -719,7 +719,7 @@ static int cmd_write_existing(const char *path, const char *data)
     return 0;
 }
 
-// ---------- User commands ----------
+
 
 static int cmd_useradd(const char *username, const char *password)
 {
@@ -762,7 +762,7 @@ static int cmd_login(const char *username, const char *password)
     return 0;
 }
 
-// su [username] — 切换到 root（默认）或指定用户，需要验证目标用户密码
+
 static int cmd_su(const char *username)
 {
     const char *target = (username && username[0]) ? username : "root";
@@ -781,11 +781,11 @@ static int cmd_su(const char *username)
     const UserAccount *ua = user_find_by_uid((uint16_t)uid);
     if (ua == NULL) return -1;
 
-    // 保存当前用户 env
+    
     User *old = current_user();
     if (old->u_uid != 0) env_user_save(old->u_name);
 
-    // 切换到目标用户
+    
     memset(old, 0, sizeof(User));
     strncpy(old->u_name, ua->ua_name, sizeof(old->u_name) - 1);
     old->u_uid = ua->ua_uid; old->u_gid = ua->ua_gid; old->u_active = 1;
@@ -859,7 +859,7 @@ static int cmd_users(void)
     return 0;
 }
 
-// ---------- 内核命令 ----------
+
 
 static void resolve_program_path(const char *path, char *resolved, size_t sz)
 {
@@ -1114,7 +1114,7 @@ static int cmd_unset(const char *key)
     return 0;
 }
 
-// ---------- Command dispatch ----------
+
 
 static int dispatch_command(int argc, char **argv)
 {
@@ -1137,11 +1137,11 @@ static int dispatch_command(int argc, char **argv)
         }
         if (argc < 2) { ui_err("Usage: asm <source.s> [output.upx]"); return -1; }
         const char *out_name = argc > 2 ? argv[2] : "a.upx";
-        // VFS → 宿主机桥接：导出源文件→汇编→导入输出
+        
         char tmp_src[256], tmp_out[256];
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_asm_src_%d", getpid());
         snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_asm_out_%d", getpid());
-        // 1. 导出 VFS 源文件
+        
         {
             MemINode *ip = namei(argv[1]);
             if (!ip) { ui_err("Source file not found"); return -1; }
@@ -1154,9 +1154,9 @@ static int dispatch_command(int argc, char **argv)
             FILE *f = fopen(tmp_src, "w");
             if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
         }
-        // 2. 汇编
+        
         if (assemble_file(tmp_src, tmp_out) != 0) { unlink(tmp_src); unlink(tmp_out); ui_err("Assembly failed"); return -1; }
-        // 3. 导入输出到 VFS
+        
         {
             FILE *f = fopen(tmp_out, "rb");
             if (f) {
@@ -1183,10 +1183,10 @@ static int dispatch_command(int argc, char **argv)
     }
     if (strcmp(cmd, "vim") == 0) {
         if (argc < 2) { ui_err("Usage: vim <file>"); return -1; }
-        // VFS ↔ 宿主编编辑器桥接：导出→编辑→导入
+        
         char tmp_path[256];
         snprintf(tmp_path, sizeof(tmp_path), "/tmp/upfs_vim_%d", getpid());
-        // 1. 如果 VFS 文件存在，导出到临时文件
+        
         MemINode *ip = namei(argv[1]);
         if (ip != NULL) {
             iput(ip);
@@ -1200,11 +1200,11 @@ static int dispatch_command(int argc, char **argv)
                 if (tf) { fwrite(buf, 1, (size_t)total, tf); fclose(tf); }
             }
         }
-        // 2. 打开宿主编编辑器
+        
         printf("\033[2J\033[H"); fflush(stdout);
         editor_open(tmp_path);
         printf("\033[2J\033[H"); fflush(stdout);
-        // 3. 读回临时文件，写回 VFS
+        
         FILE *tf = fopen(tmp_path, "r");
         if (tf) {
             fseek(tf, 0, SEEK_END); long sz = ftell(tf); rewind(tf);
@@ -1212,7 +1212,7 @@ static int dispatch_command(int argc, char **argv)
                 char *buf = malloc((size_t)(sz + 1));
                 if (buf) {
                     fread(buf, 1, (size_t)sz, tf);
-                    // 确保干净文件：删→建（保证 d_size=0）
+                    
                     vfs_delete(argv[1]);
                     if (vfs_create(argv[1], 0644) != 0) {
                         vfs_delete(argv[1]);
@@ -1226,7 +1226,7 @@ static int dispatch_command(int argc, char **argv)
                     free(buf);
                 }
             } else {
-                // 空文件：删掉重建（保证干净）
+                
                 vfs_delete(argv[1]);
                 vfs_create(argv[1], 0644);
             }
@@ -1239,7 +1239,7 @@ static int dispatch_command(int argc, char **argv)
 
     if (require_mounted()) return -1;
 
-    // ./xxx → 等同于 run ./xxx
+    
     if (cmd[0] == '.' && cmd[1] == '/') { return cmd_run(cmd); }
 
     if (strcmp(cmd, "mkdir") == 0) {
@@ -1252,7 +1252,7 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0) {
         const char *target = argv[1];
         if (argc < 2 || strcmp(target, "~") == 0) {
-            // cd with no args or cd ~ : go to home directory
+            
             if (g_user_home[0] == '\0') { ui_err("No home directory configured"); return -1; }
             target = g_user_home;
         }
@@ -1315,7 +1315,7 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }
     if (strcmp(cmd, "unset") == 0) { if (argc < 2) { ui_err("Usage: unset KEY"); return -1; } return cmd_unset(argv[1]); }
 
-    // PATH 搜索：在 PATH 目录中查找可执行文件
+    
     {
         const char *path_env = env_get_path();
         if (path_env != NULL) {
@@ -1343,18 +1343,18 @@ static int dispatch_command(int argc, char **argv)
     return -1;
 }
 
-// ---------- 会话入口（可被 serve.c 以 socket fd 调用） ----------
+
 
 extern int dup2(int oldfd, int newfd);
 
 int upfs_session(int in_fd, int out_fd)
 {
-    // 非 --serve 模式下初始化本地内核（--serve 下父进程已创建共享内核）
+    
     if (g_kernel == NULL) kernel_local_init();
 
-    if (dup2(out_fd, 1) < 0) return 1;   // stdout
-    if (dup2(out_fd, 2) < 0) return 1;   // stderr
-    if (dup2(in_fd,  0) < 0) return 1;   // stdin
+    if (dup2(out_fd, 1) < 0) return 1;   
+    if (dup2(out_fd, 2) < 0) return 1;   
+    if (dup2(in_fd,  0) < 0) return 1;   
 
     char line[LINE_BUF_SIZE];
     char *argv[MAX_ARGS];
@@ -1401,7 +1401,7 @@ int upfs_session(int in_fd, int out_fd)
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
-    // 共享会话退出时不销毁内核状态（其他终端仍在使用）
+    
     int is_shared_session = (shared_disk_path() != NULL);
     if (g_mounted) {
         user_db_save();
@@ -1417,7 +1417,7 @@ int upfs_session(int in_fd, int out_fd)
     return 0;
 }
 
-// ---------- Main（交互模式 / --serve 模式） ----------
+
 
 int main(int argc, char *argv[])
 {
@@ -1426,5 +1426,5 @@ int main(int argc, char *argv[])
         if (argc >= 3) port = atoi(argv[2]);
         return serve_main(port);
     }
-    return upfs_session(0, 1);  // stdin=0, stdout=1
+    return upfs_session(0, 1);  
 }

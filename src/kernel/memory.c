@@ -1,4 +1,4 @@
-// memory.c —— 128MB 内存管理器实现（支持共享/本地模式）
+
 
 #include "kernel/memory.h"
 #include "kernel_shared.h"
@@ -6,13 +6,13 @@
 
 extern KernelShared *g_kernel;
 
-// ---------- 生命周期 ----------
+
 
 int mem_init(void)
 {
     if (g_kernel == NULL) return -1;
-    // 共享模式下可能已被父进程初始化，检查标志
-    if (g_kernel->free_pages > 0) return 0;  // 已初始化
+    
+    if (g_kernel->free_pages > 0) return 0;  
 
     g_kernel->total_pages = (int)MEM_TOTAL_PAGES;
     memset(g_kernel->phys_mem, 0, MEM_TOTAL_SIZE);
@@ -29,12 +29,12 @@ int mem_init(void)
 
 void mem_shutdown(void)
 {
-    // 共享模式下不清零（其他进程可能还在用）
+    
     if (g_kernel == NULL) return;
-    // 本地模式下由 kernel_local_shutdown 负责释放
+    
 }
 
-// ---------- 页分配 ----------
+
 
 int mem_alloc_pages(int n)
 {
@@ -67,7 +67,7 @@ void mem_free_pages(int page, int n)
     }
 }
 
-// ---------- 地址访问 ----------
+
 
 void *mem_page_ptr(int page)
 {

@@ -1,4 +1,4 @@
-// env.c —— 环境变量系统实现
+
 
 #include "env.h"
 #include "fs/file_sys.h"
@@ -11,7 +11,7 @@
 typedef struct EnvVar {
     char key[ENV_MAX_KEY];
     char val[ENV_MAX_VAL];
-    int  is_system;   // 0=user, 1=system
+    int  is_system;   
 } EnvVar;
 
 static EnvVar g_sys_env[ENV_MAX_VARS];
@@ -30,7 +30,7 @@ void env_set_current_user(const char *username)
         g_current_user[0] = '\0';
 }
 
-// ---------- 内部：解析/序列化 ----------
+
 
 static int env_parse_line(char *line, EnvVar *var)
 {
@@ -39,7 +39,7 @@ static int env_parse_line(char *line, EnvVar *var)
     *eq = '\0';
     char *key = line;
     char *val = eq + 1;
-    // trim key
+    
     while (*key == ' ') key++;
     char *ke = key + strlen(key) - 1;
     while (ke > key && *ke == ' ') { *ke = '\0'; ke--; }
@@ -81,7 +81,7 @@ static int env_load_file(const char *path, EnvVar *arr, int *count, int is_syste
 
 static int env_save_file(const char *path, EnvVar *arr, int count)
 {
-    // 删除旧文件
+    
     vfs_delete(path);
     if (vfs_create(path, 0644) != 0) return -1;
 
@@ -97,7 +97,7 @@ static int env_save_file(const char *path, EnvVar *arr, int count)
     return 0;
 }
 
-// ---------- 对外接口 ----------
+
 
 int env_init(void)
 {
@@ -140,18 +140,18 @@ int env_user_save(const char *username)
 
 const char *env_get(const char *name)
 {
-    // 先查用户 env
+    
     for (int i = 0; i < g_user_env_count; i++)
         if (strcmp(g_user_env[i].key, name) == 0)
             return g_user_env[i].val;
-    // 再查系统 env
+    
     for (int i = 0; i < g_sys_env_count; i++)
         if (strcmp(g_sys_env[i].key, name) == 0)
             return g_sys_env[i].val;
     return NULL;
 }
 
-// 当前用户是否为 root（uid=0）—— 决定操作系统级还是用户级 env
+
 static int env_is_root(void)
 {
     User *u = dir_get_user();
@@ -166,7 +166,7 @@ int env_set(const char *name, const char *value)
     int    *count  = env_is_root() ? &g_sys_env_count : &g_user_env_count;
     int     is_sys = env_is_root() ? 1 : 0;
 
-    // 查找已有
+    
     for (int i = 0; i < *count; i++) {
         if (strcmp(arr[i].key, name) == 0) {
             strncpy(arr[i].val, value, ENV_MAX_VAL - 1);
@@ -174,7 +174,7 @@ int env_set(const char *name, const char *value)
             else        return env_user_save(g_current_user);
         }
     }
-    // 新增
+    
     if (*count >= ENV_MAX_VARS) return -1;
     strncpy(arr[*count].key, name, ENV_MAX_KEY - 1);
     strncpy(arr[*count].val, value, ENV_MAX_VAL - 1);

@@ -1,4 +1,4 @@
-// scheduler.c —— 时间片轮转调度器实现（支持共享/本地模式）
+
 
 #include "kernel/scheduler.h"
 #include "kernel/syscall.h"

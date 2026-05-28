@@ -1,4 +1,4 @@
-// ipc.c —— System V 风格 IPC 实现
+
 
 #include "kernel/ipc.h"
 #include "kernel/pipe.h"
@@ -36,7 +36,7 @@ void ipc_shutdown(void)
     memset(t, 0, sizeof(*t));
 }
 
-// ---- 信号 ----
+
 
 void ipc_deliver_signals(PCB *p)
 {
@@ -75,7 +75,7 @@ int ipc_kill(uint32_t pid, int sig)
     return 0;
 }
 
-// ---- 信号量 ----
+
 
 static IpcSem *sem_get(int semid)
 {
@@ -126,7 +126,7 @@ int ipc_semop(int semid, int delta)
     return 0;
 }
 
-// ---- 消息队列 ----
+
 
 static IpcMsgq *msgq_get(int qid)
 {
@@ -207,7 +207,7 @@ int ipc_msgrcv(int qid, int type, char *data, int max_len, int *out_type)
     return -1;
 }
 
-// ---- 共享内存 ----
+
 
 static IpcShm *shm_get(int shmid)
 {
@@ -315,7 +315,7 @@ int ipc_shmdt(PCB *p, int shmid)
     return 0;
 }
 
-// ---- 命名 FIFO ----
+
 
 static IpcFifo *fifo_find_path(const char *path)
 {

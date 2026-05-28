@@ -1,4 +1,4 @@
-// binaries.c —— 预置演示程序 .upx 二进制数据
+
 
 #include "binaries.h"
 #include "kernel/cpu.h"
@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 
-// 将 uint32 以小端序写入 buf
+
 static void w32(uint8_t *buf, uint32_t val)
 {
     buf[0] = (uint8_t)val;
@@ -15,93 +15,93 @@ static void w32(uint8_t *buf, uint32_t val)
     buf[3] = (uint8_t)(val >> 24);
 }
 
-// 构建一个完整的 .upx 二进制
+
 static int build_upx(uint8_t *out, size_t out_size,
                      const uint32_t *text, int text_words,
                      const uint8_t *data, uint32_t data_len,
                      uint32_t bss_len, uint32_t stack_len)
 {
-    size_t header_sz = sizeof(UPXHeader);       // 24
+    size_t header_sz = sizeof(UPXHeader);       
     size_t text_sz   = (size_t)text_words * 4;
     size_t total     = header_sz + text_sz + data_len;
 
     if (total > out_size) return -1;
 
-    // header
+    
     memcpy(out, "UPX\0", 4);
-    w32(out + 4, 0);                            // entry = 0
+    w32(out + 4, 0);                            
     w32(out + 8, (uint32_t)text_sz);
     w32(out + 12, data_len);
     w32(out + 16, bss_len);
     w32(out + 20, stack_len);
 
-    // text
+    
     uint8_t *tp = out + header_sz;
     for (int i = 0; i < text_words; i++)
         w32(tp + i * 4, text[i]);
 
-    // data
+    
     if (data_len > 0) memcpy(out + header_sz + text_sz, data, data_len);
 
     return (int)total;
 }
 
-// ===== hello: "Hello, World!\n" =====
-// LUI R2,1→page 1; ADD R2,R2,R0→offset 0 (data at page 1 offset 0)
-// MOVI R1,1; MOVI R3,14; SYSCALL 8; SYSCALL 0
+
+
+
 
 static const uint8_t hello_data[] = "Hello, World!\n";
 
 static uint32_t hello_text[] = {
-    CPU_ENCODE(OP_LUI, 2, 0, 0, 1),             // R2 = 0x1000 (page 1)
-    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            // R1 = 1 (stdout)
-    CPU_ENCODE(OP_MOVI, 3, 0, 0, 14),           // R3 = 14
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         // write(1, R2, 14)
-    CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),            // R1 = 0
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         // exit(0)
+    CPU_ENCODE(OP_LUI, 2, 0, 0, 1),             
+    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            
+    CPU_ENCODE(OP_MOVI, 3, 0, 0, 14),           
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         
+    CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),            
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         
 };
 
-// ===== counter: 输出 0-9 数字 =====
-// R4=counter. Loop: convert digit, store to buf, write, inc, cmp, jnz
+
+
 
 static uint32_t counter_text[] = {
-    CPU_ENCODE(OP_MOVI, 4, 0, 0, 0),            // R4 = 0
-    CPU_ENCODE(OP_LUI,  6, 0, 0, 1),            // R6 = page1 (data buffer)
-    // loop_start (PC=2):
-    CPU_ENCODE(OP_MOVI, 5, 0, 0, 0x30),         // R5 = '0'
-    CPU_ENCODE(OP_ADD,  5, 5, 4, 0),            // R5 = '0' + counter
-    CPU_ENCODE(OP_ST,   0, 6, 5, 0),            // [R6] = digit
-    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            // R1 = 1 (stdout)
-    CPU_ENCODE(OP_MOV,  2, 6, 0, 0),            // R2 = R6 (buf addr)
-    CPU_ENCODE(OP_MOVI, 3, 0, 0, 1),            // R3 = 1 (len)
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         // write
-    // newline
-    CPU_ENCODE(OP_MOVI, 5, 0, 0, '\n'),         // R5 = '\n'
-    CPU_ENCODE(OP_ST,   0, 6, 5, 0),            // [R6] = '\n'
-    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            // R1 = 1
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         // write
-    // inc
-    CPU_ENCODE(OP_MOVI, 8, 0, 0, 1),            // R8 = 1
-    CPU_ENCODE(OP_ADD,  4, 4, 8, 0),            // R4 += 1
-    // cmp
-    CPU_ENCODE(OP_MOVI, 8, 0, 0, 10),           // R8 = 10
-    CPU_ENCODE(OP_CMP,  0, 4, 8, 0),            // CMP R4, R8
-    CPU_ENCODE(OP_JNZ,  0, 0, 0, -16),          // JNZ loop_start (rel=-16)
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         // exit(0)
+    CPU_ENCODE(OP_MOVI, 4, 0, 0, 0),            
+    CPU_ENCODE(OP_LUI,  6, 0, 0, 1),            
+    
+    CPU_ENCODE(OP_MOVI, 5, 0, 0, 0x30),         
+    CPU_ENCODE(OP_ADD,  5, 5, 4, 0),            
+    CPU_ENCODE(OP_ST,   0, 6, 5, 0),            
+    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            
+    CPU_ENCODE(OP_MOV,  2, 6, 0, 0),            
+    CPU_ENCODE(OP_MOVI, 3, 0, 0, 1),            
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         
+    
+    CPU_ENCODE(OP_MOVI, 5, 0, 0, '\n'),         
+    CPU_ENCODE(OP_ST,   0, 6, 5, 0),            
+    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         
+    
+    CPU_ENCODE(OP_MOVI, 8, 0, 0, 1),            
+    CPU_ENCODE(OP_ADD,  4, 4, 8, 0),            
+    
+    CPU_ENCODE(OP_MOVI, 8, 0, 0, 10),           
+    CPU_ENCODE(OP_CMP,  0, 4, 8, 0),            
+    CPU_ENCODE(OP_JNZ,  0, 0, 0, -16),          
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         
 };
 
-// ===== echo: "Echo!\n" =====
+
 static const uint8_t echo_data[] = "Echo!\n";
 
 static uint32_t echo_text[] = {
-    CPU_ENCODE(OP_LUI, 2, 0, 0, 1),             // R2 = page 1
-    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            // R1 = 1
-    CPU_ENCODE(OP_MOVI, 3, 0, 0, 6),            // R3 = 6
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         // write
-    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         // exit
+    CPU_ENCODE(OP_LUI, 2, 0, 0, 1),             
+    CPU_ENCODE(OP_MOVI, 1, 0, 0, 1),            
+    CPU_ENCODE(OP_MOVI, 3, 0, 0, 6),            
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 8),         
+    CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),         
 };
 
-// ===== 构建最终二进制 =====
+
 
 #define BIN_BUF_SIZE  8192
 
@@ -142,21 +142,21 @@ static void init_binaries(void)
         echo_data, sizeof(echo_data), 0, 4096);
     if (g_echo_size < 0) g_echo_size = 0;
 
-    // ---- vim: 编辑文件 (SYSCALL_HOST_EDIT) ----
+    
     static uint32_t vim_text[] = {
-        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 20),   // HOST_EDIT (reads stdin)
-        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       // R1 = 0
-        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    // EXIT(0)
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 20),   
+        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    
     };
     g_vim_size = build_upx(g_vim_buf, BIN_BUF_SIZE,
         vim_text, sizeof(vim_text)/4, NULL, 0, 0, 256);
     if (g_vim_size < 0) g_vim_size = 0;
 
-    // ---- asm: 汇编器 (SYSCALL_HOST_ASM) ----
+    
     static uint32_t asm_text[] = {
-        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 21),   // HOST_ASM (reads stdin)
-        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       // R1 = 0
-        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    // EXIT(0)
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 21),   
+        CPU_ENCODE(OP_MOVI, 1, 0, 0, 0),       
+        CPU_ENCODE(OP_SYSCALL, 0, 0, 0, 0),    
     };
     g_asm_size = build_upx(g_asm_buf, BIN_BUF_SIZE,
         asm_text, sizeof(asm_text)/4, NULL, 0, 0, 256);

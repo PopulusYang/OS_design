@@ -1,7 +1,7 @@
-// websrv.c —— WebSocket ↔ UPFS TCP 桥接 + 终端网页
-//
-// 浏览器 WebSocket → websrv → TCP :4096 → UPFS daemon
-// 监听 :8080，GET / 返回多终端网页，WS /ws 桥接到 UPFS TCP。
+
+
+
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +16,7 @@
 #include <poll.h>
 #include <time.h>
 
-// ---------- 常量 ----------
+
 
 #define MAX_CLIENTS   32
 #define BUF_SIZE      8192
@@ -24,17 +24,17 @@
 #define UPFS_PORT     4096
 #define WS_GUID       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-// ---------- 桥接会话 ----------
+
 
 typedef struct {
-    int ws_fd;       // 浏览器 WebSocket fd
-    int upfs_fd;     // UPFS TCP fd
+    int ws_fd;       
+    int upfs_fd;     
     int active;
 } Bridge;
 
 static Bridge g_bridges[MAX_CLIENTS];
 
-// ---------- SHA1 ----------
+
 
 typedef struct {
     uint32_t state[5], count[2];
@@ -101,7 +101,7 @@ static void sha1(const uint8_t *d, size_t len, uint8_t dg[20])
     sha1_update(&c,d,len); sha1_final(dg,&c);
 }
 
-// ---------- Base64 ----------
+
 
 static const char b64[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static int b64_encode(const uint8_t *in, int len, char *out)
@@ -115,7 +115,7 @@ static int b64_encode(const uint8_t *in, int len, char *out)
     out[o]='\0'; return o;
 }
 
-// ---------- WebSocket ----------
+
 
 static void ws_send(int fd, const char *msg, int len)
 {
@@ -151,7 +151,7 @@ static void ws_handshake_accept(const char *key, char *out)
     sha1((const uint8_t*)c,(int)strlen(c),h); b64_encode(h,20,out);
 }
 
-// ---------- HTTP ----------
+
 
 static void http_send(int fd, int code, const char *ctype, const char *body, int blen, const char *extra)
 {
@@ -164,7 +164,7 @@ static void http_send(int fd, int code, const char *ctype, const char *body, int
     if(body&&blen>0) write(fd,body,(size_t)blen);
 }
 
-// ---------- 嵌入 HTML ----------
+
 
 static const char g_html[] =
 "<!DOCTYPE html>\n"
@@ -272,7 +272,7 @@ static const char g_html[] =
 "</body>\n"
 "</html>\n";
 
-// ---------- 连接到 UPFS TCP ----------
+
 
 static int upfs_connect(void)
 {
@@ -290,12 +290,12 @@ static int upfs_connect(void)
         return -1;
     }
 
-    // 非阻塞模式
+    
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
     return fd;
 }
 
-// ---------- 主循环 ----------
+
 
 int main(void)
 {
@@ -326,15 +326,15 @@ int main(void)
     printf("listening on http://localhost:%d  (UPFS bridge to :%d)\n", PORT, UPFS_PORT);
     fflush(stdout);
 
-    // poll 数组: [0]=listener, 其余按需填充
+    
     memset(fds, 0, sizeof(fds));
     fds[0].fd     = listen_fd;
     fds[0].events = POLLIN;
     nfds = 1;
 
-    // 每个 poll 槽位的类型: 0=listener, 1=HTTP client, 2=bridge ws, 3=bridge upfs
+    
     int  slot_type[MAX_CLIENTS * 2 + 2];
-    int  slot_bridge_idx[MAX_CLIENTS * 2 + 2]; // 桥接索引
+    int  slot_bridge_idx[MAX_CLIENTS * 2 + 2]; 
     char http_buf[MAX_CLIENTS * 2 + 2][BUF_SIZE];
     int  http_buflen[MAX_CLIENTS * 2 + 2];
 
@@ -346,18 +346,18 @@ int main(void)
         int rc = poll(fds, (nfds_t)nfds, 50);
         if (rc < 0 && errno != EINTR) { perror("poll"); break; }
 
-        // 清理断开的连接
+        
         for (i = 1; i < nfds; i++) {
             if (fds[i].fd < 0) continue;
             if (fds[i].revents & (POLLERR | POLLHUP)) {
                 int bi = slot_bridge_idx[i];
                 if (bi >= 0 && g_bridges[bi].active) {
-                    // 断开桥接两端
+                    
                     if (g_bridges[bi].ws_fd >= 0)
                         close(g_bridges[bi].ws_fd);
                     if (g_bridges[bi].upfs_fd >= 0)
                         close(g_bridges[bi].upfs_fd);
-                    // 清理对应的 poll 槽位
+                    
                     for (int k = 1; k < nfds; k++) {
                         if (slot_bridge_idx[k] == bi) { fds[k].fd = -1; slot_bridge_idx[k] = -1; }
                     }
@@ -369,7 +369,7 @@ int main(void)
             }
         }
 
-        // 新 HTTP 连接
+        
         if (fds[0].revents & POLLIN) {
             struct sockaddr_in ca; socklen_t cl = sizeof(ca);
             int cfd = accept(listen_fd, (struct sockaddr *)&ca, &cl);
@@ -383,13 +383,13 @@ int main(void)
             } else if (cfd >= 0) { close(cfd); }
         }
 
-        // 处理 I/O
+        
         for (i = 1; i < nfds; i++) {
             int fd = fds[i].fd;
             if (fd < 0) continue;
 
             if (slot_type[i] == 1 && (fds[i].revents & POLLIN)) {
-                // ---- HTTP 模式 ----
+                
                 char *b  = http_buf[i];
                 int  *bl = &http_buflen[i];
                 int  room = BUF_SIZE - 1 - *bl;
@@ -401,14 +401,14 @@ int main(void)
                 char *end = strstr(b, "\r\n\r\n");
                 if (!end) continue;
 
-                // 解析路径
+                
                 char *path = strchr(b, ' ');
                 if (!path) { close(fd); fds[i].fd = -1; continue; }
                 char *pe = strchr(path + 1, ' ');
                 if (!pe) { close(fd); fds[i].fd = -1; continue; }
                 int plen = (int)(pe - path - 1);
 
-                // 查找 WS key
+                
                 char *ws_key = NULL;
                 {
                     char *hdr = pe + 1;
@@ -429,16 +429,16 @@ int main(void)
                 }
 
                 if (ws_key && plen > 4 && strncmp(path + 1, "/ws/", 4) == 0) {
-                    // ---- WS 握手 + 建立 UPFS 桥接 ----
+                    
                     char akey[64]; ws_handshake_accept(ws_key, akey);
                     char extra[256];
                     snprintf(extra, sizeof(extra),
                              "Upgrade: websocket\r\nSec-WebSocket-Accept: %s\r\n", akey);
                     http_send(fd, 101, NULL, NULL, 0, extra);
 
-                    // 连接到 UPFS
+                    
                     int ufd = upfs_connect();
-                    // 分配桥接槽位
+                    
                     int bi = -1;
                     for (int j = 0; j < MAX_CLIENTS; j++) {
                         if (!g_bridges[j].active) { bi = j; break; }
@@ -447,11 +447,11 @@ int main(void)
                         g_bridges[bi].ws_fd   = fd;
                         g_bridges[bi].upfs_fd = ufd;
                         g_bridges[bi].active  = 1;
-                        // WS 端
+                        
                         slot_type[i] = 2;
                         slot_bridge_idx[i] = bi;
                         fds[i].events = POLLIN;
-                        // UPFS 端：加入 poll
+                        
                         if (nfds < (int)(sizeof(fds)/sizeof(fds[0]))) {
                             fds[nfds].fd = ufd;
                             fds[nfds].events = POLLIN;
@@ -464,7 +464,7 @@ int main(void)
                         close(fd);
                         fds[i].fd = -1;
                     } else {
-                        // UPFS 未启动，关闭连接
+                        
                         ws_send(fd, "\r\nUPFS daemon not running on :4096\r\n", 40);
                         close(fd);
                         fds[i].fd = -1;
@@ -480,13 +480,13 @@ int main(void)
                 }
             }
 
-            // ---- 桥接数据转发 ----
+            
             if ((slot_type[i] == 2 || slot_type[i] == 3) && (fds[i].revents & POLLIN)) {
                 int bi = slot_bridge_idx[i];
                 if (bi < 0 || !g_bridges[bi].active) continue;
 
                 if (slot_type[i] == 2) {
-                    // WS → UPFS
+                    
                     uint8_t payload[BUF_SIZE];
                     int plen = ws_recv(fd, payload, BUF_SIZE - 1);
                     if (plen < 0) {
@@ -498,7 +498,7 @@ int main(void)
                         write(g_bridges[bi].upfs_fd, payload, (size_t)plen);
                     }
                 } else {
-                    // UPFS → WS
+                    
                     char buf[4096];
                     int n = (int)read(fd, buf, sizeof(buf));
                     if (n <= 0) {

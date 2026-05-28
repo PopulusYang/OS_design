@@ -1,9 +1,9 @@
-// user_mgmt.c —— 多用户管理实现
-//
-// 用户数据持久化于 /etc/passwd 文本文件（每行一个用户）：
-//   username:uid:password_hash_hex:salt_hex:home_dir
-//
-// 口令哈希：256-bit 状态迭代混合，10000 轮，不可逆。
+
+
+
+
+
+
 
 #include "user/user_mgmt.h"
 #include "fs/file_sys.h"
@@ -15,19 +15,19 @@
 #include <string.h>
 #include <time.h>
 
-// ---------- 用户数据库（内存缓存） ----------
+
 
 static UserAccount g_users[MAX_USERS];
 static int         g_user_count = 0;
 static int         g_user_inited = 0;
 
-// /etc/passwd 文件路径
+
 #define PASSWD_PATH     "/etc/passwd"
 
-// 单行最大长度（名字 32 + uid 5 + hash 65 + salt 17 + home 64 + 分隔符 + 换行）
+
 #define PASSWD_LINE_MAX 256
 
-// ---------- 内部：字节 → 十六进制 ----------
+
 
 static const char HEX_CHARS[] = "0123456789abcdef";
 
@@ -70,9 +70,9 @@ static int hex_to_bytes(const char *hex, uint8_t *bytes_out, int len)
     return 0;
 }
 
-// ---------- 内部：256-bit 迭代哈希 ----------
 
-// 8 个 32-bit 状态字构成 256-bit 内部状态
+
+
 #define HASH_STATE_WORDS    8
 #define HASH_ROUNDS         10000
 
@@ -112,21 +112,21 @@ void user_hash_password(const char *password, const char *salt_hex, char *hex_ou
         return;
     }
 
-    // 解析 salt 十六进制
+    
     hex_to_bytes(salt_hex, salt_bytes, USER_SALT_LEN);
 
-    // 初始化 256-bit 状态：前 32 字节来自 salt（重复填充），后接常量
+    
     for (i = 0; i < HASH_STATE_WORDS; i++) {
         state[i] = ((uint32_t)salt_bytes[(i * 4) % USER_SALT_LEN] << 24)
                  | ((uint32_t)salt_bytes[(i * 4 + 1) % USER_SALT_LEN] << 16)
                  | ((uint32_t)salt_bytes[(i * 4 + 2) % USER_SALT_LEN] << 8)
                  | ((uint32_t)salt_bytes[(i * 4 + 3) % USER_SALT_LEN]);
     }
-    // 注入轮常数打破对称性
+    
     state[0] ^= 0x6A09E667U;
     state[4] ^= 0xBB67AE85U;
 
-    // 将 salt + password 拼接为混合输入
+    
     pass_len = (int)strlen(password);
     combined_len = USER_SALT_LEN + pass_len;
     if (combined_len > (int)sizeof(combined)) {
@@ -137,7 +137,7 @@ void user_hash_password(const char *password, const char *salt_hex, char *hex_ou
 
     hash_state_mix(state, combined, combined_len);
 
-    // 输出 32 字节哈希
+    
     {
         uint8_t hash_bytes[USER_HASH_LEN];
         for (i = 0; i < HASH_STATE_WORDS; i++) {
@@ -160,7 +160,7 @@ void user_gen_salt(char *hex_out)
         return;
     }
 
-    // 尝试从 /dev/urandom 读取随机盐值
+    
     fp = fopen("/dev/urandom", "rb");
     if (fp != NULL) {
         size_t n = fread(salt, 1, sizeof(salt), fp);
@@ -171,7 +171,7 @@ void user_gen_salt(char *hex_out)
         }
     }
 
-    // 回退：基于时间戳 + 计数器生成
+    
     {
         static uint64_t counter = 0;
         uint64_t t = (uint64_t)time(NULL);
@@ -187,7 +187,7 @@ void user_gen_salt(char *hex_out)
     bytes_to_hex(salt, USER_SALT_LEN, hex_out);
 }
 
-// ---------- 内部：/etc/passwd 读写 ----------
+
 
 static int passwd_exists(void)
 {
@@ -202,7 +202,7 @@ static int passwd_exists(void)
 int user_db_load(void)
 {
     int  fd;
-    char buf[4096];  // 足够容纳所有用户条目
+    char buf[4096];  
     int  total;
     int  line_start;
     int  pos;
@@ -239,7 +239,7 @@ int user_db_load(void)
             break;
         }
 
-        // 解析一行
+        
         {
             UserAccount *ua = &g_users[g_user_count];
             char         line[PASSWD_LINE_MAX];
@@ -308,7 +308,7 @@ int user_db_save(void)
     int  i;
     int  n;
 
-    // 确保 /etc 目录存在（兼容旧镜像）
+    
     {
         MemINode *etc_ip = namei("/etc");
         if (etc_ip == NULL) {
@@ -318,7 +318,7 @@ int user_db_save(void)
         }
     }
 
-    // 先创建新文件（若已有则删掉重建）
+    
     if (passwd_exists()) {
         vfs_delete(PASSWD_PATH);
     }
@@ -353,7 +353,7 @@ int user_db_save(void)
     return 0;
 }
 
-// ---------- 对外接口 ----------
+
 
 int user_init(void)
 {
@@ -361,10 +361,10 @@ int user_init(void)
         return 0;
     }
 
-    // 确保 /etc 目录存在且 /etc/passwd 文件存在
+    
     if (!passwd_exists()) {
-        // 可能需要创建 /etc 目录（对于旧镜像的兼容）
-        // 尝试直接创建文件，若父目录不存在则先 mkdir
+        
+        
         if (vfs_create(PASSWD_PATH, 0644) != 0) {
             vfs_mkdir("/etc", 0755);
             vfs_create(PASSWD_PATH, 0644);
@@ -394,12 +394,12 @@ int user_add(const char *username, const char *password)
         return -1;
     }
 
-    // 分配 uid：从 USER_UID_BASE 开始递增，或对 root 分配 0
+    
     if (strcmp(username, "root") == 0) {
         uid = 0;
     } else {
         uid = USER_UID_BASE;
-        // 找最小未使用的 uid
+        
         {
             int found;
             uint16_t try_uid;
@@ -431,7 +431,7 @@ int user_add(const char *username, const char *password)
     strncpy(ua->ua_passwd_hash, hash_hex, sizeof(ua->ua_passwd_hash) - 1);
     strncpy(ua->ua_salt, salt_hex, sizeof(ua->ua_salt) - 1);
 
-    // 构造家目录路径
+    
     {
         int n = snprintf(ua->ua_home, sizeof(ua->ua_home), "/home/%s", username);
         if (n < 0 || n >= (int)sizeof(ua->ua_home)) {
@@ -439,11 +439,11 @@ int user_add(const char *username, const char *password)
         }
     }
 
-    // 创建家目录
+    
     if (strcmp(username, "root") == 0) {
-        // root 无独立家目录（或可设为 /root）
+        
         strncpy(ua->ua_home, "/root", sizeof(ua->ua_home) - 1);
-        // /root 已在 format 时创建
+        
     } else {
         if (user_create_home(username, uid, uid) != 0) {
             return -1;
@@ -533,7 +533,7 @@ int user_delete(const char *username)
         return -1;
     }
 
-    // 压缩数组
+    
     for (i = idx; i < g_user_count - 1; i++) {
         g_users[i] = g_users[i + 1];
     }
@@ -552,7 +552,7 @@ int user_passwd(const char *username, const char *new_password)
     if (username == NULL || new_password == NULL) {
         return -1;
     }
-    // 通过可写方式查找：内部已知 ua 非 const
+    
     {
         int i;
         ua = NULL;

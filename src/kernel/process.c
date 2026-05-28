@@ -1,4 +1,4 @@
-// process.c —— 进程管理实现（支持共享/本地模式）
+
 
 #include "kernel/process.h"
 #include "kernel/memory.h"
@@ -13,27 +13,27 @@
 
 extern KernelShared *g_kernel;
 
-// ---------- 辅助 ----------
 
-// 通过 proc_table 下标获取 PCB 指针
+
+
 static PCB *proc_by_idx(int idx) {
     if (idx < 0 || idx >= PROC_MAX_COUNT) return NULL;
     if (g_kernel->proc_table[idx].p_state == PROC_FREE) return NULL;
     return &g_kernel->proc_table[idx];
 }
 
-// PCB 指针转下标
+
 static int proc_to_idx(PCB *p) {
     if (p == NULL) return -1;
     return (int)(p - g_kernel->proc_table);
 }
 
-// ---------- 初始化 ----------
+
 
 int proc_init(void)
 {
     if (g_kernel == NULL) return -1;
-    if (g_kernel->initialized) return 0; // 共享内核已由 kernel_shared_create 初始化
+    if (g_kernel->initialized) return 0; 
     memset(g_kernel->proc_table, 0, sizeof(g_kernel->proc_table));
     g_kernel->current_idx = -1;
     g_kernel->next_pid = 1;
@@ -116,7 +116,7 @@ void proc_free(PCB *p)
 
 PCB *proc_create_init(void)
 {
-    // 共享模式下 init 可能已被其他终端会话创建
+    
     PCB *existing = proc_find(0);
     if (existing) {
         proc_set_current(existing);
@@ -136,7 +136,7 @@ PCB *proc_create_init(void)
     return p;
 }
 
-// ---------- fork ----------
+
 
 static void proc_dup_fd(ProcFD *dst, const ProcFD *src)
 {
@@ -200,7 +200,7 @@ int proc_fork(void)
     return (int)child->p_pid;
 }
 
-// ---------- pipe ----------
+
 
 int proc_pipe(int fds[2])
 {
@@ -231,7 +231,7 @@ int proc_pipe(int fds[2])
     return 0;
 }
 
-// ---------- exec（加载 UPX） ----------
+
 
 int upx_validate(const uint8_t *data, uint32_t size)
 {
@@ -303,7 +303,7 @@ int upx_load(PCB *p, const uint8_t *data, uint32_t size)
     p->p_stack_top = PROC_STACK_TOP;
     p->p_heap_brk = p->p_bss_end;
 
-    // 拷贝 text 到物理内存（cpu_virt_to_phys 通过 container_of 取 p_page_table）
+    
     {
         const uint8_t *text_src = data + sizeof(UPXHeader);
         for (uint32_t i = 0; i < hdr->text_size; i++) {
@@ -357,7 +357,7 @@ int proc_exec(PCB *p, const char *path)
     return rc;
 }
 
-// ---------- wait / exit ----------
+
 
 int proc_wait(int *status)
 {
@@ -389,7 +389,7 @@ void proc_exit(int code)
     p->p_cpu.regs[0] = (uint32_t)code;
 }
 
-// ---------- 辅助 ----------
+
 
 int proc_count(void)
 {
