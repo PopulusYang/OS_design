@@ -39,6 +39,13 @@ add_executable(OS_design
     src/assembler.c
     # 编辑器
     src/editor.c
+    # C 编译器
+    src/compiler/c2s.c
+    src/compiler/lexer.c
+    src/compiler/parser.c
+    src/compiler/codegen.c
+    src/compiler/regalloc.c
+    src/compiler/ast.c
 )
 
 # 包含头文件目录

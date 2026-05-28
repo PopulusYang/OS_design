@@ -10,7 +10,9 @@ SRCS   = src/fs/disk_io.c src/fs/format.c src/fs/allocator.c \
          src/kernel/memory.c src/kernel/cpu.c src/kernel/process.c \
          src/kernel/scheduler.c src/kernel/syscall.c src/kernel/kernel_shared.c \
          src/user/user_mgmt.c src/user/env.c \
-         src/binaries.c src/main.c src/serve.c src/assembler.c src/editor.c
+         src/binaries.c src/main.c src/serve.c src/assembler.c src/editor.c \
+         src/compiler/c2s.c src/compiler/lexer.c src/compiler/parser.c \
+         src/compiler/codegen.c src/compiler/regalloc.c src/compiler/ast.c
 OBJS   = $(SRCS:src/%.c=$(OUTDIR)/%.o)
 TARGET = upfs
 
