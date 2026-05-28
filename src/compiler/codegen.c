@@ -1,0 +1,940 @@
+// codegen.c —— AST → VM 汇编代码生成器
+//
+// 将 C AST 翻译为 UPFS VM 汇编 (.s) 代码。
+// 关键约束处理：
+//   - MOVI 仅 12 位有符号立即数 → 大地址用 LUI+MOVI+ADD
+//   - 无立即数算术 → 常数先 MOVI 到临时寄存器
+//   - 仅 ZF 标志位 → < > <= >= 比较用运行时函数
+//   - R0=返回值, R1-R8=临时, R9-R13=callee-saved, R14=FP, R15=SP
+
+#include "compiler/codegen.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+
+#define REG_FP  14
+#define REG_SP  15
+#define REG_RET 0
+
+// ---------- 辅助函数 ----------
+
+static void emit_escaped_string(CodeGen *cg, const char *s) {
+    fputc('"', cg->out);
+    for (const char *p = s; *p; p++) {
+        switch (*p) {
+        case '\n': fputs("\\n", cg->out); break;
+        case '\r': fputs("\\r", cg->out); break;
+        case '\t': fputs("\\t", cg->out); break;
+        case '\\': fputs("\\\\", cg->out); break;
+        case '"':  fputs("\\\"", cg->out); break;
+        default:   fputc(*p, cg->out); break;
+        }
+    }
+    fputc('"', cg->out);
+}
+
+static int codegen_new_tmp(CodeGen *cg) {
+    return ++cg->tmp_counter;
+}
+
+static void emit(CodeGen *cg, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(cg->out, fmt, ap);
+    va_end(ap);
+}
+
+static void emit_reg(CodeGen *cg, int r) {
+    fprintf(cg->out, "R%d", r);
+}
+
+// 加载一个 32 位立即数到寄存器
+// MOVI 只能处理 12 位有符号 (-2048..2047)
+// 超出范围用 LUI+MOVI+ADD
+static void emit_load_imm(CodeGen *cg, int reg, int32_t val) {
+    if (val >= -2048 && val <= 2047) {
+        emit(cg, "    MOVI ");
+        emit_reg(cg, reg);
+        emit(cg, ", %d\n", val);
+    } else {
+        // LUI reg, high | MOVI tmp, low | ADD reg, reg, tmp
+        int32_t high = (val >> 12) & 0xFFF;
+        int32_t low = val & 0xFFF;
+        if (low > 2047) { // 需要符号扩展处理
+            low = (int16_t)(low | 0xFFFFF000) & 0xFFF;
+            high = ((val - low) >> 12) & 0xFFF;
+        }
+        emit(cg, "    LUI ");
+        emit_reg(cg, reg);
+        emit(cg, ", %d\n", high);
+        if (low != 0) {
+            int need_mark = (reg >= REG_ALLOC_MIN && reg <= REG_ALLOC_MAX && !cg->ra.used[reg]);
+            if (need_mark) cg->ra.used[reg] = true;
+            int tmp = regalloc_alloc(&cg->ra);
+            emit(cg, "    MOVI ");
+            emit_reg(cg, tmp);
+            emit(cg, ", %d\n", (int16_t)low);
+            emit(cg, "    ADD ");
+            emit_reg(cg, reg);
+            emit(cg, ", ");
+            emit_reg(cg, reg);
+            emit(cg, ", ");
+            emit_reg(cg, tmp);
+            emit(cg, "\n");
+            regalloc_free(&cg->ra, tmp);
+            if (need_mark) cg->ra.used[reg] = false;
+        }
+    }
+}
+
+// 加载一个符号地址到寄存器（使用 LUI+MOVI+ADD）
+static void emit_load_addr(CodeGen *cg, int reg, const char *label) {
+    // 如果目标寄存器在临时寄存器池中，标记为已用，防止被分配为 tmp
+    int need_mark = (reg >= REG_ALLOC_MIN && reg <= REG_ALLOC_MAX && !cg->ra.used[reg]);
+    if (need_mark) cg->ra.used[reg] = true;
+    emit(cg, "    LUI ");
+    emit_reg(cg, reg);
+    emit(cg, ", %s\n", label);
+    int tmp = regalloc_alloc(&cg->ra);
+    emit(cg, "    MOVI ");
+    emit_reg(cg, tmp);
+    emit(cg, ", %s\n", label);
+    emit(cg, "    ADD ");
+    emit_reg(cg, reg);
+    emit(cg, ", ");
+    emit_reg(cg, reg);
+    emit(cg, ", ");
+    emit_reg(cg, tmp);
+    emit(cg, "\n");
+    regalloc_free(&cg->ra, tmp);
+    if (need_mark) cg->ra.used[reg] = false;
+}
+
+// 从局部变量加载到寄存器
+static void emit_load_local(CodeGen *cg, int reg, int offset) {
+    emit(cg, "    LD ");
+    emit_reg(cg, reg);
+    emit(cg, ", R%d, %d\n", REG_FP, offset);
+}
+
+// 存储寄存器值到局部变量
+static void emit_store_local(CodeGen *cg, int val_reg, int offset) {
+    emit(cg, "    ST ");
+    emit_reg(cg, val_reg);
+    emit(cg, ", R%d, %d\n", REG_FP, offset);
+}
+
+// 加载全局变量地址到寄存器，然后 LD
+static void emit_load_global(CodeGen *cg, int reg, Symbol *sym) {
+    emit_load_addr(cg, reg, sym->name);
+    emit(cg, "    LD ");
+    emit_reg(cg, reg);
+    emit(cg, ", ");
+    emit_reg(cg, reg);
+    emit(cg, ", 0\n");
+}
+
+// 存储到全局变量
+static void emit_store_global(CodeGen *cg, int val_reg, Symbol *sym) {
+    int tmp = regalloc_alloc(&cg->ra);
+    emit_load_addr(cg, tmp, sym->name);
+    emit(cg, "    ST ");
+    emit_reg(cg, val_reg);
+    emit(cg, ", ");
+    emit_reg(cg, tmp);
+    emit(cg, ", 0\n");
+    regalloc_free(&cg->ra, tmp);
+}
+
+// 将表达式结果加载到指定寄存器
+// 返回存放结果的寄存器编号
+static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg);
+
+// ---------- 表达式代码生成 ----------
+
+static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
+    if (!n) return target_reg;
+
+    switch (n->kind) {
+    case AST_NUM: {
+        emit_load_imm(cg, target_reg, n->num_val);
+        return target_reg;
+    }
+
+    case AST_STRING: {
+        emit_load_addr(cg, target_reg, n->string.label);
+        return target_reg;
+    }
+
+    case AST_IDENT: {
+        // 在当前作用域重新查找（优先使用 codegen 时创建的局部符号）
+        Symbol *sym = scope_lookup(cg->comp->current_scope, n->ident.name);
+        if (!sym) {
+            // 未声明的标识符，可能是外部函数，当作 0 处理
+            emit_load_imm(cg, target_reg, 0);
+            return target_reg;
+        }
+        switch (sym->kind) {
+        case SYM_GLOBAL_VAR:
+            emit_load_global(cg, target_reg, sym);
+            break;
+        case SYM_LOCAL_VAR:
+        case SYM_PARAM:
+            emit_load_local(cg, target_reg, sym->offset);
+            break;
+        case SYM_FUNC:
+            // 函数名 → 函数地址
+            emit_load_addr(cg, target_reg, n->ident.name);
+            break;
+        }
+        return target_reg;
+    }
+
+    case AST_BINARY: {
+        int rleft = regalloc_alloc(&cg->ra);
+        emit_expr(cg, n->binary.left, rleft);
+
+        int rright = regalloc_alloc(&cg->ra);
+        emit_expr(cg, n->binary.right, rright);
+
+        // 比较运算 → 运行时函数
+        switch (n->binary.op) {
+        case BINOP_LT:
+        case BINOP_GT:
+        case BINOP_LE:
+        case BINOP_GE: {
+            const char *rt_func;
+            switch (n->binary.op) {
+                case BINOP_LT: rt_func = "__rt_lt"; break;
+                case BINOP_GT: rt_func = "__rt_gt"; break;
+                case BINOP_LE: rt_func = "__rt_le"; break;
+                case BINOP_GE: rt_func = "__rt_ge"; break;
+                default: rt_func = "__rt_lt"; break;
+            }
+            emit(cg, "    MOV R1, ");
+            emit_reg(cg, rleft);
+            emit(cg, "\n");
+            emit(cg, "    MOV R2, ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    CALL %s\n", rt_func);
+            emit(cg, "    MOV ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", R0\n");
+            break;
+        }
+        case BINOP_EQ: {
+            emit(cg, "    CMP ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    JZ .Leq_%d\n", cg->tmp_counter);
+            emit_load_imm(cg, target_reg, 0);
+            emit(cg, "    JMP .Lend_eq_%d\n", cg->tmp_counter);
+            emit(cg, ".Leq_%d:\n", cg->tmp_counter);
+            emit_load_imm(cg, target_reg, 1);
+            emit(cg, ".Lend_eq_%d:\n", cg->tmp_counter);
+            cg->tmp_counter++;
+            break;
+        }
+        case BINOP_NE: {
+            emit(cg, "    CMP ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    JNZ .Lne_%d\n", cg->tmp_counter);
+            emit_load_imm(cg, target_reg, 0);
+            emit(cg, "    JMP .Lend_ne_%d\n", cg->tmp_counter);
+            emit(cg, ".Lne_%d:\n", cg->tmp_counter);
+            emit_load_imm(cg, target_reg, 1);
+            emit(cg, ".Lend_ne_%d:\n", cg->tmp_counter);
+            cg->tmp_counter++;
+            break;
+        }
+        case BINOP_AND: {
+            int lbl = cg->tmp_counter++;
+            emit(cg, "    CMP ");
+            emit_reg(cg, rleft);
+            emit(cg, ", R0\n");
+            emit(cg, "    JZ .Land_false_%d\n", lbl);
+            emit(cg, "    CMP ");
+            emit_reg(cg, rright);
+            emit(cg, ", R0\n");
+            emit(cg, "    JZ .Land_false_%d\n", lbl);
+            emit_load_imm(cg, target_reg, 1);
+            emit(cg, "    JMP .Land_end_%d\n", lbl);
+            emit(cg, ".Land_false_%d:\n", lbl);
+            emit_load_imm(cg, target_reg, 0);
+            emit(cg, ".Land_end_%d:\n", lbl);
+            break;
+        }
+        case BINOP_OR: {
+            int lbl = cg->tmp_counter++;
+            emit(cg, "    CMP ");
+            emit_reg(cg, rleft);
+            emit(cg, ", R0\n");
+            emit(cg, "    JNZ .Lor_true_%d\n", lbl);
+            emit(cg, "    CMP ");
+            emit_reg(cg, rright);
+            emit(cg, ", R0\n");
+            emit(cg, "    JNZ .Lor_true_%d\n", lbl);
+            emit_load_imm(cg, target_reg, 0);
+            emit(cg, "    JMP .Lor_end_%d\n", lbl);
+            emit(cg, ".Lor_true_%d:\n", lbl);
+            emit_load_imm(cg, target_reg, 1);
+            emit(cg, ".Lor_end_%d:\n", lbl);
+            break;
+        }
+        case BINOP_ADD:
+            emit(cg, "    ADD ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_SUB:
+            emit(cg, "    SUB ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_MUL:
+            emit(cg, "    MUL ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_DIV:
+            emit(cg, "    DIV ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_MOD: {
+            // a % b = a - (a / b) * b
+            int tmp = regalloc_alloc(&cg->ra);
+            emit(cg, "    DIV ");
+            emit_reg(cg, tmp);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    MUL ");
+            emit_reg(cg, tmp);
+            emit(cg, ", ");
+            emit_reg(cg, tmp);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    SUB ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, tmp);
+            emit(cg, "\n");
+            regalloc_free(&cg->ra, tmp);
+            break;
+        }
+        case BINOP_AMP:
+            emit(cg, "    AND ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_PIPE:
+            emit(cg, "    OR ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_XOR:
+            emit(cg, "    XOR ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rleft);
+            emit(cg, ", ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            break;
+        case BINOP_LSHIFT:
+        case BINOP_RSHIFT:
+            // 无移位指令 → 运行时函数
+            emit(cg, "    MOV R1, ");
+            emit_reg(cg, rleft);
+            emit(cg, "\n");
+            emit(cg, "    MOV R2, ");
+            emit_reg(cg, rright);
+            emit(cg, "\n");
+            emit(cg, "    CALL %s\n",
+                n->binary.op == BINOP_LSHIFT ? "__rt_lshift" : "__rt_rshift");
+            emit(cg, "    MOV ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", R0\n");
+            break;
+        }
+
+        regalloc_free(&cg->ra, rleft);
+        regalloc_free(&cg->ra, rright);
+        return target_reg;
+    }
+
+    case AST_UNARY: {
+        int rop = emit_expr(cg, n->unary.operand, target_reg);
+        switch (n->unary.op) {
+        case UNOP_NEG: {
+            int tmp = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, tmp, 0);
+            emit(cg, "    SUB ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, tmp);
+            emit(cg, ", ");
+            emit_reg(cg, rop);
+            emit(cg, "\n");
+            regalloc_free(&cg->ra, tmp);
+            break;
+        }
+        case UNOP_NOT: {
+            int lbl = cg->tmp_counter++;
+            emit(cg, "    CMP ");
+            emit_reg(cg, rop);
+            emit(cg, ", R0\n");
+            emit(cg, "    JZ .Lunot_%d\n", lbl);
+            emit_load_imm(cg, target_reg, 0);
+            emit(cg, "    JMP .Lunot_end_%d\n", lbl);
+            emit(cg, ".Lunot_%d:\n", lbl);
+            emit_load_imm(cg, target_reg, 1);
+            emit(cg, ".Lunot_end_%d:\n", lbl);
+            break;
+        }
+        case UNOP_TILDE: {
+            // ~x = x XOR -1
+            int tmp = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, tmp, -1);
+            emit(cg, "    XOR ");
+            emit_reg(cg, target_reg);
+            emit(cg, ", ");
+            emit_reg(cg, rop);
+            emit(cg, ", ");
+            emit_reg(cg, tmp);
+            emit(cg, "\n");
+            regalloc_free(&cg->ra, tmp);
+            break;
+        }
+        case UNOP_ADDR:
+        case UNOP_DEREF:
+            // 指针操作留到后续阶段
+            break;
+        }
+        return target_reg;
+    }
+
+    case AST_ASSIGN: {
+        int rval = regalloc_alloc(&cg->ra);
+        emit_expr(cg, n->assign.rvalue, rval);
+
+        // 存储到目标
+        ASTNode *lv = n->assign.lvalue;
+        if (lv->kind == AST_IDENT) {
+            Symbol *sym = lv->ident.sym;
+            if (sym) {
+                switch (sym->kind) {
+                case SYM_GLOBAL_VAR:
+                    emit_store_global(cg, rval, sym);
+                    break;
+                case SYM_LOCAL_VAR:
+                case SYM_PARAM:
+                    emit_store_local(cg, rval, sym->offset);
+                    break;
+                }
+            }
+        } else if (lv->kind == AST_SUBSCRIPT) {
+            // arr[i] = val
+            int base = regalloc_alloc(&cg->ra);
+            int idx = regalloc_alloc(&cg->ra);
+            emit_expr(cg, lv->subscript.array, base);
+            emit_expr(cg, lv->subscript.index, idx);
+            // idx * 4
+            int scale = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, scale, 4);
+            emit(cg, "    MUL ");
+            emit_reg(cg, idx);
+            emit(cg, ", ");
+            emit_reg(cg, idx);
+            emit(cg, ", ");
+            emit_reg(cg, scale);
+            emit(cg, "\n");
+            emit(cg, "    ADD ");
+            emit_reg(cg, base);
+            emit(cg, ", ");
+            emit_reg(cg, base);
+            emit(cg, ", ");
+            emit_reg(cg, idx);
+            emit(cg, "\n");
+            emit(cg, "    ST ");
+            emit_reg(cg, rval);
+            emit(cg, ", ");
+            emit_reg(cg, base);
+            emit(cg, ", 0\n");
+            regalloc_free(&cg->ra, base);
+            regalloc_free(&cg->ra, idx);
+            regalloc_free(&cg->ra, scale);
+        }
+        emit(cg, "    MOV ");
+        emit_reg(cg, target_reg);
+        emit(cg, ", ");
+        emit_reg(cg, rval);
+        emit(cg, "\n");
+        regalloc_free(&cg->ra, rval);
+        return target_reg;
+    }
+
+    case AST_CALL: {
+        // 参数传入 R1-R8
+        for (int i = 0; i < n->call.nargs && i < 8; i++) {
+            emit_expr(cg, n->call.args[i], i + 1);
+        }
+        emit(cg, "    CALL %s\n", n->call.name);
+        emit(cg, "    MOV ");
+        emit_reg(cg, target_reg);
+        emit(cg, ", R0\n");
+        return target_reg;
+    }
+
+    case AST_SUBSCRIPT: {
+        // arr[i] → 加载地址然后 LD
+        int base = regalloc_alloc(&cg->ra);
+        int idx = regalloc_alloc(&cg->ra);
+        emit_expr(cg, n->subscript.array, base);
+        emit_expr(cg, n->subscript.index, idx);
+        int scale = regalloc_alloc(&cg->ra);
+        emit_load_imm(cg, scale, 4);
+        emit(cg, "    MUL ");
+        emit_reg(cg, idx);
+        emit(cg, ", ");
+        emit_reg(cg, idx);
+        emit(cg, ", ");
+        emit_reg(cg, scale);
+        emit(cg, "\n");
+        emit(cg, "    ADD ");
+        emit_reg(cg, base);
+        emit(cg, ", ");
+        emit_reg(cg, base);
+        emit(cg, ", ");
+        emit_reg(cg, idx);
+        emit(cg, "\n");
+        emit(cg, "    LD ");
+        emit_reg(cg, target_reg);
+        emit(cg, ", ");
+        emit_reg(cg, base);
+        emit(cg, ", 0\n");
+        regalloc_free(&cg->ra, base);
+        regalloc_free(&cg->ra, idx);
+        regalloc_free(&cg->ra, scale);
+        return target_reg;
+    }
+
+    default:
+        emit_load_imm(cg, target_reg, 0);
+        return target_reg;
+    }
+}
+
+// ---------- 条件表达式 → 跳转 ----------
+
+// 生成条件判断代码：如果条件为真则跳转到 label
+static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool jump_if_true) {
+    if (!cond) {
+        // 无条件
+        if (jump_if_true) emit(cg, "    JMP %s\n", label);
+        return;
+    }
+
+    if (cond->kind == AST_BINARY &&
+        (cond->binary.op == BINOP_LT || cond->binary.op == BINOP_GT ||
+         cond->binary.op == BINOP_LE || cond->binary.op == BINOP_GE)) {
+        // 比较运算 → 运行时函数返回 0/1
+        int rleft = regalloc_alloc(&cg->ra);
+        int rright = regalloc_alloc(&cg->ra);
+        emit_expr(cg, cond->binary.left, rleft);
+        emit_expr(cg, cond->binary.right, rright);
+        const char *rt_func;
+        switch (cond->binary.op) {
+            case BINOP_LT: rt_func = "__rt_lt"; break;
+            case BINOP_GT: rt_func = "__rt_gt"; break;
+            case BINOP_LE: rt_func = "__rt_le"; break;
+            case BINOP_GE: rt_func = "__rt_ge"; break;
+            default: rt_func = "__rt_lt"; break;
+        }
+        emit(cg, "    MOV R1, ");
+        emit_reg(cg, rleft);
+        emit(cg, "\n");
+        emit(cg, "    MOV R2, ");
+        emit_reg(cg, rright);
+        emit(cg, "\n");
+        emit(cg, "    CALL %s\n", rt_func);
+        emit(cg, "    CMP R0, R0\n"); // 确保 FLAGS 被设置 (R0==R0 总是 ZF)
+        if (jump_if_true) {
+            emit(cg, "    CMP R0, R0\n");
+            emit(cg, "    JZ .Lskip_cmp_%d\n", cg->tmp_counter);
+            emit(cg, "    JMP %s\n", label);
+            emit(cg, ".Lskip_cmp_%d:\n", cg->tmp_counter);
+        } else {
+            emit(cg, "    CMP R0, R0\n");
+            emit(cg, "    JNZ %s\n", label);
+        }
+        regalloc_free(&cg->ra, rleft);
+        regalloc_free(&cg->ra, rright);
+        return;
+    }
+
+    // 通用情况：计算表达式值，与 0 比较
+    int reg = regalloc_alloc(&cg->ra);
+    emit_expr(cg, cond, reg);
+    emit(cg, "    CMP ");
+    emit_reg(cg, reg);
+    emit(cg, ", R0\n");
+    if (jump_if_true) {
+        emit(cg, "    JNZ %s\n", label);
+    } else {
+        emit(cg, "    JZ %s\n", label);
+    }
+    regalloc_free(&cg->ra, reg);
+}
+
+// ---------- 语句代码生成 ----------
+
+static void emit_stmt(CodeGen *cg, ASTNode *n) {
+    if (!n) return;
+
+    switch (n->kind) {
+    case AST_BLOCK: {
+        for (int i = 0; i < n->block.nstmts; i++) {
+            emit_stmt(cg, n->block.stmts[i]);
+        }
+        break;
+    }
+
+    case AST_DECL: {
+        if (n->decl.init) {
+            int reg = regalloc_alloc(&cg->ra);
+            emit_expr(cg, n->decl.init, reg);
+            if (n->decl.sym) {
+                if (n->decl.is_global) {
+                    // 全局变量初始化在 .data 段处理，这里不生成代码
+                } else {
+                    emit_store_local(cg, reg, n->decl.sym->offset);
+                }
+            }
+            regalloc_free(&cg->ra, reg);
+        }
+        break;
+    }
+
+    case AST_IF: {
+        char *else_label = compiler_new_label(cg->comp);
+        char *end_label = compiler_new_label(cg->comp);
+
+        emit_cond_jump(cg, n->if_stmt.cond, else_label, false);
+        emit_stmt(cg, n->if_stmt.then_stmt);
+        emit(cg, "    JMP %s\n", end_label);
+        emit(cg, "%s:\n", else_label);
+        if (n->if_stmt.else_stmt) {
+            emit_stmt(cg, n->if_stmt.else_stmt);
+        }
+        emit(cg, "%s:\n", end_label);
+        break;
+    }
+
+    case AST_WHILE: {
+        char *loop_label = compiler_new_label(cg->comp);
+        char *end_label = compiler_new_label(cg->comp);
+        char *old_break = cg->break_label;
+        char *old_cont = cg->continue_label;
+        cg->break_label = end_label;
+        cg->continue_label = loop_label;
+
+        emit(cg, "%s:\n", loop_label);
+        emit_cond_jump(cg, n->while_stmt.cond, end_label, false);
+        emit_stmt(cg, n->while_stmt.body);
+        emit(cg, "    JMP %s\n", loop_label);
+        emit(cg, "%s:\n", end_label);
+
+        cg->break_label = old_break;
+        cg->continue_label = old_cont;
+        break;
+    }
+
+    case AST_DO_WHILE: {
+        char *loop_label = compiler_new_label(cg->comp);
+        char *end_label = compiler_new_label(cg->comp);
+        char *old_break = cg->break_label;
+        char *old_cont = cg->continue_label;
+        cg->break_label = end_label;
+        cg->continue_label = loop_label;
+
+        emit(cg, "%s:\n", loop_label);
+        emit_stmt(cg, n->while_stmt.body);
+        emit_cond_jump(cg, n->while_stmt.cond, end_label, false);
+        emit(cg, "    JMP %s\n", loop_label);
+        emit(cg, "%s:\n", end_label);
+
+        cg->break_label = old_break;
+        cg->continue_label = old_cont;
+        break;
+    }
+
+    case AST_FOR: {
+        char *cond_label = compiler_new_label(cg->comp);
+        char *loop_label = compiler_new_label(cg->comp);
+        char *end_label = compiler_new_label(cg->comp);
+        char *old_break = cg->break_label;
+        char *old_cont = cg->continue_label;
+        cg->break_label = end_label;
+        cg->continue_label = loop_label;
+
+        emit_stmt(cg, n->for_stmt.init);
+        emit(cg, "%s:\n", cond_label);
+        if (n->for_stmt.cond) {
+            emit_cond_jump(cg, n->for_stmt.cond, end_label, false);
+        }
+        emit_stmt(cg, n->for_stmt.body);
+        emit(cg, "%s:\n", loop_label);
+        if (n->for_stmt.step) {
+            emit_stmt(cg, n->for_stmt.step);
+        }
+        emit(cg, "    JMP %s\n", cond_label);
+        emit(cg, "%s:\n", end_label);
+
+        cg->break_label = old_break;
+        cg->continue_label = old_cont;
+        break;
+    }
+
+    case AST_RETURN: {
+        if (n->return_val) {
+            emit_expr(cg, n->return_val, REG_RET);
+        }
+        // 函数尾声
+        emit(cg, "    JMP %s_epilogue\n", cg->cur_func);
+        break;
+    }
+
+    case AST_BREAK: {
+        if (cg->break_label) {
+            emit(cg, "    JMP %s\n", cg->break_label);
+        }
+        break;
+    }
+
+    case AST_CONTINUE: {
+        if (cg->continue_label) {
+            emit(cg, "    JMP %s\n", cg->continue_label);
+        }
+        break;
+    }
+
+    case AST_EMPTY:
+        break;
+
+    default:
+        // 表达式语句
+        {
+            int tmp = regalloc_alloc(&cg->ra);
+            emit_expr(cg, n, tmp);
+            regalloc_free(&cg->ra, tmp);
+        }
+        break;
+    }
+}
+
+// ---------- 函数代码生成 ----------
+
+static void emit_func(CodeGen *cg, ASTNode *n) {
+    strncpy(cg->cur_func, n->func.name, sizeof(cg->cur_func) - 1);
+
+    // 计算局部变量空间
+    cg->local_var_size = cg->comp->func_local_offset;
+    // 对齐到 4 字节
+    cg->local_var_size = (cg->local_var_size + 3) & ~3;
+
+    // 函数标签
+    emit(cg, "%s:\n", n->func.name);
+
+    // 序言：保存 callee-saved 寄存器和 FP
+    emit(cg, "    PUSH R13\n");
+    emit(cg, "    PUSH R12\n");
+    emit(cg, "    PUSH R11\n");
+    emit(cg, "    PUSH R10\n");
+    emit(cg, "    PUSH R9\n");
+    emit(cg, "    PUSH R14\n");  // 保存旧 FP
+    emit(cg, "    MOV  R14, R15\n");  // FP = SP
+
+    // 分配局部变量空间
+    if (cg->local_var_size > 0) {
+        int tmp = regalloc_alloc(&cg->ra);
+        emit_load_imm(cg, tmp, cg->local_var_size);
+        emit(cg, "    SUB  R15, R15, ");
+        emit_reg(cg, tmp);
+        emit(cg, "\n");
+        regalloc_free(&cg->ra, tmp);
+    }
+
+    // 初始化参数到栈槽
+    // 参数已经在 R1-R8 中，需要存储到对应的栈偏移
+    int param_offset = 20; // PUSH R13..R14 = 6*4=24, + return addr = 4, total = 28
+    // 实际上：CALL 后栈上 [return_addr(4)] [old R13(4)] ... [old R14(4)]
+    // MOV R14,R15 后 FP 指向 old R14 的位置
+    // 参数从 FP+24 开始（跳过 6 个 PUSH + return addr）
+    for (int i = 0; i < n->func.nparams && i < 8; i++) {
+        Symbol *sym = scope_lookup(cg->comp->current_scope, n->func.param_names[i]);
+        if (sym) {
+            sym->offset = 24 + i * 4; // 参数在 FP 正方向
+            emit(cg, "    ST ");
+            emit_reg(cg, i + 1); // R1-R8
+            emit(cg, ", R14, %d\n", sym->offset);
+        }
+    }
+
+    // 函数体
+    if (n->func.body) {
+        emit_stmt(cg, n->func.body);
+    }
+
+    // 尾声标签
+    emit(cg, "%s_epilogue:\n", cg->cur_func);
+
+    // 释放局部变量
+    if (cg->local_var_size > 0) {
+        emit(cg, "    MOV  R15, R14\n");
+    } else {
+        emit(cg, "    MOV  R15, R14\n");
+    }
+
+    // 恢复 callee-saved 寄存器和 FP
+    emit(cg, "    POP  R14\n");
+    emit(cg, "    POP  R9\n");
+    emit(cg, "    POP  R10\n");
+    emit(cg, "    POP  R11\n");
+    emit(cg, "    POP  R12\n");
+    emit(cg, "    POP  R13\n");
+    emit(cg, "    RET\n");
+    emit(cg, "\n");
+}
+
+// ---------- 全局变量代码生成 ----------
+
+static void emit_global_data(CodeGen *cg, ASTNode *n) {
+    if (n->kind != AST_DECL) return;
+    if (!n->decl.is_global) return;
+
+    Symbol *sym = n->decl.sym;
+    if (!sym) return;
+
+    if (sym->array_size > 0) {
+        emit(cg, "%s:\n", sym->name);
+        emit(cg, "    .space %d\n", sym->size);
+    } else {
+        emit(cg, "%s:\n", sym->name);
+        if (n->decl.init && n->decl.init->kind == AST_NUM) {
+            emit(cg, "    .word %d\n", n->decl.init->num_val);
+        } else {
+            emit(cg, "    .space 4\n");
+        }
+    }
+}
+
+// ---------- 主代码生成入口 ----------
+
+void codegen_emit(CodeGen *cg, ASTNode *root) {
+    if (!root || root->kind != AST_BLOCK) return;
+
+    // .text 段头
+    emit(cg, ".text\n");
+    emit(cg, ".entry _start\n\n");
+
+    // _start 包装：CALL main 返回后执行 SYSCALL 0 退出
+    emit(cg, "_start:\n");
+    emit(cg, "    CALL main\n");
+    emit(cg, "    SYSCALL 0\n\n");
+
+    // 第一遍：收集全局变量
+    for (int i = 0; i < root->block.nstmts; i++) {
+        ASTNode *n = root->block.stmts[i];
+        if (n->kind == AST_DECL && n->decl.is_global) {
+            emit_global_data(cg, n);
+        }
+    }
+
+    // 第二遍：生成函数代码
+    emit(cg, "\n");
+    for (int i = 0; i < root->block.nstmts; i++) {
+        ASTNode *n = root->block.stmts[i];
+        if (n->kind == AST_FUNC) {
+            // 为函数体创建临时作用域
+            cg->comp->current_scope = scope_new(cg->comp->global_scope);
+            cg->comp->func_local_offset = 0;
+
+            // 添加参数到作用域
+            for (int j = 0; j < n->func.nparams && j < 8; j++) {
+                scope_add(cg->comp->current_scope, SYM_PARAM,
+                    n->func.param_names[j], 24 + j * 4, 4);
+            }
+
+            emit_func(cg, n);
+
+            scope_free(cg->comp->current_scope);
+            cg->comp->current_scope = cg->comp->global_scope;
+        }
+    }
+
+    // .data 段：字符串字面量
+    if (cg->comp->nstrings > 0) {
+        emit(cg, "\n.data\n");
+        for (int i = 0; i < cg->comp->nstrings; i++) {
+            emit(cg, "%s:\n", cg->comp->string_labels[i]);
+            fputs("    .asciz ", cg->out);
+            emit_escaped_string(cg, cg->comp->string_values[i]);
+            fputc('\n', cg->out);
+        }
+    }
+
+    emit(cg, "\n.stack 4096\n");
+}
+
+int codegen_init(CodeGen *cg, Compiler *comp, FILE *out) {
+    memset(cg, 0, sizeof(*cg));
+    cg->comp = comp;
+    cg->out = out;
+    regalloc_init(&cg->ra);
+    cg->tmp_counter = 0;
+    cg->break_label = NULL;
+    cg->continue_label = NULL;
+    return 0;
+}
+
+void codegen_close(CodeGen *cg) {
+    // nothing to close
+}

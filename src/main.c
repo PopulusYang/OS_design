@@ -19,6 +19,7 @@
 #include "serve.h"
 #include "assembler.h"
 #include "editor.h"
+#include "compiler/c2s.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -479,7 +480,9 @@ static int shell_format(const char *path)
                 struct dirent *de;
                 while ((de = readdir(d)) != NULL) {
                     size_t nl = strlen(de->d_name);
-                    if (nl > 4 && strcmp(de->d_name + nl - 4, ".asm") == 0) {
+                    int is_asm = (nl > 4 && strcmp(de->d_name + nl - 4, ".asm") == 0);
+                    int is_c   = (nl > 2 && strcmp(de->d_name + nl - 2, ".c") == 0);
+                    if (is_asm || is_c) {
                         char host_path[512], vfs_path[512];
                         snprintf(host_path, sizeof(host_path), "%s/%s", src_dir, de->d_name);
                         snprintf(vfs_path,  sizeof(vfs_path),  "/src/%s", de->d_name);
@@ -662,6 +665,7 @@ static void cmd_help(void)
     printf("\n");
     printf("%s%s  Processes & Env%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
     printf("  %sasm%s    <source.s> [out.upx]  assemble .upx binary\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %scc%s     <source.c> [out.upx]  compile C to .upx binary\n", ANSI_ROSE, ANSI_RESET);
     printf("  %svim%s    <file>                edit a file (host filesystem)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %srun%s    <binary>              run a program\n", ANSI_ROSE, ANSI_RESET);
     printf("  %scmd1%s | %scmd2%s [| ...]       pipeline (2-8 stages)\n", ANSI_ROSE, ANSI_RESET, ANSI_ROSE, ANSI_RESET);
@@ -1235,6 +1239,122 @@ static int dispatch_command(int argc, char **argv)
         unlink(tmp_path);
         ui_banner();
         return 0;
+    }
+    if (strcmp(cmd, "cc") == 0) {
+        if (argc < 2) { ui_err("Usage: cc <source.c> [output.upx] [--asm]"); return -1; }
+        // 扫描 --asm 标志，有则移除
+        int save_asm = 0;
+        for (int ai = 1; ai < argc; ai++) {
+            if (strcmp(argv[ai], "--asm") == 0) {
+                save_asm = 1;
+                for (int aj = ai; aj < argc; aj++) argv[aj] = argv[aj + 1];
+                argc--;
+                break;
+            }
+        }
+        const char *out_name = argc > 2 ? argv[2] : "a.upx";
+        // VFS → 宿主机桥接：导出源文件→编译→汇编→导入输出
+        char tmp_src[256], tmp_asm[256], tmp_out[256];
+        snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_cc_src_%d.c", getpid());
+        snprintf(tmp_asm, sizeof(tmp_asm), "/tmp/upfs_cc_asm_%d.s", getpid());
+        snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_cc_out_%d.upx", getpid());
+        // 1. 导出 VFS 源文件
+        {
+            MemINode *ip = namei(argv[1]);
+            if (!ip) { ui_err("Source file not found"); return -1; }
+            iput(ip);
+            int fd = vfs_open(argv[1], O_RDONLY);
+            if (fd < 0) { ui_err("Cannot open source"); return -1; }
+            char buf[8192]; int total = 0, n;
+            while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+            vfs_close(fd);
+            FILE *f = fopen(tmp_src, "w");
+            if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+        }
+        // 2. 编译 C → 汇编
+        if (compile_c_to_asm(tmp_src, tmp_asm) != 0) {
+            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+            ui_err("Compilation failed"); return -1;
+        }
+        // 3. 附加运行时库
+        {
+            FILE *asm_f = fopen(tmp_asm, "a");
+            if (asm_f) {
+                // 查找运行时库路径
+                const char *rt_paths[] = {
+                    "src/compiler/runtime.s",
+                    "../src/compiler/runtime.s",
+                    "../../src/compiler/runtime.s",
+                    NULL
+                };
+                for (int ri = 0; rt_paths[ri]; ri++) {
+                    FILE *rt_f = fopen(rt_paths[ri], "r");
+                    if (rt_f) {
+                        char buf[4096]; size_t n;
+                        while ((n = fread(buf, 1, sizeof(buf), rt_f)) > 0)
+                            fwrite(buf, 1, n, asm_f);
+                        fclose(rt_f);
+                        break;
+                    }
+                }
+                fclose(asm_f);
+            }
+        }
+        // 4. 汇编 → .upx
+        if (assemble_file(tmp_asm, tmp_out) != 0) {
+            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+            ui_err("Assembly after compilation failed"); return -1;
+        }
+        // 5. 导入输出到 VFS
+        {
+            FILE *f = fopen(tmp_out, "rb");
+            if (f) {
+                fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+                if (sz > 0) {
+                    char *buf = malloc((size_t)sz);
+                    if (buf) {
+                        fread(buf, 1, (size_t)sz, f);
+                        vfs_delete(out_name);
+                        if (vfs_create(out_name, 0644) != 0) {
+                            vfs_delete(out_name);
+                            vfs_create(out_name, 0644);
+                        }
+                        int fd = vfs_open(out_name, O_WRONLY);
+                        if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                        free(buf);
+                    }
+                }
+                fclose(f);
+            }
+        }
+        // --asm: 保存汇编到 VFS，与源文件同目录
+        if (save_asm) {
+            char asm_vfs[512];
+            const char *s = argv[1];
+            // 推导汇编路径: 去掉 .c 后缀，加上 .s
+            const char *dot = strrchr(s, '.');
+            size_t base_len = dot ? (size_t)(dot - s) : strlen(s);
+            memcpy(asm_vfs, s, base_len);
+            strcpy(asm_vfs + base_len, ".s");
+            FILE *af = fopen(tmp_asm, "r");
+            if (af) {
+                fseek(af, 0, SEEK_END); long sz = ftell(af); rewind(af);
+                if (sz > 0) {
+                    char *abuf = malloc((size_t)(sz + 1));
+                    if (abuf) {
+                        fread(abuf, 1, (size_t)sz, af);
+                        vfs_delete(asm_vfs);
+                        vfs_create(asm_vfs, 0644);
+                        int fd = vfs_open(asm_vfs, O_WRONLY);
+                        if (fd >= 0) { vfs_write(fd, abuf, (int)sz); vfs_close(fd); }
+                        free(abuf);
+                    }
+                }
+                fclose(af);
+            }
+        }
+        unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+        ui_ok("Compilation complete"); return 0;
     }
 
     if (require_mounted()) return -1;

@@ -174,6 +174,9 @@ static void line_delete(int at) {
 static void char_insert(int ch) {
     char *line = g_ed.lines[g_ed.cy];
     int len = (int)strlen(line);
+    line = realloc(line, (size_t)(len + 2));
+    if (line == NULL) return;
+    g_ed.lines[g_ed.cy] = line;
     memmove(line + g_ed.cx + 1, line + g_ed.cx, (size_t)(len - g_ed.cx + 1));
     line[g_ed.cx] = (char)ch;
     g_ed.cx++;
