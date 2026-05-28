@@ -81,6 +81,18 @@ enum {
 #define SYSCALL_MKDIR     19
 #define SYSCALL_HOST_EDIT  20   // 调用宿主编编辑器
 #define SYSCALL_HOST_ASM   21   // 调用宿主汇编器
+#define SYSCALL_PIPE       22   // pipe(fds[2])
+#define SYSCALL_KILL       23   // kill(pid, sig)
+#define SYSCALL_SEMGET     24   // semget(key, initval)
+#define SYSCALL_SEMOP      25   // semop(semid, delta)
+#define SYSCALL_MSGGET     26   // msgget(key)
+#define SYSCALL_MSGSND     27   // msgsnd(qid, buf, len)  buf: type + data
+#define SYSCALL_MSGRCV     28   // msgrcv(qid, buf, len)
+#define SYSCALL_SHMGET     29   // shmget(key, size)
+#define SYSCALL_SHMAT      30   // shmat(shmid, virt_addr)
+#define SYSCALL_SHMDT      31   // shmdt(shmid)
+#define SYSCALL_MKFIFO     32   // mkfifo(path)
+#define SYSCALL_GETSIG     33   // getsig() → usr1 count
 
 // VM 执行上下文
 // 始终嵌入在 PCB 中，通过 container_of 可反推 PCB 指针

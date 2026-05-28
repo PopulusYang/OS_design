@@ -13,6 +13,8 @@
 #include "kernel/process.h"
 #include "kernel/scheduler.h"
 #include "kernel/syscall.h"
+#include "kernel/pipe.h"
+#include "kernel/ipc.h"
 #include "binaries.h"
 #include "serve.h"
 #include "assembler.h"
@@ -662,6 +664,9 @@ static void cmd_help(void)
     printf("  %sasm%s    <source.s> [out.upx]  assemble .upx binary\n", ANSI_ROSE, ANSI_RESET);
     printf("  %svim%s    <file>                edit a file (host filesystem)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %srun%s    <binary>              run a program\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %scmd1%s | %scmd2%s [| ...]       pipeline (2-8 stages)\n", ANSI_ROSE, ANSI_RESET, ANSI_ROSE, ANSI_RESET);
+    printf("  %skill%s   <pid> [sig]            send signal (9/15/10)\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %smkfifo%s </path>                create named FIFO\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sps%s                          list processes\n", ANSI_ROSE, ANSI_RESET);
     printf("  %senv%s                          show environment variables\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sexport%s <KEY=VALUE>           set environment variable\n", ANSI_ROSE, ANSI_RESET);
@@ -856,18 +861,41 @@ static int cmd_users(void)
 
 // ---------- 内核命令 ----------
 
+static void resolve_program_path(const char *path, char *resolved, size_t sz)
+{
+    if (path == NULL || resolved == NULL || sz == 0) return;
+    if (strchr(path, '/') == NULL)
+        snprintf(resolved, sz, "./%s", path);
+    else {
+        strncpy(resolved, path, sz - 1);
+        resolved[sz - 1] = '\0';
+    }
+}
+
+static void shell_vm_enter_raw(struct termios *saved)
+{
+    tcgetattr(STDIN_FILENO, saved);
+    struct termios raw = *saved;
+    raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_iflag &= (tcflag_t)~(IXON | ICRNL | BRKINT);
+    raw.c_oflag &= (tcflag_t)~(OPOST);
+    raw.c_cflag |= CS8;
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+static void shell_vm_leave_raw(const struct termios *saved)
+{
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, saved);
+}
+
 static int cmd_run(const char *path)
 {
     if (path == NULL) { ui_err("Usage: run <binary>"); return -1; }
 
-    // 裸文件名 → 自动加上 ./ 前缀，相对于当前目录解析
     char resolved[256];
-    if (strchr(path, '/') == NULL) {
-        snprintf(resolved, sizeof(resolved), "./%s", path);
-    } else {
-        strncpy(resolved, path, sizeof(resolved) - 1);
-        resolved[sizeof(resolved) - 1] = '\0';
-    }
+    resolve_program_path(path, resolved, sizeof(resolved));
 
     PCB *p = proc_alloc();
     if (p == NULL) { ui_err("Failed to allocate process"); return -1; }
@@ -880,25 +908,152 @@ static int cmd_run(const char *path)
         return -1;
     }
     sched_enqueue(p);
-    // 切换到原始终端模式，让 VM 程序能捕获每次按键（含方向键）
     struct termios old_tio;
-    tcgetattr(STDIN_FILENO, &old_tio);
-    struct termios raw = old_tio;
-    raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
-    raw.c_iflag &= (tcflag_t)~(IXON | ICRNL | BRKINT);
-    raw.c_oflag &= (tcflag_t)~(OPOST);
-    raw.c_cflag |= CS8;
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-    // 运行调度循环
+    shell_vm_enter_raw(&old_tio);
     while (sched_tick() == 0) {}
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_tio);
+    shell_vm_leave_raw(&old_tio);
 
-    // 回收进程（未通过 fork 创建，需手动清理）
     if (p->p_state == PROC_ZOMBIE) {
         proc_free(p);
     }
+    return 0;
+}
+
+static const char *pipeline_program(const char *cmd)
+{
+    while (cmd != NULL && isspace((unsigned char)*cmd)) cmd++;
+    if (cmd == NULL || *cmd == '\0') return cmd;
+    if (strncmp(cmd, "run ", 4) == 0) return cmd + 4;
+    return cmd;
+}
+
+#define PIPELINE_MAX_STAGES 8
+
+static void proc_bind_pipe_in(PCB *p, int pipe_id)
+{
+    p->p_ofile[0].fd_type = PROC_FD_PIPE_RD;
+    p->p_ofile[0].fd_pipe_id = pipe_id;
+    pipe_add_reader(pipe_id);
+}
+
+static void proc_bind_pipe_out(PCB *p, int pipe_id)
+{
+    p->p_ofile[1].fd_type = PROC_FD_PIPE_WR;
+    p->p_ofile[1].fd_pipe_id = pipe_id;
+    pipe_add_writer(pipe_id);
+}
+
+static int cmd_run_pipeline_chain(int stage_count, char **stages)
+{
+    if (stage_count < 2 || stage_count > PIPELINE_MAX_STAGES) {
+        ui_err("Pipeline supports 2-8 stages");
+        return -1;
+    }
+
+    PCB  *procs[PIPELINE_MAX_STAGES];
+    int   pipes[PIPELINE_MAX_STAGES - 1];
+    char  paths[PIPELINE_MAX_STAGES][256];
+
+    memset(procs, 0, sizeof(procs));
+    for (int i = 0; i < stage_count - 1; i++) pipes[i] = -1;
+
+    for (int i = 0; i < stage_count - 1; i++) {
+        pipes[i] = pipe_alloc();
+        if (pipes[i] < 0) {
+            ui_err("No free pipes");
+            goto fail;
+        }
+    }
+
+    for (int i = 0; i < stage_count; i++) {
+        const char *cmd = pipeline_program(stages[i]);
+        if (cmd == NULL || cmd[0] == '\0') { ui_err("Empty pipeline stage"); goto fail; }
+        resolve_program_path(cmd, paths[i], sizeof(paths[i]));
+
+        procs[i] = proc_alloc();
+        if (procs[i] == NULL) { ui_err("Failed to allocate process"); goto fail; }
+        strncpy(procs[i]->p_name, paths[i], PROC_NAME_LEN - 1);
+        procs[i]->p_cwd_ino = current_user()->u_cdir;
+
+        if (i > 0) proc_bind_pipe_in(procs[i], pipes[i - 1]);
+        if (i < stage_count - 1) proc_bind_pipe_out(procs[i], pipes[i]);
+
+        if (proc_exec(procs[i], paths[i]) != 0) {
+            ui_err("Failed to load program");
+            goto fail;
+        }
+        sched_enqueue(procs[i]);
+    }
+
+    {
+        struct termios old_tio;
+        shell_vm_enter_raw(&old_tio);
+        while (sched_tick() == 0) {}
+        shell_vm_leave_raw(&old_tio);
+    }
+
+    for (int i = 0; i < stage_count; i++) {
+        if (procs[i] && procs[i]->p_state == PROC_ZOMBIE) proc_free(procs[i]);
+    }
+    for (int i = 0; i < stage_count - 1; i++) {
+        if (pipes[i] >= 0) pipe_free(pipes[i]);
+    }
+    return 0;
+
+fail:
+    for (int i = 0; i < stage_count; i++) {
+        if (procs[i]) proc_free(procs[i]);
+    }
+    for (int i = 0; i < stage_count - 1; i++) {
+        if (pipes[i] >= 0) pipe_free(pipes[i]);
+    }
+    return -1;
+}
+
+static int split_pipeline_segments(char *line, char *segments[], int max_seg)
+{
+    int count = 0;
+    char *part = line;
+    while (count < max_seg) {
+        char *bar = strchr(part, '|');
+        if (bar) *bar = '\0';
+        char *seg = trim(part);
+        if (seg[0] != '\0') segments[count++] = seg;
+        if (bar == NULL) break;
+        part = bar + 1;
+    }
+    return count;
+}
+
+static int try_run_pipeline(char *line)
+{
+    if (strchr(line, '|') == NULL) return 0;
+
+    char *segments[PIPELINE_MAX_STAGES];
+    int stage_count = split_pipeline_segments(line, segments, PIPELINE_MAX_STAGES);
+    if (stage_count < 2) {
+        ui_err("Usage: cmd1 | cmd2 [| cmd3 ...]");
+        return -1;
+    }
+    if (require_mounted() != 0) return -1;
+    return cmd_run_pipeline_chain(stage_count, segments) == 0 ? 1 : -1;
+}
+
+static int cmd_kill_cmd(int argc, char **argv)
+{
+    if (argc < 2) { ui_err("Usage: kill <pid> [sig]"); return -1; }
+    uint32_t pid = (uint32_t)strtoul(argv[1], NULL, 10);
+    int sig = (argc >= 3) ? (int)strtol(argv[2], NULL, 10) : SIG_TERM;
+    if (ipc_kill(pid, sig) != 0) { ui_err("kill failed"); return -1; }
+    ui_ok("Signal sent");
+    return 0;
+}
+
+static int cmd_mkfifo(const char *path)
+{
+    if (path == NULL || path[0] != '/') { ui_err("Usage: mkfifo </path>"); return -1; }
+    if (ipc_mkfifo(path) != 0) { ui_err("mkfifo failed"); return -1; }
+    ui_ok("FIFO created");
     return 0;
 }
 
@@ -1150,6 +1305,11 @@ static int dispatch_command(int argc, char **argv)
     }
     if (strcmp(cmd, "users") == 0) return cmd_users();
     if (strcmp(cmd, "run") == 0) { if (argc < 2) { ui_err("Usage: run <binary>"); return -1; } return cmd_run(argv[1]); }
+    if (strcmp(cmd, "kill") == 0) return cmd_kill_cmd(argc, argv);
+    if (strcmp(cmd, "mkfifo") == 0) {
+        if (argc < 2) { ui_err("Usage: mkfifo </path>"); return -1; }
+        return cmd_mkfifo(argv[1]);
+    }
     if (strcmp(cmd, "ps") == 0) return cmd_ps();
     if (strcmp(cmd, "env") == 0) return cmd_env();
     if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }
@@ -1227,6 +1387,15 @@ int upfs_session(int in_fd, int out_fd)
         ui_prompt();
         if (fgets(line, sizeof(line), stdin) == NULL) { printf("\n"); break; }
         if (trim(line)[0] == '\0') continue;
+
+        {
+            char pipe_buf[LINE_BUF_SIZE];
+            strncpy(pipe_buf, line, sizeof(pipe_buf) - 1);
+            pipe_buf[sizeof(pipe_buf) - 1] = '\0';
+            int prc = try_run_pipeline(pipe_buf);
+            if (prc == 1) continue;
+            if (prc < 0) continue;
+        }
 
         int argc = parse_command_line(line, argv, MAX_ARGS);
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;

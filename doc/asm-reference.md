@@ -128,6 +128,36 @@ asm <source.s> [output.upx]
 | 17 | CREATE | 创建文件 |
 | 18 | DELETE | 删除文件 |
 | 19 | MKDIR | 创建目录 |
+| 20 | HOST_EDIT | 调用宿主编编辑器 |
+| 21 | HOST_ASM | 调用宿主汇编器 |
+| 22 | PIPE | 创建匿名管道，`R1`=fds 数组地址 |
+| 23 | KILL | 发送信号，`R1`=pid，`R2`=sig（9/15/10） |
+| 24 | SEMGET | 创建/获取信号量，`R1`=key，`R2`=初值 |
+| 25 | SEMOP | P/V 操作，`R1`=semid，`R2`=delta（-1=P，+1=V） |
+| 26 | MSGGET | 创建/获取消息队列，`R1`=key |
+| 27 | MSGSND | 发消息，`R1`=qid，`R2`=buf（首字 type），`R3`=总长 |
+| 28 | MSGRCV | 收消息，`R1`=qid，`R2`=buf，`R3`=type（0=任意） |
+| 29 | SHMGET | 创建/获取共享内存，`R1`=key，`R2`=size |
+| 30 | SHMAT | 挂接共享内存，`R1`=shmid，`R2`=虚拟地址 |
+| 31 | SHMDT | 分离共享内存，`R1`=shmid |
+| 32 | MKFIFO | 创建命名 FIFO，`R1`=路径 |
+| 33 | GETSIG | 读取并清零 SIGUSR1 计数 |
+
+### 进程通信（IPC）
+
+**匿名管道**：`SYSCALL 22` = `pipe(fds[2])`；Shell 支持 `cmd1 | cmd2 | ...`（最多 8 段）。
+
+**信号**：`KILL(23)` 发送信号；`GETSIG(33)` 读取 SIGUSR1。见 `involve_src/ipcsig.asm`。
+
+**信号量**：`SEMGET` + `SEMOP`（P=-1，V=+1）。见 `involve_src/ipcsem.asm`。
+
+**消息队列**：`MSGGET` + `MSGSND` + `MSGRCV`。见 `involve_src/ipcmsg.asm`。
+
+**共享内存**：`SHMGET` + `SHMAT` + `SHMDT`，多进程映射同一物理页。见 `involve_src/ipcshm.asm`。
+
+**命名 FIFO**：Shell `mkfifo /path` 或 `MKFIFO(32)`；`OPEN` 路径即可读写。见 `involve_src/ipcfifo.asm`。
+
+Shell 管道示例：`run /pw.upx | run /pr.upx`（先 `asm /src/pw.asm` 等）。
 
 ---
 

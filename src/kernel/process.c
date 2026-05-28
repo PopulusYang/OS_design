@@ -3,6 +3,8 @@
 #include "kernel/process.h"
 #include "kernel/memory.h"
 #include "kernel/scheduler.h"
+#include "kernel/pipe.h"
+#include "kernel/ipc.h"
 #include "kernel_shared.h"
 #include "fs/file_sys.h"
 #include <stdlib.h>
@@ -35,6 +37,7 @@ int proc_init(void)
     memset(g_kernel->proc_table, 0, sizeof(g_kernel->proc_table));
     g_kernel->current_idx = -1;
     g_kernel->next_pid = 1;
+    ipc_init();
     return 0;
 }
 
@@ -50,6 +53,7 @@ void proc_shutdown(void)
     }
     memset(g_kernel->proc_table, 0, sizeof(g_kernel->proc_table));
     g_kernel->current_idx = -1;
+    ipc_shutdown();
 }
 
 PCB *proc_current(void) { return proc_by_idx(g_kernel ? g_kernel->current_idx : -1); }
@@ -79,6 +83,8 @@ PCB *proc_alloc(void)
             for (int j = 1; j < MEM_MAX_PROCESS_PAGES; j++)
                 g_kernel->proc_table[i].p_page_table[j] = 0;
             g_kernel->proc_table[i].p_page_table[0] = (uint32_t)mem_alloc_pages(1);
+            for (int k = 0; k < IPC_SHM_MAX_ATTACH; k++)
+                g_kernel->proc_table[i].p_shm[k].shm_id = -1;
             return &g_kernel->proc_table[i];
         }
     }
@@ -88,6 +94,13 @@ PCB *proc_alloc(void)
 void proc_free(PCB *p)
 {
     if (p == NULL) return;
+    for (int i = 0; i < IPC_SHM_MAX_ATTACH; i++) {
+        if (p->p_shm[i].shm_id >= 0) ipc_shmdt(p, p->p_shm[i].shm_id);
+    }
+    for (int i = 0; i < PROC_MAX_FD; i++) {
+        if (p->p_ofile[i].fd_type != 0)
+            proc_free_fd(p, i);
+    }
     for (int i = 0; i < MEM_MAX_PROCESS_PAGES; i++) {
         if (p->p_page_table[i] != 0) {
             mem_free_pages((int)p->p_page_table[i], 1);
@@ -125,6 +138,20 @@ PCB *proc_create_init(void)
 
 // ---------- fork ----------
 
+static void proc_dup_fd(ProcFD *dst, const ProcFD *src)
+{
+    *dst = *src;
+    if (src->fd_type == PROC_FD_PIPE_RD) {
+        pipe_add_reader(src->fd_pipe_id);
+    } else if (src->fd_type == PROC_FD_PIPE_WR) {
+        pipe_add_writer(src->fd_pipe_id);
+    } else if (src->fd_type == PROC_FD_FIFO_RD) {
+        pipe_add_reader(src->fd_pipe_id);
+    } else if (src->fd_type == PROC_FD_FIFO_WR) {
+        pipe_add_writer(src->fd_pipe_id);
+    }
+}
+
 int proc_fork(void)
 {
     PCB *parent = proc_current();
@@ -159,7 +186,7 @@ int proc_fork(void)
     strncpy(child->p_name, parent->p_name, PROC_NAME_LEN - 1);
 
     for (int i = 0; i < PROC_MAX_FD; i++)
-        child->p_ofile[i] = parent->p_ofile[i];
+        proc_dup_fd(&child->p_ofile[i], &parent->p_ofile[i]);
 
     child->p_cpu.regs[0] = 0;
 
@@ -171,6 +198,37 @@ int proc_fork(void)
     sched_enqueue(child);
 
     return (int)child->p_pid;
+}
+
+// ---------- pipe ----------
+
+int proc_pipe(int fds[2])
+{
+    PCB *p = proc_current();
+    if (p == NULL || fds == NULL) return -1;
+
+    int pipe_id = pipe_alloc();
+    if (pipe_id < 0) return -1;
+
+    int rfd = proc_alloc_fd(p);
+    if (rfd < 0) { pipe_free(pipe_id); return -1; }
+    p->p_ofile[rfd].fd_type = PROC_FD_PIPE_RD;
+    p->p_ofile[rfd].fd_pipe_id = pipe_id;
+    pipe_add_reader(pipe_id);
+
+    int wfd = proc_alloc_fd(p);
+    if (wfd < 0) {
+        proc_free_fd(p, rfd);
+        pipe_free(pipe_id);
+        return -1;
+    }
+    p->p_ofile[wfd].fd_type = PROC_FD_PIPE_WR;
+    p->p_ofile[wfd].fd_pipe_id = pipe_id;
+    pipe_add_writer(pipe_id);
+
+    fds[0] = rfd;
+    fds[1] = wfd;
+    return 0;
 }
 
 // ---------- exec（加载 UPX） ----------
@@ -357,8 +415,16 @@ int proc_alloc_fd(PCB *p)
 
 void proc_free_fd(PCB *p, int fd)
 {
-    if (fd >= 0 && fd < PROC_MAX_FD)
-        memset(&p->p_ofile[fd], 0, sizeof(ProcFD));
+    if (p == NULL || fd < 0 || fd >= PROC_MAX_FD) return;
+    ProcFD *pf = &p->p_ofile[fd];
+    if (pf->fd_type == PROC_FD_PIPE_RD || pf->fd_type == PROC_FD_FIFO_RD) {
+        pipe_close_read(pf->fd_pipe_id);
+    } else if (pf->fd_type == PROC_FD_PIPE_WR || pf->fd_type == PROC_FD_FIFO_WR) {
+        pipe_close_write(pf->fd_pipe_id);
+    } else if (pf->fd_type == PROC_FD_FILE && pf->fd_fs_fd >= 0) {
+        vfs_close(pf->fd_fs_fd);
+    }
+    memset(pf, 0, sizeof(ProcFD));
 }
 
 uint32_t proc_sbrk(PCB *p, int32_t increment)

@@ -57,9 +57,14 @@ make
 | 命令 | 说明 |
 |------|------|
 | `run <binary>` | 运行预置或已编译程序 |
+| `cmd1 \| cmd2 [\| ...]` | 管道连接 2–8 个程序 |
+| `kill <pid> [sig]` | 发送信号（9=SIGKILL，15=SIGTERM，10=SIGUSR1） |
+| `mkfifo </path>` | 创建命名 FIFO |
 | `ps` | 查看进程 |
 | `asm <file.asm> [out]` | 汇编 |
 | `vim <file>` | 简易编辑器 |
+
+虚拟内核 IPC（System V 风格）：**信号量、消息队列、共享内存、命名 FIFO、信号**；详见 `doc/asm-reference.md` 与 `involve_src/ipc*.asm`。
 
 ### 其他
 

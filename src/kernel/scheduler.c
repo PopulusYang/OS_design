@@ -2,6 +2,7 @@
 
 #include "kernel/scheduler.h"
 #include "kernel/syscall.h"
+#include "kernel/ipc.h"
 #include "kernel_shared.h"
 #include <string.h>
 #include <stdio.h>
@@ -56,6 +57,50 @@ void sched_remove(uint32_t pid)
 
 int sched_ready_count(void) { return g_kernel ? g_kernel->ready_count : 0; }
 
+static int sched_run_slice(PCB *p)
+{
+    ipc_deliver_signals(p);
+    if (p->p_state == PROC_ZOMBIE) return 1;
+
+    while (p->p_cpu.ticks_left > 0 && p->p_state == PROC_RUNNING) {
+        int rc = cpu_step(&p->p_cpu);
+        if (rc != 1) continue;
+        if (p->p_cpu.sycall_halt == 2) {
+            syscall_dispatch(p, p->p_cpu.syscall_no);
+            p->p_cpu.sycall_halt = 0;
+            ipc_deliver_signals(p);
+            if (p->p_state == PROC_ZOMBIE) return 1;
+        } else if (p->p_cpu.sycall_halt == 1) {
+            proc_exit(0);
+            return 1;
+        }
+        if (p->p_cpu.ticks_left > 0) continue;
+    }
+    return 0;
+}
+
+void sched_cooperate(void)
+{
+    PCB *self = proc_current();
+    if (self == NULL || g_kernel == NULL) return;
+
+    for (int guard = 0; guard < 100000; guard++) {
+        if (sched_ready_count() == 0) return;
+        PCB *next = sched_pick_next();
+        if (next == NULL) return;
+        if (next == self) {
+            sched_enqueue(self);
+            return;
+        }
+        proc_set_current(next);
+        next->p_cpu.ticks_left = CPU_TIMESLICE;
+        sched_run_slice(next);
+        if (next->p_state == PROC_RUNNING && next->p_pid != 0)
+            sched_enqueue(next);
+        proc_set_current(self);
+    }
+}
+
 int sched_tick(void)
 {
     if (g_kernel == NULL || !g_kernel->sched_inited) return 1;
@@ -69,18 +114,7 @@ int sched_tick(void)
     }
 
     while (cur->p_cpu.ticks_left > 0) {
-        int rc = cpu_step(&cur->p_cpu);
-        if (rc == 1) {
-            if (cur->p_cpu.sycall_halt == 2) {
-                syscall_dispatch(cur, cur->p_cpu.syscall_no);
-                cur->p_cpu.sycall_halt = 0;
-                if (cur->p_state == PROC_ZOMBIE) break;
-            } else if (cur->p_cpu.sycall_halt == 1) {
-                proc_exit(0);
-                break;
-            }
-            if (cur->p_cpu.ticks_left > 0) continue;
-        }
+        if (sched_run_slice(cur)) break;
     }
 
     if (cur->p_state == PROC_RUNNING && cur->p_pid != 0) {

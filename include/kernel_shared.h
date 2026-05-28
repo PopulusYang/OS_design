@@ -9,6 +9,8 @@
 
 #include "vfs_core.h"
 #include "kernel/memory.h"
+#include "kernel/pipe.h"
+#include "kernel/ipc.h"
 #include "kernel/process.h"
 #include "kernel/scheduler.h"
 #include <pthread.h>
@@ -38,6 +40,13 @@ typedef struct KernelShared {
     int      ready_tail;
     int      ready_count;
     int      sched_inited;
+
+    // ---- 管道 IPC ----
+    Pipe     pipes[PIPE_MAX_COUNT];
+    int      pipe_used[PIPE_MAX_COUNT];
+
+    // ---- System V IPC ----
+    IpcTable ipc;
 
     // ---- 同步 ----
     volatile int initialized;   // 0=未初始化, 1=就绪

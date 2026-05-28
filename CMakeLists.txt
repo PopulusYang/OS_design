@@ -28,6 +28,8 @@ add_executable(OS_design
     src/kernel/scheduler.c
     src/kernel/syscall.c
     src/kernel/kernel_shared.c
+    src/kernel/pipe.c
+    src/kernel/ipc.c
     # 用户管理
     src/user/user_mgmt.c
     src/user/env.c

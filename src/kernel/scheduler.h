@@ -29,6 +29,9 @@ int  sched_tick(void);
 // 获取就绪队列中的进程数
 int  sched_ready_count(void);
 
+// 在系统调用阻塞时运行其他就绪进程（管道读写等）
+void sched_cooperate(void);
+
 #ifdef __cplusplus
 }
 #endif

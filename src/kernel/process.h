@@ -8,6 +8,7 @@
 
 #include "kernel/cpu.h"
 #include "kernel/memory.h"
+#include "kernel/ipc.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -28,13 +29,21 @@ enum {
     PROC_ZOMBIE  = 4,
 };
 
-// FD 类型：0=终端, 1=文件
-#define PROC_FD_TERM   0
-#define PROC_FD_FILE   1
+// FD 类型
+#define PROC_FD_TERM     0
+#define PROC_FD_FILE     1
+#define PROC_FD_PIPE_RD  2
+#define PROC_FD_PIPE_WR  3
+#define PROC_FD_FIFO_RD  4
+#define PROC_FD_FIFO_WR  5
+
+#define PROC_FD_IS_PIPE_RD(t)  ((t) == PROC_FD_PIPE_RD || (t) == PROC_FD_FIFO_RD)
+#define PROC_FD_IS_PIPE_WR(t)  ((t) == PROC_FD_PIPE_WR || (t) == PROC_FD_FIFO_WR)
 
 typedef struct ProcFD {
-    int  fd_type;           // PROC_FD_TERM / PROC_FD_FILE
+    int  fd_type;           // PROC_FD_TERM / PROC_FD_FILE / PROC_FD_PIPE_*
     int  fd_fs_fd;          // 如果是文件，UPFS 的底层 fd
+    int  fd_pipe_id;        // 如果是管道，管道 id
     int  fd_mode;           // O_RDONLY / O_WRONLY / O_RDWR
     uint32_t fd_pos;        // 读写位置
 } ProcFD;
@@ -83,7 +92,12 @@ typedef struct PCB {
     uint32_t  p_children[PROC_MAX_COUNT];
     int       p_child_count;
     int       p_exit_code;
-    uint32_t  p_waiting_parent;   // 是否有父进程在 wait
+    uint32_t  p_waiting_parent;
+
+    // IPC / 信号
+    uint32_t  p_pending_sig;
+    int       p_sigusr1_count;
+    ShmAttach p_shm[IPC_SHM_MAX_ATTACH];
 
 } PCB;
 
@@ -115,6 +129,9 @@ PCB *proc_create_init(void);
 
 // fork：复制当前进程，返回子进程 PID（父进程）或 0（子进程）
 int  proc_fork(void);
+
+// 创建管道，fds[0]=读端 fd，fds[1]=写端 fd；须在 VM 进程上下文中调用
+int  proc_pipe(int fds[2]);
 
 // exec：加载 .upx 可执行文件替换当前进程映像
 int  proc_exec(PCB *p, const char *path);

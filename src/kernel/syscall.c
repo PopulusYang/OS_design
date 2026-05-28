@@ -3,6 +3,9 @@
 #include "kernel/syscall.h"
 #include "kernel/scheduler.h"
 #include "kernel/memory.h"
+#include "kernel/pipe.h"
+#include "kernel/ipc.h"
+#include "vfs_core.h"
 
 // 前向声明 —— 文件系统函数（由 file_sys.h / dir_sys.h 提供）
 // 注意：这些函数使用外部 User 上下文，在 syscall 中需要切换
@@ -94,9 +97,13 @@ void syscall_dispatch(PCB *p, uint32_t no)
         *ret = p->p_pid;
         break;
 
-    case SYSCALL_OPEN: { // vfs_open(path, flags) → fd
+    case SYSCALL_OPEN: { // open(path, flags) → fd（含命名 FIFO）
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
+        {
+            int fifo_fd = ipc_fifo_open(p, path, (uint16_t)arg2);
+            if (fifo_fd >= 0) { *ret = (uint32_t)fifo_fd; break; }
+        }
         int fs_fd = vfs_open(path, (uint16_t)arg2);
         if (fs_fd < 0) { *ret = (uint32_t)-1; break; }
         int pfd = proc_alloc_fd(p);
@@ -109,20 +116,28 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_CLOSE: // vfs_close(fd)
-        if ((int)arg1 >= 0 && (int)arg1 < PROC_MAX_FD && p->p_ofile[arg1].fd_type == PROC_FD_FILE) {
-            vfs_close(p->p_ofile[arg1].fd_fs_fd);
-        }
-        proc_free_fd(p, (int)arg1);
+    case SYSCALL_CLOSE: // close(fd)
+        if ((int)arg1 >= 0 && (int)arg1 < PROC_MAX_FD)
+            proc_free_fd(p, (int)arg1);
         *ret = 0;
         break;
 
-    case SYSCALL_READ: { // vfs_read(fd, buf, count) → n
+    case SYSCALL_READ: { // read(fd, buf, count) → n
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
-        if (pfd->fd_type == PROC_FD_FILE) {
-            // 从文件读取到内核临时缓冲，再拷贝到用户空间
+        if (PROC_FD_IS_PIPE_RD(pfd->fd_type)) {
+            char tmp[512];
+            int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
+            int n = pipe_read(pfd->fd_pipe_id, tmp, chunk);
+            if (n < 0) { *ret = (uint32_t)-1; break; }
+            for (int i = 0; i < n; i++) {
+                uint32_t phys;
+                if (cpu_virt_to_phys(&p->p_cpu, arg2 + (uint32_t)i, &phys) == 0)
+                    mem_write8(phys, (uint8_t)tmp[i]);
+            }
+            *ret = (uint32_t)n;
+        } else if (pfd->fd_type == PROC_FD_FILE) {
             char tmp[512];
             int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
             int n = vfs_read(pfd->fd_fs_fd, tmp, chunk);
@@ -133,8 +148,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
                     mem_write8(phys, (uint8_t)tmp[i]);
             }
             *ret = (uint32_t)n;
-        } else if (fd <= 2 && pfd->fd_type == 0) {
-            // stdin (fd=0): 从宿主机终端读取字节
+        } else if (fd == 0 && pfd->fd_type == PROC_FD_TERM) {
             char tmp[512];
             int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
             ssize_t n = read(STDIN_FILENO, tmp, (size_t)chunk);
@@ -152,11 +166,22 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_WRITE: { // vfs_write(fd, buf, count) → n
+    case SYSCALL_WRITE: { // write(fd, buf, count) → n
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
-        if (pfd->fd_type == PROC_FD_FILE && pfd->fd_fs_fd >= 0) {
+        if (PROC_FD_IS_PIPE_WR(pfd->fd_type)) {
+            char tmp[512];
+            int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
+            for (int i = 0; i < chunk; i++) {
+                uint32_t phys;
+                if (cpu_virt_to_phys(&p->p_cpu, arg2 + (uint32_t)i, &phys) == 0)
+                    tmp[i] = (char)mem_read8(phys);
+                else { chunk = i; break; }
+            }
+            int n = pipe_write(pfd->fd_pipe_id, tmp, chunk);
+            *ret = (uint32_t)(n >= 0 ? n : -1);
+        } else if (pfd->fd_type == PROC_FD_FILE && pfd->fd_fs_fd >= 0) {
             char tmp[512];
             int chunk = (int)arg3 > 512 ? 512 : (int)arg3;
             for (int i = 0; i < chunk; i++) {
@@ -167,8 +192,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
             }
             int n = vfs_write(pfd->fd_fs_fd, tmp, chunk);
             *ret = (uint32_t)(n > 0 ? n : -1);
-        } else if (pfd->fd_type == 0 && fd == 1) {
-            // stdout (fd=1): 直接写到终端
+        } else if (pfd->fd_type == PROC_FD_TERM && fd == 1) {
             char tmp[512];
             int chunk = (int)arg3 > 511 ? 511 : (int)arg3;
             for (int i = 0; i < chunk; i++) {
@@ -380,6 +404,87 @@ void syscall_dispatch(PCB *p, uint32_t no)
         *ret = 0;
         break;
     }
+
+    case SYSCALL_PIPE: { // pipe(fds[2]) → 0 / -1
+        int fds[2];
+        if (proc_pipe(fds) != 0) { *ret = (uint32_t)-1; break; }
+        cpu_write32(&p->p_cpu, arg1, (uint32_t)fds[0]);
+        cpu_write32(&p->p_cpu, arg1 + 4, (uint32_t)fds[1]);
+        *ret = 0;
+        break;
+    }
+
+    case SYSCALL_KILL: // kill(pid, sig)
+        *ret = ipc_kill(arg1, (int)arg2) == 0 ? 0 : (uint32_t)-1;
+        break;
+
+    case SYSCALL_SEMGET: // semget(key, initval)
+        *ret = (uint32_t)ipc_semget((int)arg1, (int)arg2);
+        break;
+
+    case SYSCALL_SEMOP: // semop(semid, delta)
+        *ret = ipc_semop((int)arg1, (int)arg2) == 0 ? 0 : (uint32_t)-1;
+        break;
+
+    case SYSCALL_MSGGET: // msgget(key)
+        *ret = (uint32_t)ipc_msgget((int)arg1);
+        break;
+
+    case SYSCALL_MSGSND: { // msgsnd(qid, buf, len) — buf 前 4 字节为 type
+        int type = (int)cpu_read32(&p->p_cpu, arg2);
+        char tmp[IPC_MSG_SIZE];
+        int chunk = (int)arg3 > IPC_MSG_SIZE ? IPC_MSG_SIZE : (int)arg3;
+        if (chunk > 4) chunk -= 4;
+        else chunk = 0;
+        for (int i = 0; i < chunk; i++) {
+            uint32_t phys;
+            if (cpu_virt_to_phys(&p->p_cpu, arg2 + 4 + (uint32_t)i, &phys) == 0)
+                tmp[i] = (char)mem_read8(phys);
+        }
+        int n = ipc_msgsnd((int)arg1, type, tmp, chunk);
+        *ret = (uint32_t)(n >= 0 ? n : -1);
+        break;
+    }
+
+    case SYSCALL_MSGRCV: { // msgrcv(qid, buf, len) — type 固定匹配 1
+        char tmp[IPC_MSG_SIZE];
+        int out_type = 0;
+        int chunk = (int)arg3 > IPC_MSG_SIZE ? IPC_MSG_SIZE : (int)arg3;
+        int n = ipc_msgrcv((int)arg1, (int)arg3, tmp, chunk > 4 ? chunk - 4 : 0, &out_type);
+        if (n < 0) { *ret = (uint32_t)-1; break; }
+        cpu_write32(&p->p_cpu, arg2, (uint32_t)out_type);
+        for (int i = 0; i < n; i++) {
+            uint32_t phys;
+            if (cpu_virt_to_phys(&p->p_cpu, arg2 + 4 + (uint32_t)i, &phys) == 0)
+                mem_write8(phys, (uint8_t)tmp[i]);
+        }
+        *ret = (uint32_t)n;
+        break;
+    }
+
+    case SYSCALL_SHMGET: // shmget(key, size)
+        *ret = (uint32_t)ipc_shmget((int)arg1, (int)arg2);
+        break;
+
+    case SYSCALL_SHMAT: // shmat(shmid, virt_addr)
+        *ret = (uint32_t)ipc_shmat(p, (int)arg1, arg2);
+        break;
+
+    case SYSCALL_SHMDT: // shmdt(shmid)
+        *ret = ipc_shmdt(p, (int)arg1) == 0 ? 0 : (uint32_t)-1;
+        break;
+
+    case SYSCALL_MKFIFO: { // mkfifo(path)
+        char path[256];
+        if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
+        *ret = ipc_mkfifo(path) == 0 ? 0 : (uint32_t)-1;
+        break;
+    }
+
+    case SYSCALL_GETSIG: // getsig() → SIGUSR1 累计次数
+        *ret = (uint32_t)p->p_sigusr1_count;
+        p->p_sigusr1_count = 0;
+        break;
 
     default:
         *ret = (uint32_t)-1;
