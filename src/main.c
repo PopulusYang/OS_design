@@ -356,7 +356,7 @@ static int shell_mount(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
-    
+    sys_open_file_init();
     if (proc_find(0) == NULL) {
         mem_init();
         proc_init();
@@ -442,6 +442,7 @@ static int shell_format(const char *path)
     g_mounted = 1;
 
     mem_init(); proc_init(); sched_init(); env_init();
+    sys_open_file_init();
     env_system_load(); proc_create_init();
 
     
@@ -653,6 +654,10 @@ static void cmd_help(void)
     printf("  %swrite%s   <path> <data>        write text to file\n", ANSI_ROSE, ANSI_RESET);
     printf("  %scat%s     <path>               display file contents\n", ANSI_ROSE, ANSI_RESET);
     printf("  %srm%s      <path>               delete file\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %scp%s      <src> <dst>           copy file\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sln%s      <target> <link>       create hard link\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sstat%s    <path>               show file info (inode, mode, size, etc.)\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %schmod%s   <path> <mode>        change file permissions (octal)\n", ANSI_ROSE, ANSI_RESET);
     printf("\n");
     printf("%s%s  Users%s\n", ANSI_BOLD, ANSI_MAUVE, ANSI_RESET);
     printf("  %suseradd%s <name> <password>    add a new user\n", ANSI_ROSE, ANSI_RESET);
@@ -672,7 +677,7 @@ static void cmd_help(void)
     printf("  %skill%s   <pid> [sig]            send signal (9/15/10)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %smkfifo%s </path>                create named FIFO\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sps%s                          list processes\n", ANSI_ROSE, ANSI_RESET);
-    printf("  %sdesign_debug%s <topic>          show OS internals (super/inodes/blocks/memory/process/all)\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sdesign_debug%s <topic>          show OS internals (super/inodes/blocks/sof/memory/process/all)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %senv%s                          show environment variables\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sexport%s <KEY=VALUE>           set environment variable\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sunset%s  <KEY>                 remove environment variable\n", ANSI_ROSE, ANSI_RESET);
@@ -1065,7 +1070,7 @@ static int cmd_mkfifo(const char *path)
 static int cmd_design_debug(int argc, char **argv)
 {
     if (argc < 2) {
-        ui_err("Usage: design_debug <super|inodes|blocks|memory|process|all>");
+        ui_err("Usage: design_debug <super|inodes|blocks|sof|memory|process|all>");
         return -1;
     }
     const char *sub = argv[1];
@@ -1081,6 +1086,23 @@ static int cmd_design_debug(int argc, char **argv)
     if (strcmp(sub, "blocks") == 0 || strcmp(sub, "blk") == 0) {
         if (require_mounted()) return -1;
         fs_debug_print_super();
+    }
+    if (strcmp(sub, "sof") == 0 || strcmp(sub, "all") == 0) {
+        if (require_mounted()) return -1;
+        const SysOpenFile *sof = sys_open_file_table();
+        int sof_cnt = sys_open_file_count();
+        printf("\n");
+        printf("  ── System Open File Table (%d/%d) ─────────────\n",
+               sof_cnt, SYS_OPEN_FILE_MAX);
+        printf("  %-4s %-6s %-6s %-8s %-4s %s\n", "Idx", "Inode", "Mode", "Offset", "Ref", "Flags");
+        for (int i = 0; i < SYS_OPEN_FILE_MAX; i++) {
+            if (sof[i].f_inode == NULL) continue;
+            printf("  %-4d %-6u 0x%04X %-8u %-4u 0x%04X\n",
+                   i, (unsigned)sof[i].f_inode->m_inode_no,
+                   (unsigned)sof[i].f_mode, (unsigned)sof[i].f_offset,
+                   (unsigned)sof[i].f_count, (unsigned)sof[i].f_flags);
+        }
+        printf("\n");
     }
     if (strcmp(sub, "memory") == 0 || strcmp(sub, "mem") == 0 || strcmp(sub, "all") == 0) {
         mem_debug_print();
@@ -1150,9 +1172,10 @@ static int cmd_design_debug(int argc, char **argv)
         strcmp(sub, "super") != 0 && strcmp(sub, "sb") != 0 &&
         strcmp(sub, "inodes") != 0 && strcmp(sub, "ino") != 0 &&
         strcmp(sub, "blocks") != 0 && strcmp(sub, "blk") != 0 &&
+        strcmp(sub, "sof") != 0 &&
         strcmp(sub, "memory") != 0 && strcmp(sub, "mem") != 0 &&
         strcmp(sub, "process") != 0 && strcmp(sub, "proc") != 0) {
-        ui_err("Unknown subcommand. Try: super, inodes, blocks, memory, process, all");
+        ui_err("Unknown subcommand. Try: super, inodes, blocks, sof, memory, process, all");
         return -1;
     }
     return 0;
@@ -1510,6 +1533,41 @@ static int dispatch_command(int argc, char **argv)
         if (argc < 2) { ui_err("Usage: rm <path>"); return -1; }
         if (vfs_delete(argv[1]) != 0) { ui_err("Delete failed"); return -1; }
         fs_sync_disk(); ui_ok("File deleted"); return 0;
+    }
+    if (strcmp(cmd, "cp") == 0 || strcmp(cmd, "copy") == 0) {
+        if (argc < 3) { ui_err("Usage: cp <src> <dst>"); return -1; }
+        if (vfs_copy(argv[1], argv[2]) != 0) { ui_err("Copy failed"); return -1; }
+        fs_sync_disk(); ui_ok("File copied"); return 0;
+    }
+    if (strcmp(cmd, "ln") == 0 || strcmp(cmd, "link") == 0) {
+        if (argc < 3) { ui_err("Usage: ln <target> <link_name>"); return -1; }
+        if (vfs_link(argv[1], argv[2]) != 0) { ui_err("Link failed"); return -1; }
+        fs_sync_disk(); ui_ok("Hard link created"); return 0;
+    }
+    if (strcmp(cmd, "stat") == 0) {
+        if (argc < 2) { ui_err("Usage: stat <path>"); return -1; }
+        uint16_t st_mode, st_nlink, st_uid, st_gid, st_ino;
+        uint32_t st_size;
+        if (vfs_stat(argv[1], &st_mode, &st_size, &st_nlink, &st_uid, &st_gid, &st_ino) != 0) {
+            ui_err("stat failed"); return -1;
+        }
+        printf("\n");
+        printf("  File:     %s\n", argv[1]);
+        printf("  Inode:    %u\n", (unsigned)st_ino);
+        printf("  Type:     %s\n", (st_mode & IFDIR) ? "directory" : (st_mode & IFREG) ? "regular file" : "unknown");
+        printf("  Mode:     %06o\n", (unsigned)(st_mode & 0777));
+        printf("  Links:    %u\n", (unsigned)st_nlink);
+        printf("  Size:     %u bytes\n", (unsigned)st_size);
+        printf("  Owner:    uid=%u gid=%u\n", (unsigned)st_uid, (unsigned)st_gid);
+        printf("\n");
+        return 0;
+    }
+    if (strcmp(cmd, "chmod") == 0) {
+        if (argc < 3) { ui_err("Usage: chmod <path> <mode>"); return -1; }
+        uint16_t new_mode;
+        if (parse_octal_mode(argv[2], &new_mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
+        if (vfs_chmod(argv[1], new_mode) != 0) { ui_err("chmod failed (permission denied?)"); return -1; }
+        fs_sync_disk(); ui_ok("Mode changed"); return 0;
     }
     if (strcmp(cmd, "useradd") == 0) {
         if (argc < 3) { ui_err("Usage: useradd <name> <password>"); return -1; }

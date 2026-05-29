@@ -41,6 +41,12 @@ extern "C" {
 #define MAX_USERS               10
 
 
+#define SYS_OPEN_FILE_MAX       40
+
+
+#define NADDR                   10
+
+
 
 
 #define INODES_PER_BLOCK        (BLOCK_SIZE / DISK_INODE_SIZE)
@@ -181,6 +187,16 @@ typedef struct DirEntry {
 
 
 struct MemINode;
+
+
+typedef struct SysOpenFile {
+    uint32_t     f_offset;              
+    uint16_t     f_mode;                
+    uint16_t     f_flags;               
+    uint16_t     f_count;               
+    uint16_t     f_pad;                 
+    struct MemINode *f_inode;           
+} SysOpenFile;
 
 
 typedef struct OpenFileTable {

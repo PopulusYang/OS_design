@@ -6,8 +6,48 @@
 #include "fs/disk_io.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #define PATH_BUF_SIZE           256
+
+
+static SysOpenFile g_sys_ofile[SYS_OPEN_FILE_MAX];
+static int         g_sys_ofile_init = 0;
+
+void sys_open_file_init(void)
+{
+    memset(g_sys_ofile, 0, sizeof(g_sys_ofile));
+    g_sys_ofile_init = 1;
+}
+
+int sys_open_file_count(void)
+{
+    int count = 0;
+    for (int i = 0; i < SYS_OPEN_FILE_MAX; i++) {
+        if (g_sys_ofile[i].f_inode != NULL) count++;
+    }
+    return count;
+}
+
+const SysOpenFile *sys_open_file_table(void)
+{
+    return g_sys_ofile;
+}
+
+static int sys_ofile_alloc(void)
+{
+    if (!g_sys_ofile_init) sys_open_file_init();
+    for (int i = 0; i < SYS_OPEN_FILE_MAX; i++) {
+        if (g_sys_ofile[i].f_inode == NULL) return i;
+    }
+    return -1;
+}
+
+static void sys_ofile_free(int idx)
+{
+    if (idx < 0 || idx >= SYS_OPEN_FILE_MAX) return;
+    memset(&g_sys_ofile[idx], 0, sizeof(g_sys_ofile[idx]));
+}
 
 
 static int inode_is_reg(const MemINode *ip)
@@ -390,6 +430,7 @@ int vfs_open(const char *path, uint16_t mode)
     MemINode      *ip;
     OpenFileTable *oft;
     int            fd;
+    int            sfd;
     uint16_t       lock_flags = 0;
 
     u = dir_get_user();
@@ -406,7 +447,6 @@ int vfs_open(const char *path, uint16_t mode)
         return -1;
     }
 
-    
     if (mode & (O_WRONLY | O_RDWR)) {
         if (inode_wrlock(ip) != 0) {
             iput(ip);
@@ -430,6 +470,18 @@ int vfs_open(const char *path, uint16_t mode)
         iput(ip);
         return -1;
     }
+
+    sfd = sys_ofile_alloc();
+    if (sfd < 0) {
+        inode_unlock(ip);
+        iput(ip);
+        return -1;
+    }
+    g_sys_ofile[sfd].f_inode  = ip;
+    g_sys_ofile[sfd].f_mode   = mode;
+    g_sys_ofile[sfd].f_flags  = lock_flags;
+    g_sys_ofile[sfd].f_count  = 1;
+    g_sys_ofile[sfd].f_offset = (mode & O_APPEND) ? ip->m_dinode.d_size : 0;
 
     oft = &u->u_ofile[fd];
     oft->oft_inode     = ip;
@@ -590,7 +642,15 @@ int vfs_close(int fd)
 
     ip = oft->oft_inode;
 
-    
+    for (int i = 0; i < SYS_OPEN_FILE_MAX; i++) {
+        if (g_sys_ofile[i].f_inode == ip) {
+            g_sys_ofile[i].f_count--;
+            if (g_sys_ofile[i].f_count == 0)
+                sys_ofile_free(i);
+            break;
+        }
+    }
+
     if (oft->oft_flags & (OF_RDLOCKED | OF_WRLOCKED)) {
         inode_unlock(ip);
     }
@@ -646,20 +706,215 @@ int vfs_delete(const char *path)
         return -1;
     }
 
-    
     if (inode_wrlock(file_ip) != 0) {
         iput(file_ip);
         iput(parent_ip);
         return -1;
     }
 
-    file_truncate(file_ip);
-    file_ip->m_dinode.d_nlink = 0;
-    file_ip->m_dinode.d_mode = 0;
+    file_ip->m_dinode.d_nlink--;
+    if (file_ip->m_dinode.d_nlink == 0) {
+        file_truncate(file_ip);
+        file_ip->m_dinode.d_mode = 0;
+    }
     file_ip->m_flags |= MINODE_DIRTY;
 
     inode_unlock(file_ip);
     iput(file_ip);
     iput(parent_ip);
+    return 0;
+}
+
+
+int vfs_lseek(int fd, int offset, int whence)
+{
+    User          *u;
+    OpenFileTable *oft;
+    MemINode      *ip;
+    int32_t        new_pos;
+
+    u = dir_get_user();
+    oft = oft_get(u, fd);
+    if (oft == NULL) return -1;
+
+    ip = oft->oft_inode;
+
+    switch (whence) {
+    case SEEK_SET_VFS:
+        new_pos = offset;
+        break;
+    case SEEK_CUR_VFS:
+        new_pos = (int32_t)oft->oft_read_pos + offset;
+        break;
+    case SEEK_END_VFS:
+        new_pos = (int32_t)ip->m_dinode.d_size + offset;
+        break;
+    default:
+        return -1;
+    }
+
+    if (new_pos < 0) return -1;
+    oft->oft_read_pos  = (uint32_t)new_pos;
+    oft->oft_write_pos = (uint32_t)new_pos;
+    return (int)new_pos;
+}
+
+
+int vfs_access(const char *path, int amode)
+{
+    User     *u;
+    MemINode *ip;
+    uint16_t  m;
+
+    u = dir_get_user();
+    if (path == NULL || u == NULL) return -1;
+
+    ip = namei(path);
+    if (ip == NULL) return -1;
+
+    m = ip->m_dinode.d_mode;
+
+    if (u->u_uid == 0) {
+        iput(ip);
+        return 0;
+    }
+
+    if (ip->m_dinode.d_uid == u->u_uid) {
+        if ((amode & ACC_R) && !(m & 0400)) { iput(ip); return -1; }
+        if ((amode & ACC_W) && !(m & 0200)) { iput(ip); return -1; }
+        if ((amode & ACC_X) && !(m & 0100)) { iput(ip); return -1; }
+    } else if (ip->m_dinode.d_gid == u->u_gid) {
+        if ((amode & ACC_R) && !(m & 0040)) { iput(ip); return -1; }
+        if ((amode & ACC_W) && !(m & 0020)) { iput(ip); return -1; }
+        if ((amode & ACC_X) && !(m & 0010)) { iput(ip); return -1; }
+    } else {
+        if ((amode & ACC_R) && !(m & 0004)) { iput(ip); return -1; }
+        if ((amode & ACC_W) && !(m & 0002)) { iput(ip); return -1; }
+        if ((amode & ACC_X) && !(m & 0001)) { iput(ip); return -1; }
+    }
+
+    iput(ip);
+    return 0;
+}
+
+
+int vfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
+             uint16_t *out_nlink, uint16_t *out_uid, uint16_t *out_gid,
+             uint16_t *out_ino)
+{
+    MemINode *ip;
+
+    if (path == NULL) return -1;
+    ip = namei(path);
+    if (ip == NULL) return -1;
+
+    if (out_mode)  *out_mode  = ip->m_dinode.d_mode;
+    if (out_size)  *out_size  = ip->m_dinode.d_size;
+    if (out_nlink) *out_nlink = ip->m_dinode.d_nlink;
+    if (out_uid)   *out_uid   = ip->m_dinode.d_uid;
+    if (out_gid)   *out_gid   = ip->m_dinode.d_gid;
+    if (out_ino)   *out_ino   = ip->m_inode_no;
+
+    iput(ip);
+    return 0;
+}
+
+
+int vfs_chmod(const char *path, uint16_t new_mode)
+{
+    User     *u;
+    MemINode *ip;
+
+    u = dir_get_user();
+    if (path == NULL || u == NULL) return -1;
+
+    ip = namei(path);
+    if (ip == NULL) return -1;
+
+    if (u->u_uid != 0 && ip->m_dinode.d_uid != u->u_uid) {
+        iput(ip);
+        return -1;
+    }
+
+    ip->m_dinode.d_mode = (ip->m_dinode.d_mode & 0xF000U) | (new_mode & 0777U);
+    ip->m_flags |= MINODE_DIRTY;
+    iput(ip);
+    return 0;
+}
+
+
+int vfs_copy(const char *src, const char *dst)
+{
+    int src_fd, dst_fd;
+    char buf[BLOCK_SIZE];
+    int n;
+
+    if (src == NULL || dst == NULL) return -1;
+
+    src_fd = vfs_open(src, O_RDONLY);
+    if (src_fd < 0) return -1;
+
+    if (vfs_create(dst, 0644) != 0) {
+        MemINode *exist = namei(dst);
+        if (exist == NULL) { vfs_close(src_fd); return -1; }
+        iput(exist);
+    }
+
+    dst_fd = vfs_open(dst, O_WRONLY);
+    if (dst_fd < 0) { vfs_close(src_fd); return -1; }
+
+    while ((n = vfs_read(src_fd, buf, BLOCK_SIZE)) > 0) {
+        if (vfs_write(dst_fd, buf, n) != n) {
+            vfs_close(src_fd);
+            vfs_close(dst_fd);
+            return -1;
+        }
+    }
+
+    vfs_close(src_fd);
+    vfs_close(dst_fd);
+    return 0;
+}
+
+
+int vfs_link(const char *existing, const char *new_path)
+{
+    char      parent_path[PATH_BUF_SIZE];
+    char      name[MAX_FILENAME_LEN + 1];
+    MemINode *ip;
+    MemINode *parent_ip;
+
+    if (existing == NULL || new_path == NULL) return -1;
+
+    ip = namei(existing);
+    if (ip == NULL) return -1;
+
+    if (!inode_is_reg(ip)) {
+        iput(ip);
+        return -1;
+    }
+
+    if (dir_split_path(new_path, parent_path, name) != 0) {
+        iput(ip);
+        return -1;
+    }
+
+    parent_ip = namei(parent_path);
+    if (parent_ip == NULL) {
+        iput(ip);
+        return -1;
+    }
+
+    if (dir_link_entry(parent_ip, name, ip->m_inode_no) != 0) {
+        iput(parent_ip);
+        iput(ip);
+        return -1;
+    }
+
+    ip->m_dinode.d_nlink++;
+    ip->m_flags |= MINODE_DIRTY;
+
+    iput(parent_ip);
+    iput(ip);
     return 0;
 }
