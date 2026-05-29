@@ -81,11 +81,7 @@ make
 ./upfs --serve
 ./upfs --serve 8080
 
-# 编译 HTTP/WebSocket 辅助服务（可选）
-make -C script
-```
-
-`--serve` 模式下各终端子进程通过 `mmap` 共享内核状态；HTTP/WebSocket 终端见 `script/websrv.c`。
+`--serve` 模式下各终端子进程通过 `mmap` 共享内核状态，内置 HTTP/WebSocket 支持。
 
 ## 磁盘布局
 
@@ -130,7 +126,7 @@ make -C script
 │   ├── assembler.c         # 汇编器
 │   ├── editor.c            # 简易编辑器
 │   └── binaries.c          # 预置程序
-├── script/                 # websrv 辅助服务源码
+
 ├── involve_src/            # 示例汇编程序
 ├── doc/                    # 汇报与验收文档
 ├── tests/                  # 自动化测试（待补充）

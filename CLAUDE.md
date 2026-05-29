@@ -30,7 +30,7 @@ In `--serve` mode, UPFS acts as a multi-terminal daemon:
 - **Port 8080**: HTTP server serving the terminal web page + WebSocket upgrade at `/ws/*`
 - **Port 4096** (or custom): Raw TCP terminal — connect with `nc localhost 4096` or `telnet`
 - Each connection forks a child process running `upfs_session()`; the parent polls and forwards I/O
-- A standalone WebSocket bridge is also available: `script/websrv` (connect it to a raw TCP UPFS on :4096)
+
 
 ## Directory Structure
 
