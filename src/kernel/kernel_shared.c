@@ -1,5 +1,3 @@
-
-
 #include "kernel_shared.h"
 #include <stdlib.h>
 #include <string.h>
