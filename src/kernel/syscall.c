@@ -202,7 +202,10 @@ void syscall_dispatch(PCB *p, uint32_t no)
                 else { chunk = i; break; }
             }
             tmp[chunk] = '\0';
-            fputs(tmp, stdout);
+            for (int i = 0; i < chunk; i++) {
+                if (tmp[i] == '\n') fputc('\r', stdout);
+                fputc(tmp[i], stdout);
+            }
             fflush(stdout);
             *ret = (uint32_t)chunk;
         } else {

@@ -89,6 +89,54 @@ _sys_mkdir:
     SYSCALL 19              ; mkdir(path, mode)
     RET
 
+_sys_pipe:
+    SYSCALL 22              ; pipe(fds) → 0 or -1
+    RET
+
+_sys_kill:
+    SYSCALL 23              ; kill(pid, sig)
+    RET
+
+_sys_semget:
+    SYSCALL 24              ; semget(key, flags) → semid
+    RET
+
+_sys_semop:
+    SYSCALL 25              ; semop(semid, op)
+    RET
+
+_sys_msgget:
+    SYSCALL 26              ; msgget(key) → mqid
+    RET
+
+_sys_msgsnd:
+    SYSCALL 27              ; msgsnd(mqid, msg, size)
+    RET
+
+_sys_msgrcv:
+    SYSCALL 28              ; msgrcv(mqid, buf, size)
+    RET
+
+_sys_shmget:
+    SYSCALL 29              ; shmget(key, size) → shmid
+    RET
+
+_sys_shmat:
+    SYSCALL 30              ; shmat(shmid, addr) → 0 or -1
+    RET
+
+_sys_shmdt:
+    SYSCALL 31              ; shmdt(shmid)
+    RET
+
+_sys_mkfifo:
+    SYSCALL 32              ; mkfifo(path)
+    RET
+
+_sys_getsig:
+    SYSCALL 33              ; getsig() → sig or 0
+    RET
+
 ; ---------- 比较辅助函数 ----------
 ; VM 只有 ZF 标志位。有符号比较通过无符号除法技巧实现：
 ;   a < b (signed) 等价于 (uint32_t)(a - b) >= 0x80000000
@@ -140,7 +188,9 @@ __rt_lt:
     ;   R4 in [0, 32767] → 商 0 → a >= b
     ;   R4 in [32768, 65535] → 商 1 → a < b
     DIV R0, R4, R5          ; R0 = R4 / 32768
-    CMP R0, R0              ; 设置 FLAGS
+    ; CMP R0, R0 always sets ZF regardless of R0 value, so compare with 0 explicitly
+    MOVI R3, 0
+    CMP R0, R3              ; ZF=1 if R0==0 (a>=b)
     JZ .rt_lt_ret
     ; R0 != 0, 确认是 1
     RET
@@ -161,7 +211,8 @@ __rt_le:
     MOV R1, R2
     MOV R2, R3
     CALL __rt_lt
-    CMP R0, R0
+    MOVI R3, 0
+    CMP R0, R3
     JZ .rt_le_one
     MOVI R0, 0
     RET
@@ -172,7 +223,8 @@ __rt_le:
 __rt_ge:
     ; a >= b → !(a < b)
     CALL __rt_lt
-    CMP R0, R0
+    MOVI R3, 0
+    CMP R0, R3
     JZ .rt_ge_one
     MOVI R0, 0
     RET
@@ -224,8 +276,9 @@ __rt_print_int:
     ; R1=integer → 打印十进制到 stdout
     MOVI R5, 10             ; divisor
     MOVI R6, 0              ; digit count
+    MOVI R11, 0             ; zero constant (R11 untouched by rest of function)
     ; 处理 0
-    CMP R1, R0
+    CMP R1, R11
     JNZ .rt_pi_nonzero
     MOVI R7, 48             ; '0'
     MOV R8, R7
@@ -239,7 +292,7 @@ __rt_print_int:
     MOV R9, R15             ; 保存 SP
     ; 逐位提取（逆序）
 .rt_pi_loop:
-    CMP R1, R0
+    CMP R1, R11
     JZ .rt_pi_print_digits
     DIV R4, R1, R5          ; R4 = R1/10
     MUL R7, R4, R5          ; R7 = quotient*10
@@ -255,7 +308,7 @@ __rt_print_int:
     ; 逆序弹出（恢复正确顺序）
     MOVI R1, 1               ; fd=stdout
 .rt_pi_out_loop:
-    CMP R6, R0
+    CMP R6, R11
     JZ .rt_pi_done
     POP R2                  ; 弹出字符到 R2
     ; R2 是整数值，需要地址

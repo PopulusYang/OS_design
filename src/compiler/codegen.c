@@ -168,10 +168,10 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     }
 
     case AST_IDENT: {
-        // 在当前作用域重新查找（优先使用 codegen 时创建的局部符号）
-        Symbol *sym = scope_lookup(cg->comp->current_scope, n->ident.name);
+        /* 优先使用 parser 已解析的符号（parser 的函数局部 scope 中有正确的 offset） */
+        Symbol *sym = n->ident.sym;
+        if (!sym) sym = scope_lookup(cg->comp->current_scope, n->ident.name);
         if (!sym) {
-            // 未声明的标识符，可能是外部函数，当作 0 处理
             emit_load_imm(cg, target_reg, 0);
             return target_reg;
         }
@@ -184,7 +184,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
             emit_load_local(cg, target_reg, sym->offset);
             break;
         case SYM_FUNC:
-            // 函数名 → 函数地址
             emit_load_addr(cg, target_reg, n->ident.name);
             break;
         }
@@ -256,36 +255,50 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
         }
         case BINOP_AND: {
             int lbl = cg->tmp_counter++;
+            int zero = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, zero, 0);
             emit(cg, "    CMP ");
             emit_reg(cg, rleft);
-            emit(cg, ", R0\n");
+            emit(cg, ", ");
+            emit_reg(cg, zero);
+            emit(cg, "\n");
             emit(cg, "    JZ .Land_false_%d\n", lbl);
             emit(cg, "    CMP ");
             emit_reg(cg, rright);
-            emit(cg, ", R0\n");
+            emit(cg, ", ");
+            emit_reg(cg, zero);
+            emit(cg, "\n");
             emit(cg, "    JZ .Land_false_%d\n", lbl);
             emit_load_imm(cg, target_reg, 1);
             emit(cg, "    JMP .Land_end_%d\n", lbl);
             emit(cg, ".Land_false_%d:\n", lbl);
             emit_load_imm(cg, target_reg, 0);
             emit(cg, ".Land_end_%d:\n", lbl);
+            regalloc_free(&cg->ra, zero);
             break;
         }
         case BINOP_OR: {
             int lbl = cg->tmp_counter++;
+            int zero = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, zero, 0);
             emit(cg, "    CMP ");
             emit_reg(cg, rleft);
-            emit(cg, ", R0\n");
+            emit(cg, ", ");
+            emit_reg(cg, zero);
+            emit(cg, "\n");
             emit(cg, "    JNZ .Lor_true_%d\n", lbl);
             emit(cg, "    CMP ");
             emit_reg(cg, rright);
-            emit(cg, ", R0\n");
+            emit(cg, ", ");
+            emit_reg(cg, zero);
+            emit(cg, "\n");
             emit(cg, "    JNZ .Lor_true_%d\n", lbl);
             emit_load_imm(cg, target_reg, 0);
             emit(cg, "    JMP .Lor_end_%d\n", lbl);
             emit(cg, ".Lor_true_%d:\n", lbl);
             emit_load_imm(cg, target_reg, 1);
             emit(cg, ".Lor_end_%d:\n", lbl);
+            regalloc_free(&cg->ra, zero);
             break;
         }
         case BINOP_ADD:
@@ -418,15 +431,20 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
         }
         case UNOP_NOT: {
             int lbl = cg->tmp_counter++;
+            int zero = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, zero, 0);
             emit(cg, "    CMP ");
             emit_reg(cg, rop);
-            emit(cg, ", R0\n");
+            emit(cg, ", ");
+            emit_reg(cg, zero);
+            emit(cg, "\n");
             emit(cg, "    JZ .Lunot_%d\n", lbl);
             emit_load_imm(cg, target_reg, 0);
             emit(cg, "    JMP .Lunot_end_%d\n", lbl);
             emit(cg, ".Lunot_%d:\n", lbl);
             emit_load_imm(cg, target_reg, 1);
             emit(cg, ".Lunot_end_%d:\n", lbl);
+            regalloc_free(&cg->ra, zero);
             break;
         }
         case UNOP_TILDE: {
@@ -595,15 +613,40 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
         emit_reg(cg, rright);
         emit(cg, "\n");
         emit(cg, "    CALL %s\n", rt_func);
-        emit(cg, "    CMP R0, R0\n"); // 确保 FLAGS 被设置 (R0==R0 总是 ZF)
+        {
+            int tmp = regalloc_alloc(&cg->ra);
+            emit_load_imm(cg, tmp, 0);
+            emit(cg, "    CMP R0, ");
+            emit_reg(cg, tmp);
+            emit(cg, "\n");
+            regalloc_free(&cg->ra, tmp);
+        }
         if (jump_if_true) {
-            emit(cg, "    CMP R0, R0\n");
-            emit(cg, "    JZ .Lskip_cmp_%d\n", cg->tmp_counter);
-            emit(cg, "    JMP %s\n", label);
-            emit(cg, ".Lskip_cmp_%d:\n", cg->tmp_counter);
-        } else {
-            emit(cg, "    CMP R0, R0\n");
             emit(cg, "    JNZ %s\n", label);
+        } else {
+            emit(cg, "    JZ %s\n", label);
+        }
+        regalloc_free(&cg->ra, rleft);
+        regalloc_free(&cg->ra, rright);
+        return;
+    }
+
+    // == / != 直接比较两个操作数，不通过运行时函数
+    if (cond->kind == AST_BINARY &&
+        (cond->binary.op == BINOP_EQ || cond->binary.op == BINOP_NE)) {
+        int rleft = regalloc_alloc(&cg->ra);
+        int rright = regalloc_alloc(&cg->ra);
+        emit_expr(cg, cond->binary.left, rleft);
+        emit_expr(cg, cond->binary.right, rright);
+        emit(cg, "    CMP ");
+        emit_reg(cg, rleft);
+        emit(cg, ", ");
+        emit_reg(cg, rright);
+        emit(cg, "\n");
+        if (cond->binary.op == BINOP_EQ) {
+            emit(cg, jump_if_true ? "    JZ %s\n" : "    JNZ %s\n", label);
+        } else {
+            emit(cg, jump_if_true ? "    JNZ %s\n" : "    JZ %s\n", label);
         }
         regalloc_free(&cg->ra, rleft);
         regalloc_free(&cg->ra, rright);
@@ -612,16 +655,21 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
 
     // 通用情况：计算表达式值，与 0 比较
     int reg = regalloc_alloc(&cg->ra);
+    int zero = regalloc_alloc(&cg->ra);
     emit_expr(cg, cond, reg);
+    emit_load_imm(cg, zero, 0);
     emit(cg, "    CMP ");
     emit_reg(cg, reg);
-    emit(cg, ", R0\n");
+    emit(cg, ", ");
+    emit_reg(cg, zero);
+    emit(cg, "\n");
     if (jump_if_true) {
         emit(cg, "    JNZ %s\n", label);
     } else {
         emit(cg, "    JZ %s\n", label);
     }
     regalloc_free(&cg->ra, reg);
+    regalloc_free(&cg->ra, zero);
 }
 
 // ---------- 语句代码生成 ----------
@@ -775,10 +823,19 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
 static void emit_func(CodeGen *cg, ASTNode *n) {
     strncpy(cg->cur_func, n->func.name, sizeof(cg->cur_func) - 1);
 
-    // 计算局部变量空间
-    cg->local_var_size = cg->comp->func_local_offset;
-    // 对齐到 4 字节
+    // 计算局部变量空间：遍历函数体收集所有声明的变量大小
+    cg->local_var_size = 0;
+    if (n->func.body) {
+        for (int si = 0; si < n->func.body->block.nstmts; si++) {
+            ASTNode *stmt = n->func.body->block.stmts[si];
+            if (stmt->kind == AST_DECL && !stmt->decl.is_global) {
+                cg->local_var_size += stmt->decl.sym ? stmt->decl.sym->size : 4;
+            }
+        }
+    }
     cg->local_var_size = (cg->local_var_size + 3) & ~3;
+    // 额外 64 字节安全边距，防止被调用函数的 PUSH/POP 踩到局部变量
+    cg->local_var_size += 64;
 
     // 函数标签
     emit(cg, "%s:\n", n->func.name);

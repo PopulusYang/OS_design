@@ -1331,7 +1331,6 @@ static int dispatch_command(int argc, char **argv)
         if (save_asm) {
             char asm_vfs[512];
             const char *s = argv[1];
-            // 推导汇编路径: 去掉 .c 后缀，加上 .s
             const char *dot = strrchr(s, '.');
             size_t base_len = dot ? (size_t)(dot - s) : strlen(s);
             memcpy(asm_vfs, s, base_len);
@@ -1342,11 +1341,18 @@ static int dispatch_command(int argc, char **argv)
                 if (sz > 0) {
                     char *abuf = malloc((size_t)(sz + 1));
                     if (abuf) {
-                        fread(abuf, 1, (size_t)sz, af);
-                        vfs_delete(asm_vfs);
-                        vfs_create(asm_vfs, 0644);
-                        int fd = vfs_open(asm_vfs, O_WRONLY);
-                        if (fd >= 0) { vfs_write(fd, abuf, (int)sz); vfs_close(fd); }
+                        size_t nread = fread(abuf, 1, (size_t)sz, af);
+                        if (nread > 0) {
+                            vfs_delete(asm_vfs);
+                            vfs_create(asm_vfs, 0644);
+                            int fd = vfs_open(asm_vfs, O_WRONLY);
+                            if (fd >= 0) {
+                                vfs_write(fd, abuf, (int)nread);
+                                vfs_close(fd);
+                                fs_sync_disk();
+                                printf("  asm saved: %s (%zu bytes)\n", asm_vfs, nread);
+                            }
+                        }
                         free(abuf);
                     }
                 }

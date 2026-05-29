@@ -160,7 +160,7 @@ char *compiler_new_label(Compiler *c) {
 
 char *compiler_new_string_label(Compiler *c) {
     char buf[32];
-    snprintf(buf, sizeof(buf), ".L_str_%d", c->string_counter);
+    snprintf(buf, sizeof(buf), ".L_str_%d", c->string_counter++);
     return strdup(buf);
 }
 

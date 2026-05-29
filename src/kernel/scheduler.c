@@ -106,7 +106,7 @@ int sched_tick(void)
     if (g_kernel == NULL || !g_kernel->sched_inited) return 1;
 
     PCB *cur = proc_current();
-    if (cur == NULL || cur->p_state == PROC_ZOMBIE || cur->p_state == PROC_FREE) {
+    if (cur == NULL || cur->p_state == PROC_ZOMBIE || cur->p_state == PROC_FREE || cur->p_state == PROC_READY) {
         cur = sched_pick_next();
         if (cur == NULL) return 1;
         proc_set_current(cur);

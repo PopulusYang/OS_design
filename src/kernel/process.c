@@ -364,17 +364,24 @@ int proc_wait(int *status)
     PCB *parent = proc_current();
     if (parent == NULL) return -1;
 
-    for (int i = 0; i < parent->p_child_count; i++) {
-        PCB *child = proc_find(parent->p_children[i]);
-        if (child && child->p_state == PROC_ZOMBIE) {
-            if (status) *status = child->p_exit_code;
-            uint32_t cpid = child->p_pid;
-            proc_free(child);
-            for (int j = i; j < parent->p_child_count - 1; j++)
-                parent->p_children[j] = parent->p_children[j + 1];
-            parent->p_child_count--;
-            return (int)cpid;
+    /* 自旋等待，直到有子进程退出（模拟真正的阻塞 wait） */
+    for (int spin = 0; spin < 1000000; spin++) {
+        for (int i = 0; i < parent->p_child_count; i++) {
+            PCB *child = proc_find(parent->p_children[i]);
+            if (child && child->p_state == PROC_ZOMBIE) {
+                if (status) *status = child->p_exit_code;
+                uint32_t cpid = child->p_pid;
+                proc_free(child);
+                for (int j = i; j < parent->p_child_count - 1; j++)
+                    parent->p_children[j] = parent->p_children[j + 1];
+                parent->p_child_count--;
+                return (int)cpid;
+            }
         }
+        /* 让出 CPU，让子进程有机会运行 */
+        sched_cooperate();
+        /* 没有子进程了则返回 -1 */
+        if (parent->p_child_count == 0) return -1;
     }
     return -1;
 }
