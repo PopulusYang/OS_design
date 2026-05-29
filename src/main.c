@@ -1,9 +1,11 @@
 
 
 #include "vfs_core.h"
+#include "vfs.h"
 #include "fs/disk_io.h"
 #include "fs/format.h"
 #include "fs/allocator.h"
+#include "fs/bg.h"
 #include "fs/dir_sys.h"
 #include "fs/file_sys.h"
 #include "user/user_mgmt.h"
@@ -340,7 +342,7 @@ static int shell_mount(const char *path)
 
     if (g_mounted) { ui_err("Already mounted, umount first"); return -1; }
     if (!disk_file_exists(use_path)) { ui_err("Disk image not found; format first"); return -1; }
-    if (fs_mount(use_path) != 0) { ui_err("Mount failed: corrupted image or wrong format"); return -1; }
+    if (vfs_mount(use_path) != 0) { ui_err("Mount failed: corrupted image or wrong format"); return -1; }
     shared_set_disk(use_path);
 
     if (path && path[0] && path != g_disk_path) {
@@ -408,7 +410,7 @@ static int shell_umount(void)
     env_system_save();
     proc_shutdown();
     mem_shutdown();
-    if (fs_umount() != 0) { ui_err("Umount failed"); return -1; }
+    if (vfs_umount() != 0) { ui_err("Umount failed"); return -1; }
     g_mounted = 0;
     strncpy(g_cwd, "/", sizeof(g_cwd) - 1);
     g_user_home[0] = '\0';
@@ -421,7 +423,7 @@ static int shell_format(const char *path)
     const char *use_path = (path && path[0]) ? path : g_disk_path;
 
     if (g_mounted) { ui_err("Umount first before format"); return -1; }
-    if (format(use_path) != 0) { ui_err("Format failed"); return -1; }
+    if (vfs_format_disk(use_path) != 0) { ui_err("Format failed"); return -1; }
 
     if (path && path[0] && path != g_disk_path) {
         strncpy(g_disk_path, use_path, sizeof(g_disk_path) - 1);
@@ -430,7 +432,7 @@ static int shell_format(const char *path)
     ui_ok("Format complete");
 
     
-    if (fs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
+    if (vfs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
     shared_set_disk(use_path);
 
     memset(g_users, 0, sizeof(g_users));
@@ -736,7 +738,7 @@ static int cmd_useradd(const char *username, const char *password)
     if (username == NULL || password == NULL) { ui_err("Usage: useradd <name> <password>"); return -1; }
     if (user_count() >= MAX_USERS) { ui_err("User limit reached"); return -1; }
     if (user_add(username, password) != 0) { ui_err("Failed to add user (already exists?)"); return -1; }
-    fs_sync_disk();
+    vfs_sync_all();
     ui_ok("User added");
     return 0;
 }
@@ -848,7 +850,7 @@ static int cmd_passwd(const char *username, const char *new_password)
         return -1;
     }
     if (user_passwd(username, new_password) != 0) { ui_err("Failed to change password"); return -1; }
-    fs_sync_disk();
+    vfs_sync_all();
     ui_ok("Password changed");
     return 0;
 }
@@ -1070,7 +1072,7 @@ static int cmd_mkfifo(const char *path)
 static int cmd_design_debug(int argc, char **argv)
 {
     if (argc < 2) {
-        ui_err("Usage: design_debug <super|inodes|blocks|sof|memory|process|all>");
+        ui_err("Usage: design_debug <super|inodes|blocks|bg|sof|memory|process|all>");
         return -1;
     }
     const char *sub = argv[1];
@@ -1086,6 +1088,10 @@ static int cmd_design_debug(int argc, char **argv)
     if (strcmp(sub, "blocks") == 0 || strcmp(sub, "blk") == 0) {
         if (require_mounted()) return -1;
         fs_debug_print_super();
+    }
+    if (strcmp(sub, "bg") == 0 || strcmp(sub, "blockgroup") == 0) {
+        if (require_mounted()) return -1;
+        bg_debug_print();
     }
     if (strcmp(sub, "sof") == 0 || strcmp(sub, "all") == 0) {
         if (require_mounted()) return -1;
@@ -1469,7 +1475,7 @@ static int dispatch_command(int argc, char **argv)
                             if (fd >= 0) {
                                 vfs_write(fd, abuf, (int)nread);
                                 vfs_close(fd);
-                                fs_sync_disk();
+                                vfs_sync_all();
                                 printf("  asm saved: %s (%zu bytes)\n", asm_vfs, nread);
                             }
                         }
@@ -1493,7 +1499,7 @@ static int dispatch_command(int argc, char **argv)
         if (argc < 2) { ui_err("Usage: mkdir <path> [mode]"); return -1; }
         if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
         if (vfs_mkdir(argv[1], mode) != 0) { ui_err("mkdir failed"); return -1; }
-        fs_sync_disk(); ui_ok("Directory created"); return 0;
+        vfs_sync_all(); ui_ok("Directory created"); return 0;
     }
     if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0) {
         const char *target = argv[1];
@@ -1520,7 +1526,7 @@ static int dispatch_command(int argc, char **argv)
         if (argc < 2) { ui_err("Usage: create <path> [mode]"); return -1; }
         if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0644"); return -1; }
         if (vfs_create(argv[1], mode) != 0) { ui_err("create failed"); return -1; }
-        fs_sync_disk(); ui_ok("File created"); return 0;
+        vfs_sync_all(); ui_ok("File created"); return 0;
     }
     if (strcmp(cmd, "write") == 0) {
         if (argc < 3) { ui_err("Usage: write <path> <data>"); return -1; }
@@ -1532,17 +1538,17 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "rm") == 0 || strcmp(cmd, "delete") == 0) {
         if (argc < 2) { ui_err("Usage: rm <path>"); return -1; }
         if (vfs_delete(argv[1]) != 0) { ui_err("Delete failed"); return -1; }
-        fs_sync_disk(); ui_ok("File deleted"); return 0;
+        vfs_sync_all(); ui_ok("File deleted"); return 0;
     }
     if (strcmp(cmd, "cp") == 0 || strcmp(cmd, "copy") == 0) {
         if (argc < 3) { ui_err("Usage: cp <src> <dst>"); return -1; }
         if (vfs_copy(argv[1], argv[2]) != 0) { ui_err("Copy failed"); return -1; }
-        fs_sync_disk(); ui_ok("File copied"); return 0;
+        vfs_sync_all(); ui_ok("File copied"); return 0;
     }
     if (strcmp(cmd, "ln") == 0 || strcmp(cmd, "link") == 0) {
         if (argc < 3) { ui_err("Usage: ln <target> <link_name>"); return -1; }
         if (vfs_link(argv[1], argv[2]) != 0) { ui_err("Link failed"); return -1; }
-        fs_sync_disk(); ui_ok("Hard link created"); return 0;
+        vfs_sync_all(); ui_ok("Hard link created"); return 0;
     }
     if (strcmp(cmd, "stat") == 0) {
         if (argc < 2) { ui_err("Usage: stat <path>"); return -1; }
@@ -1567,7 +1573,7 @@ static int dispatch_command(int argc, char **argv)
         uint16_t new_mode;
         if (parse_octal_mode(argv[2], &new_mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
         if (vfs_chmod(argv[1], new_mode) != 0) { ui_err("chmod failed (permission denied?)"); return -1; }
-        fs_sync_disk(); ui_ok("Mode changed"); return 0;
+        vfs_sync_all(); ui_ok("Mode changed"); return 0;
     }
     if (strcmp(cmd, "useradd") == 0) {
         if (argc < 3) { ui_err("Usage: useradd <name> <password>"); return -1; }
@@ -1632,7 +1638,8 @@ extern int dup2(int oldfd, int newfd);
 
 int upfs_session(int in_fd, int out_fd)
 {
-    
+    vfs_upfs_register();
+
     if (g_kernel == NULL) kernel_local_init();
 
     if (dup2(out_fd, 1) < 0) return 1;   
@@ -1693,7 +1700,7 @@ int upfs_session(int in_fd, int out_fd)
             proc_shutdown();
             mem_shutdown();
         }
-        fs_umount();
+        vfs_umount();
     }
     ui_ok("Goodbye");
     fflush(stdout);

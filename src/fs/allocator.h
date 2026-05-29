@@ -26,12 +26,12 @@ const SuperBlock *fs_get_superblock(void);
 
 
 int balloc(void);
-
+int balloc_for(uint16_t ino_hint);
 
 int bfree(int blk);
 
-
 int ialloc(void);
+int ialloc_for(uint16_t parent_ino);
 
 
 int ifree(uint16_t ino);

@@ -17,8 +17,14 @@ add_executable(OS_design
     src/main.c
     # 文件系统层
     src/fs/disk_io.c
+    src/fs/buf.c
+    src/fs/journal.c
+    src/fs/vfs.c
     src/fs/format.c
     src/fs/allocator.c
+    src/fs/bg.c
+    src/fs/extent.c
+    src/fs/inomap.c
     src/fs/dir_sys.c
     src/fs/file_sys.c
     # 内核层

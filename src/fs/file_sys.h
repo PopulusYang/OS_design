@@ -29,20 +29,20 @@ int  sys_open_file_count(void);
 const SysOpenFile *sys_open_file_table(void);
 
 
-int vfs_create(const char *path, uint16_t mode);
-int vfs_open(const char *path, uint16_t mode);
-int vfs_read(int fd, void *buf, int count);
-int vfs_write(int fd, const void *buf, int count);
-int vfs_close(int fd);
-int vfs_delete(const char *path);
-int vfs_lseek(int fd, int offset, int whence);
-int vfs_access(const char *path, int amode);
-int vfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
-             uint16_t *out_nlink, uint16_t *out_uid, uint16_t *out_gid,
-             uint16_t *out_ino);
-int vfs_chmod(const char *path, uint16_t new_mode);
-int vfs_copy(const char *src, const char *dst);
-int vfs_link(const char *existing, const char *new_path);
+int upfs_create(const char *path, uint16_t mode);
+int upfs_open(const char *path, uint16_t mode);
+int upfs_read(int fd, void *buf, int count);
+int upfs_write(int fd, const void *buf, int count);
+int upfs_close(int fd);
+int upfs_unlink(const char *path);
+int upfs_lseek(int fd, int offset, int whence);
+int upfs_access(const char *path, int amode);
+int upfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
+              uint16_t *out_nlink, uint16_t *out_uid, uint16_t *out_gid,
+              uint16_t *out_ino);
+int upfs_chmod(const char *path, uint16_t new_mode);
+int upfs_copy(const char *src, const char *dst);
+int upfs_link(const char *existing, const char *new_path);
 
 #ifdef __cplusplus
 }

@@ -9,7 +9,7 @@
 
 
 
-#include "fs/file_sys.h"
+#include "vfs.h"
 #include "fs/dir_sys.h"
 #include "fs/allocator.h"
 #include "user/env.h"

@@ -19,7 +19,7 @@ User *dir_get_user(void);
 MemINode *namei(const char *path);
 
 
-int vfs_mkdir(const char *path, uint16_t mode);
+int upfs_mkdir(const char *path, uint16_t mode);
 
 
 int chdir(const char *path);

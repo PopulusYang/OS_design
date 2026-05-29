@@ -1,0 +1,39 @@
+CMakeFiles/OS_design.dir/src/fs/vfs.c.o: \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/share/asan_ignorelist.txt \
+  /Users/ac/lab/OS/src/fs/vfs.c /Users/ac/lab/OS/include/vfs.h \
+  /Users/ac/lab/OS/include/vfs_core.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stdint.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stdint.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int8_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int16_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int32_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_int64_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint8_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint16_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint32_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uint64_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_symbol_aliasing.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_posix_availability.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/ptrcheck.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/machine/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/arm/_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_pthread/_pthread_types.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_intptr_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/_types/_uintptr_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_intmax_t.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/_types/_uintmax_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/stddef.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/stddef.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_header_macro.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_ptrdiff_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_size_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_rsize_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_wchar_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_null.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_max_align_t.h \
+  /Library/Developer/CommandLineTools/usr/lib/clang/21/include/__stddef_offsetof.h \
+  /Users/ac/lab/OS/src/fs/allocator.h /Users/ac/lab/OS/src/fs/dir_sys.h \
+  /Users/ac/lab/OS/src/fs/file_sys.h /Users/ac/lab/OS/src/fs/format.h \
+  /Users/ac/lab/OS/src/fs/buf.h /Users/ac/lab/OS/src/fs/journal.h

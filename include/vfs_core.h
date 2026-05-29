@@ -20,10 +20,31 @@ extern "C" {
 #define BLOCK_SIZE              512
 
 
-#define INODE_ZONE_BLOCKS       32
+#define JOURNAL_ZONE_BLOCKS     32
 
 
-#define DATA_ZONE_BLOCKS        512
+#define BG_COUNT                8
+
+
+#define BG_BLOCKS_PER_GROUP     64
+
+
+#define BG_DATA_BLOCKS_PER_GROUP (BG_BLOCKS_PER_GROUP - 1)
+
+
+#define BG_ZONE_START           2
+
+
+#define BG_TOTAL_BLOCKS         (BG_COUNT * BG_BLOCKS_PER_GROUP)
+
+
+#define JOURNAL_ZONE_START      (BG_ZONE_START + BG_TOTAL_BLOCKS)
+
+
+#define DATA_ZONE_BLOCKS        BG_TOTAL_BLOCKS
+
+
+#define FILE_DATA_BLOCKS        (BG_COUNT * BG_DATA_BLOCKS_PER_GROUP)
 
 
 #define MAX_FREE_BLOCKS         50
@@ -44,15 +65,21 @@ extern "C" {
 #define SYS_OPEN_FILE_MAX       40
 
 
-#define NADDR                   10
+#define EXTENTS_PER_LEAF        62
 
 
 
 
-#define INODES_PER_BLOCK        (BLOCK_SIZE / DISK_INODE_SIZE)
+#define INODES_PER_CHUNK        (BLOCK_SIZE / DISK_INODE_SIZE)
 
 
-#define TOTAL_INODES            (INODE_ZONE_BLOCKS * INODES_PER_BLOCK)
+#define INODE_CACHE_SIZE        2048
+
+
+#define MAX_INODE_NUMBER        0xFFFFFFFEU
+
+
+#define IMAP_FREE_SB_CAP        32
 
 
 #define DIRS_PER_BLOCK          (BLOCK_SIZE / DIR_ENTRY_SIZE)
@@ -64,7 +91,7 @@ extern "C" {
 #define MAX_FILENAME_LEN        (DIR_ENTRY_SIZE - (int)sizeof(uint16_t))
 
 
-#define TOTAL_DISK_BLOCKS       (1 + 1 + INODE_ZONE_BLOCKS + DATA_ZONE_BLOCKS)
+#define TOTAL_DISK_BLOCKS       (2 + BG_TOTAL_BLOCKS + JOURNAL_ZONE_BLOCKS)
 
 
 #define BOOT_BLOCKNO            0
@@ -73,16 +100,13 @@ extern "C" {
 #define SUPERBLOCK_BLOCKNO      1
 
 
-#define INODE_ZONE_START        2
+#define DATA_ZONE_START         BG_ZONE_START
 
 
-#define DATA_ZONE_START         (INODE_ZONE_START + INODE_ZONE_BLOCKS)
+#define ROOT_INODE_NO           1U
 
 
-#define ROOT_INODE_NO           1
-
-
-#define ROOT_DIR_BLOCK          DATA_ZONE_START
+#define ROOT_DIR_BLOCK          (BG_ZONE_START + 2)
 
 
 #define VFS_MAGIC               0x55504653U
@@ -110,16 +134,7 @@ extern "C" {
 
 
 
-#define SUPERBLOCK_FIXED_SIZE   (                       \
-    (int)sizeof(uint32_t) * 5 +                         \
-    (int)sizeof(uint16_t) * 2 +                         \
-    MAX_FREE_BLOCKS * (int)sizeof(uint16_t) +           \
-    (int)sizeof(uint16_t)                                 \
-)
-
-#define INODE_FREE_STACK_SIZE   (                       \
-    (BLOCK_SIZE - SUPERBLOCK_FIXED_SIZE) / (int)sizeof(uint16_t) \
-)
+#define IMAP_FREE_CAP           128
 
 
 
@@ -138,17 +153,38 @@ extern "C" {
 
 
 
+typedef struct BlockGroupDesc {
+    uint16_t bgd_anchor_block;
+    uint16_t bgd_data_start;
+    uint16_t bgd_data_blocks;
+    uint16_t bgd_pad;
+} BlockGroupDesc;
+
+
+typedef struct GroupDescTable {
+    BlockGroupDesc bg[BG_COUNT];
+    uint8_t        gdt_reserved[BLOCK_SIZE - sizeof(BlockGroupDesc) * BG_COUNT];
+} GroupDescTable;
+
+
 typedef struct SuperBlock {
-    uint32_t s_magic;                               
-    uint32_t s_inode_total;                         
-    uint32_t s_inode_free_count;                    
-    uint32_t s_block_total;                         
-    uint32_t s_block_free_count;                    
-    uint16_t s_free_block_count;                    
-    uint16_t s_free_block_chain;                    
-    uint16_t s_free_block_stack[MAX_FREE_BLOCKS];   
-    uint16_t s_inode_stack_top;                     
-    uint16_t s_inode_free_stack[INODE_FREE_STACK_SIZE]; 
+    uint32_t         s_magic;
+    uint32_t         s_inode_total;
+    uint32_t         s_inode_free_count;
+    uint32_t         s_inode_next;
+    uint32_t         s_block_total;
+    uint32_t         s_block_free_count;
+    uint16_t         s_bg_count;
+    uint16_t         s_imap_loc_root;
+    uint16_t         s_imap_loc_level;
+    uint16_t         s_imap_chk_root;
+    uint16_t         s_imap_chk_level;
+    uint16_t         s_imap_free_top;
+    uint16_t         s_reserved16;
+    uint32_t         s_imap_free_stack[IMAP_FREE_SB_CAP];
+    BlockGroupDesc   s_bg_table[BG_COUNT];
+    uint8_t          s_pad[BLOCK_SIZE - 56 - sizeof(BlockGroupDesc) * BG_COUNT
+                            - IMAP_FREE_SB_CAP * (int)sizeof(uint32_t)];
 } SuperBlock;
 
 
@@ -163,15 +199,24 @@ typedef struct SuperBlock {
 
 
 
+typedef struct Extent {
+    uint32_t e_lblk;
+    uint16_t e_pblk;
+    uint16_t e_len;
+} Extent;
+
+
 typedef struct DiskINode {
-    uint16_t d_mode;                    
-    uint16_t d_nlink;                   
-    uint32_t d_size;                    
-    uint16_t d_uid;                     
-    uint16_t d_gid;                     
-    uint16_t d_direct[8];               
-    uint16_t d_sindirect;               
-    uint16_t d_dindirect;               
+    uint16_t d_mode;
+    uint16_t d_nlink;
+    uint32_t d_size;
+    uint16_t d_uid;
+    uint16_t d_gid;
+    Extent   d_extent;
+    uint16_t d_tree_root;
+    uint16_t d_tree_level;
+    uint32_t d_reserved;
+    uint32_t d_pad;
 } DiskINode;
 
 
@@ -240,6 +285,7 @@ typedef struct User {
 
 
 #if defined(__cplusplus)
+static_assert(sizeof(Extent) == 8, "Extent must be 8 bytes");
 static_assert(sizeof(DiskINode) == DISK_INODE_SIZE,
               "DiskINode must be exactly 32 bytes");
 static_assert(sizeof(DirEntry) == DIR_ENTRY_SIZE,
@@ -247,6 +293,7 @@ static_assert(sizeof(DirEntry) == DIR_ENTRY_SIZE,
 static_assert(sizeof(SuperBlock) == BLOCK_SIZE,
               "SuperBlock must occupy exactly one disk block");
 #elif defined(_Static_assert)
+_Static_assert(sizeof(Extent) == 8, "Extent must be 8 bytes");
 _Static_assert(sizeof(DiskINode) == DISK_INODE_SIZE,
                "DiskINode must be exactly 32 bytes");
 _Static_assert(sizeof(DirEntry) == DIR_ENTRY_SIZE,

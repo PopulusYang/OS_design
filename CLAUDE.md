@@ -42,7 +42,13 @@ src/
   serve.h/c           # TCP multi-terminal server (HTTP + WebSocket + raw TCP)
   fs/                 # File system layer
     disk_io.h/c       # Block-level read/write, disk persistence
-    format.h/c        # mkfs: superblock, free blocks, root dir
+    format.h/c        # mkfs: superblock, block groups, root dir
+    bg.h/c            # ext2-style block groups: per-group data + anchor free lists
+    inomap.h/c        # Dynamic inode chunks + loc/chk B+ tree maps
+    extent.h/c        # Extent tree: (lblk, pblk, len) mapping, merge adjacent runs
+    buf.h/c           # Global block cache (LRU + hash), bread/bwrite/bdwrite
+    journal.h/c       # Metadata journaling + mount replay
+    vfs.c + vfs.h     # VFS op tables dispatching to UPFS
     allocator.h/c     # Block/inode allocation, inode cache, mount/umount
     dir_sys.h/c       # Path resolution (namei), mkdir, chdir, ls
     file_sys.h/c      # File create/open/read/write/close/delete
@@ -152,14 +158,18 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 **Files**: `create`, `write`, `cat`, `rm`, `cp`, `ln`, `stat`, `chmod`
 **Users**: `useradd`, `login`, `logout`, `whoami`, `passwd`, `users`
 **Process/Env**: `asm`, `run`, `ps`, `env`, `export`, `unset`
+**Debug**: `design_debug` (`super`, `inodes`, `blocks`, `bg`, `sof`, `memory`, `process`, `all`)
 **Other**: `help`, `clear`, `exit`
 
 ## Key Implementation Notes
 
 - Each `MemINode` has a `pthread_rwlock_t` for concurrency
 - **Two-level open file table**: User open file table (20 per user) → System open file table (40 global entries) → Active inode table (hash-indexed cache)
-- Free block management: 成组链接法 (group-chained free block stack, NICFREE=50)
-- Mixed index: 8 direct + 1 single indirect + 1 double indirect = NADDR=10
+- **Block groups (ext2-style)**: 8 groups × 64 blocks (1 anchor + 63 data blocks each); per-group 成组链接法 free lists in anchor blocks; `balloc_for(ino_hint)` prefers parent inode's block group
+- **Dynamic inodes (XFS-style chunks)**: no fixed inode zone; each **Inode Chunk** = one data block holding 16 inodes; `inomap.c` maintains B+ trees for inode→(chunk,slot) and chunk free bitmaps; new chunks allocated via `bg_balloc_for()` on demand; max ~504×16 inodes
+- **Format + anchors**: after `inomap_format_init()`, `format()` must call `bg_sync()` so on-disk anchor free lists exclude btree/chunk blocks (otherwise mount may reallocate and corrupt the imap)
+- Disk layout: boot(0) + super(1) + 8 block groups(2–513) + journal(514–545) = 546 blocks; **re-format required** after layout change
+- **Extent mapping**: inode holds inline `Extent` + optional B+ tree root (`d_tree_root`); each extent is `(e_lblk, e_pblk, e_len)`; adjacent logical/physical runs merge on allocate; leaf blocks hold up to 62 extents, index blocks for larger files
 - **Permission enforcement**: `vfs_access()` checks owner/group/other rwx bits; root bypasses
 - Memory: 128MB byte array, page allocator with bitmap (4096 pages = 16MB kernel reserved)
 - Processes: max 64, per-process page table (4096 pages max = 16MB)

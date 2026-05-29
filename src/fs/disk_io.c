@@ -191,7 +191,7 @@ void disk_shutdown(void)
     g_disk_path[0] = '\0';
 }
 
-int read_block(int block_no, void *buf)
+int disk_read_block(int block_no, void *buf)
 {
     size_t offset;
 
@@ -205,7 +205,7 @@ int read_block(int block_no, void *buf)
     return 0;
 }
 
-int write_block(int block_no, const void *buf)
+int disk_write_block(int block_no, const void *buf)
 {
     size_t offset;
 

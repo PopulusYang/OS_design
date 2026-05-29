@@ -3,6 +3,8 @@
 #include "fs/file_sys.h"
 #include "fs/dir_sys.h"
 #include "fs/allocator.h"
+#include "fs/extent.h"
+#include "fs/buf.h"
 #include "fs/disk_io.h"
 
 #include <string.h>
@@ -87,276 +89,8 @@ static OpenFileTable *oft_get(User *u, int fd)
 }
 
 
-static int index_get(uint16_t idx_blk, uint32_t slot, uint16_t *val_out)
-{
-    uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
 
-    if (val_out == NULL) {
-        return -1;
-    }
-    if (read_block((int)idx_blk, buf) != 0) {
-        return -1;
-    }
-    if (slot >= (uint32_t)ADDRS_PER_BLOCK) {
-        return -1;
-    }
-    *val_out = buf[slot];
-    return 0;
-}
-
-
-static int index_set(uint16_t idx_blk, uint32_t slot, uint16_t val)
-{
-    uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
-
-    if (read_block((int)idx_blk, buf) != 0) {
-        return -1;
-    }
-    if (slot >= (uint32_t)ADDRS_PER_BLOCK) {
-        return -1;
-    }
-    buf[slot] = val;
-    return write_block((int)idx_blk, buf);
-}
-
-
-static int alloc_index_block(uint16_t *idx_out)
-{
-    int blk;
-
-    blk = balloc();
-    if (blk < 0) {
-        return -1;
-    }
-    {
-        char zero[BLOCK_SIZE];
-        memset(zero, 0, sizeof(zero));
-        if (write_block(blk, zero) != 0) {
-            bfree(blk);
-            return -1;
-        }
-    }
-    *idx_out = (uint16_t)blk;
-    return 0;
-}
-
-
-
-
-
-
-
-static int file_bmap(MemINode *ip, uint32_t logical_blk, int create_flag, uint16_t *phys_out)
-{
-    DiskINode *d;
-    uint16_t   phys;
-
-    if (ip == NULL || phys_out == NULL) {
-        return -1;
-    }
-
-    d = &ip->m_dinode;
-
-    
-    if (logical_blk < 8) {
-        phys = d->d_direct[logical_blk];
-        if (phys == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            {
-                int blk = balloc();
-                if (blk < 0) {
-                    return -1;
-                }
-                phys = (uint16_t)blk;
-            }
-            d->d_direct[logical_blk] = phys;
-            ip->m_flags |= MINODE_DIRTY;
-        }
-        *phys_out = phys;
-        return 0;
-    }
-
-    
-    if (logical_blk < 8U + (uint32_t)ADDRS_PER_BLOCK) {
-        uint32_t slot = logical_blk - 8U;
-
-        if (d->d_sindirect == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            if (alloc_index_block(&d->d_sindirect) != 0) {
-                return -1;
-            }
-            ip->m_flags |= MINODE_DIRTY;
-        }
-
-        if (index_get(d->d_sindirect, slot, &phys) != 0) {
-            return -1;
-        }
-        if (phys == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            {
-                int blk = balloc();
-                if (blk < 0) {
-                    return -1;
-                }
-                phys = (uint16_t)blk;
-            }
-            if (index_set(d->d_sindirect, slot, phys) != 0) {
-                bfree((int)phys);
-                return -1;
-            }
-            ip->m_flags |= MINODE_DIRTY;
-        }
-        *phys_out = phys;
-        return 0;
-    }
-
-    
-    {
-        uint32_t off  = logical_blk - 8U - (uint32_t)ADDRS_PER_BLOCK;
-        uint32_t idx1 = off / (uint32_t)ADDRS_PER_BLOCK;
-        uint32_t idx2 = off % (uint32_t)ADDRS_PER_BLOCK;
-        uint16_t l1_blk;
-        uint16_t l0_blk;
-
-        if (idx1 >= (uint32_t)ADDRS_PER_BLOCK) {
-            return -1;
-        }
-
-        if (d->d_dindirect == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            if (alloc_index_block(&d->d_dindirect) != 0) {
-                return -1;
-            }
-            ip->m_flags |= MINODE_DIRTY;
-        }
-
-        if (index_get(d->d_dindirect, idx1, &l1_blk) != 0) {
-            return -1;
-        }
-        if (l1_blk == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            if (alloc_index_block(&l1_blk) != 0) {
-                return -1;
-            }
-            if (index_set(d->d_dindirect, idx1, l1_blk) != 0) {
-                bfree((int)l1_blk);
-                return -1;
-            }
-            ip->m_flags |= MINODE_DIRTY;
-        }
-
-        if (index_get(l1_blk, idx2, &l0_blk) != 0) {
-            return -1;
-        }
-        if (l0_blk == 0) {
-            if (!create_flag) {
-                return -1;
-            }
-            {
-                int blk = balloc();
-                if (blk < 0) {
-                    return -1;
-                }
-                l0_blk = (uint16_t)blk;
-            }
-            if (index_set(l1_blk, idx2, l0_blk) != 0) {
-                bfree((int)l0_blk);
-                return -1;
-            }
-            ip->m_flags |= MINODE_DIRTY;
-        }
-
-        *phys_out = l0_blk;
-        return 0;
-    }
-}
-
-
-static void free_index_block(uint16_t idx_blk, int free_self)
-{
-    uint16_t buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
-    int      i;
-
-    if (idx_blk == 0) {
-        return;
-    }
-    if (read_block((int)idx_blk, buf) != 0) {
-        return;
-    }
-    for (i = 0; i < ADDRS_PER_BLOCK; i++) {
-        if (buf[i] != 0) {
-            bfree((int)buf[i]);
-        }
-    }
-    if (free_self) {
-        bfree((int)idx_blk);
-    }
-}
-
-
-static void free_dindirect(uint16_t dind_blk)
-{
-    uint16_t l1[BLOCK_SIZE / (int)sizeof(uint16_t)];
-    int      i;
-
-    if (dind_blk == 0) {
-        return;
-    }
-    if (read_block((int)dind_blk, l1) != 0) {
-        return;
-    }
-    for (i = 0; i < ADDRS_PER_BLOCK; i++) {
-        if (l1[i] != 0) {
-            free_index_block(l1[i], 1);
-        }
-    }
-    bfree((int)dind_blk);
-}
-
-
-static void file_truncate(MemINode *ip)
-{
-    DiskINode *d;
-    int        i;
-
-    if (ip == NULL) {
-        return;
-    }
-
-    d = &ip->m_dinode;
-
-    for (i = 0; i < 8; i++) {
-        if (d->d_direct[i] != 0) {
-            bfree((int)d->d_direct[i]);
-            d->d_direct[i] = 0;
-        }
-    }
-
-    if (d->d_sindirect != 0) {
-        free_index_block(d->d_sindirect, 1);
-        d->d_sindirect = 0;
-    }
-
-    if (d->d_dindirect != 0) {
-        free_dindirect(d->d_dindirect);
-        d->d_dindirect = 0;
-    }
-
-    d->d_size = 0;
-    ip->m_flags |= MINODE_DIRTY;
-}
-
-int vfs_create(const char *path, uint16_t mode)
+int upfs_create(const char *path, uint16_t mode)
 {
     User       *u;
     char        parent_path[PATH_BUF_SIZE];
@@ -391,7 +125,7 @@ int vfs_create(const char *path, uint16_t mode)
         return -1;
     }
 
-    ino = ialloc();
+    ino = ialloc_for(parent_ip->m_inode_no);
     if (ino < 0) {
         iput(parent_ip);
         return -1;
@@ -424,7 +158,7 @@ int vfs_create(const char *path, uint16_t mode)
     return 0;
 }
 
-int vfs_open(const char *path, uint16_t mode)
+int upfs_open(const char *path, uint16_t mode)
 {
     User          *u;
     MemINode      *ip;
@@ -492,7 +226,7 @@ int vfs_open(const char *path, uint16_t mode)
     return fd;
 }
 
-int vfs_read(int fd, void *buf, int count)
+int upfs_read(int fd, void *buf, int count)
 {
     User          *u;
     OpenFileTable *oft;
@@ -536,7 +270,7 @@ int vfs_read(int fd, void *buf, int count)
         lblk = file_pos / (uint32_t)BLOCK_SIZE;
         off  = file_pos % (uint32_t)BLOCK_SIZE;
 
-        if (file_bmap(ip, lblk, 0, &phys) != 0) {
+        if (extent_bmap(ip, lblk, 0, &phys) != 0) {
             break;
         }
         if (read_block((int)phys, block_buf) != 0) {
@@ -559,7 +293,7 @@ int vfs_read(int fd, void *buf, int count)
     return total;
 }
 
-int vfs_write(int fd, const void *buf, int count)
+int upfs_write(int fd, const void *buf, int count)
 {
     User          *u;
     OpenFileTable *oft;
@@ -598,7 +332,7 @@ int vfs_write(int fd, const void *buf, int count)
         off  = oft->oft_write_pos % (uint32_t)BLOCK_SIZE;
 
         
-        if (file_bmap(ip, lblk, 1, &phys) != 0) {
+        if (extent_bmap(ip, lblk, 1, &phys) != 0) {
             return (total > 0) ? total : -1;
         }
 
@@ -628,7 +362,7 @@ int vfs_write(int fd, const void *buf, int count)
     return total;
 }
 
-int vfs_close(int fd)
+int upfs_close(int fd)
 {
     User          *u;
     OpenFileTable *oft;
@@ -665,7 +399,7 @@ int vfs_close(int fd)
     return 0;
 }
 
-int vfs_delete(const char *path)
+int upfs_unlink(const char *path)
 {
     char        parent_path[PATH_BUF_SIZE];
     char        name[MAX_FILENAME_LEN + 1];
@@ -714,7 +448,7 @@ int vfs_delete(const char *path)
 
     file_ip->m_dinode.d_nlink--;
     if (file_ip->m_dinode.d_nlink == 0) {
-        file_truncate(file_ip);
+        extent_clear(file_ip);
         file_ip->m_dinode.d_mode = 0;
     }
     file_ip->m_flags |= MINODE_DIRTY;
@@ -726,7 +460,7 @@ int vfs_delete(const char *path)
 }
 
 
-int vfs_lseek(int fd, int offset, int whence)
+int upfs_lseek(int fd, int offset, int whence)
 {
     User          *u;
     OpenFileTable *oft;
@@ -760,7 +494,7 @@ int vfs_lseek(int fd, int offset, int whence)
 }
 
 
-int vfs_access(const char *path, int amode)
+int upfs_access(const char *path, int amode)
 {
     User     *u;
     MemINode *ip;
@@ -798,7 +532,7 @@ int vfs_access(const char *path, int amode)
 }
 
 
-int vfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
+int upfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
              uint16_t *out_nlink, uint16_t *out_uid, uint16_t *out_gid,
              uint16_t *out_ino)
 {
@@ -820,7 +554,7 @@ int vfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
 }
 
 
-int vfs_chmod(const char *path, uint16_t new_mode)
+int upfs_chmod(const char *path, uint16_t new_mode)
 {
     User     *u;
     MemINode *ip;
@@ -843,7 +577,7 @@ int vfs_chmod(const char *path, uint16_t new_mode)
 }
 
 
-int vfs_copy(const char *src, const char *dst)
+int upfs_copy(const char *src, const char *dst)
 {
     int src_fd, dst_fd;
     char buf[BLOCK_SIZE];
@@ -851,33 +585,33 @@ int vfs_copy(const char *src, const char *dst)
 
     if (src == NULL || dst == NULL) return -1;
 
-    src_fd = vfs_open(src, O_RDONLY);
+    src_fd = upfs_open(src, O_RDONLY);
     if (src_fd < 0) return -1;
 
-    if (vfs_create(dst, 0644) != 0) {
+    if (upfs_create(dst, 0644) != 0) {
         MemINode *exist = namei(dst);
-        if (exist == NULL) { vfs_close(src_fd); return -1; }
+        if (exist == NULL) { upfs_close(src_fd); return -1; }
         iput(exist);
     }
 
-    dst_fd = vfs_open(dst, O_WRONLY);
-    if (dst_fd < 0) { vfs_close(src_fd); return -1; }
+    dst_fd = upfs_open(dst, O_WRONLY);
+    if (dst_fd < 0) { upfs_close(src_fd); return -1; }
 
-    while ((n = vfs_read(src_fd, buf, BLOCK_SIZE)) > 0) {
-        if (vfs_write(dst_fd, buf, n) != n) {
-            vfs_close(src_fd);
-            vfs_close(dst_fd);
+    while ((n = upfs_read(src_fd, buf, BLOCK_SIZE)) > 0) {
+        if (upfs_write(dst_fd, buf, n) != n) {
+            upfs_close(src_fd);
+            upfs_close(dst_fd);
             return -1;
         }
     }
 
-    vfs_close(src_fd);
-    vfs_close(dst_fd);
+    upfs_close(src_fd);
+    upfs_close(dst_fd);
     return 0;
 }
 
 
-int vfs_link(const char *existing, const char *new_path)
+int upfs_link(const char *existing, const char *new_path)
 {
     char      parent_path[PATH_BUF_SIZE];
     char      name[MAX_FILENAME_LEN + 1];

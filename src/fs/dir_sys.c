@@ -2,7 +2,9 @@
 
 #include "fs/dir_sys.h"
 #include "fs/allocator.h"
-#include "fs/disk_io.h"
+#include "fs/extent.h"
+#include "fs/buf.h"
+#include "fs/journal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -90,44 +92,6 @@ static int dir_name_valid(const char *name)
 }
 
 
-static int inode_bmap(const DiskINode *d, uint32_t logical_blk, uint16_t *phys_out)
-{
-    uint16_t idx_buf[BLOCK_SIZE / (int)sizeof(uint16_t)];
-    uint16_t phys;
-
-    if (d == NULL || phys_out == NULL) {
-        return -1;
-    }
-
-    if (logical_blk < 8) {
-        phys = d->d_direct[logical_blk];
-        if (phys == 0) {
-            return -1;
-        }
-        *phys_out = phys;
-        return 0;
-    }
-
-    if (logical_blk < 8 + ADDRS_PER_BLOCK) {
-        uint32_t off = logical_blk - 8;
-        if (d->d_sindirect == 0) {
-            return -1;
-        }
-        if (read_block((int)d->d_sindirect, idx_buf) != 0) {
-            return -1;
-        }
-        phys = idx_buf[off];
-        if (phys == 0) {
-            return -1;
-        }
-        *phys_out = phys;
-        return 0;
-    }
-
-    return -1;
-}
-
-
 static int dir_lookup(const MemINode *dir_ip, const char *name, uint16_t *out_ino)
 {
     uint32_t size;
@@ -148,7 +112,7 @@ static int dir_lookup(const MemINode *dir_ip, const char *name, uint16_t *out_in
         uint16_t phys;
         DirEntry *de;
 
-        if (inode_bmap(&dir_ip->m_dinode, lblk, &phys) != 0) {
+        if (extent_lookup(&dir_ip->m_dinode, lblk, &phys) != 0) {
             return -1;
         }
         if (read_block((int)phys, block_buf) != 0) {
@@ -376,7 +340,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
         uint16_t phys;
         DirEntry *de;
 
-        if (inode_bmap(&dir_ip->m_dinode, lblk, &phys) != 0) {
+        if (extent_lookup(&dir_ip->m_dinode, lblk, &phys) != 0) {
             return -1;
         }
         if (read_block((int)phys, block_buf) != 0) {
@@ -394,7 +358,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
         de->de_inode = ino;
         memset(de->de_name, 0, MAX_FILENAME_LEN);
         strncpy(de->de_name, name, MAX_FILENAME_LEN);
-        if (write_block((int)phys, block_buf) != 0) {
+        if (journal_write_dir_block((int)phys, block_buf) != 0) {
             return -1;
         }
         dir_ip->m_flags |= MINODE_DIRTY;
@@ -409,21 +373,13 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
         DirEntry *de;
 
         if (off == 0 && size > 0) {
-            int blk_no = balloc();
-            if (blk_no < 0) {
-                return -1;
-            }
-            if (lblk < 8) {
-                dir_ip->m_dinode.d_direct[lblk] = (uint16_t)blk_no;
-            } else {
-                bfree(blk_no);
+            if (extent_bmap(dir_ip, lblk, 1, &phys) != 0) {
                 return -1;
             }
             new_block = 1;
-            phys = (uint16_t)blk_no;
             memset(block_buf, 0, sizeof(block_buf));
         } else {
-            if (inode_bmap(&dir_ip->m_dinode, lblk, &phys) != 0) {
+            if (extent_lookup(&dir_ip->m_dinode, lblk, &phys) != 0) {
                 return -1;
             }
             if (read_block((int)phys, block_buf) != 0) {
@@ -436,11 +392,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
         memset(de->de_name, 0, MAX_FILENAME_LEN);
         strncpy(de->de_name, name, MAX_FILENAME_LEN);
 
-        if (write_block((int)phys, block_buf) != 0) {
-            if (new_block) {
-                bfree((int)dir_ip->m_dinode.d_direct[lblk]);
-                dir_ip->m_dinode.d_direct[lblk] = 0;
-            }
+        if (journal_write_dir_block((int)phys, block_buf) != 0) {
             return -1;
         }
 
@@ -488,7 +440,7 @@ int dir_unlink_entry(MemINode *dir_ip, const char *name, uint16_t *out_ino)
         uint16_t phys;
         DirEntry *de;
 
-        if (inode_bmap(&dir_ip->m_dinode, lblk, &phys) != 0) {
+        if (extent_lookup(&dir_ip->m_dinode, lblk, &phys) != 0) {
             return -1;
         }
         if (read_block((int)phys, block_buf) != 0) {
@@ -506,7 +458,7 @@ int dir_unlink_entry(MemINode *dir_ip, const char *name, uint16_t *out_ino)
         *out_ino = de->de_inode;
         de->de_inode = 0;
         memset(de->de_name, 0, MAX_FILENAME_LEN);
-        if (write_block((int)phys, block_buf) != 0) {
+        if (journal_write_dir_block((int)phys, block_buf) != 0) {
             return -1;
         }
         dir_ip->m_flags |= MINODE_DIRTY;
@@ -535,18 +487,20 @@ static int dir_init_dots(MemINode *dir_ip, uint16_t parent_ino, int dir_blk)
     de[1].de_inode = parent_ino;
     strncpy(de[1].de_name, "..", MAX_FILENAME_LEN);
 
-    if (write_block(dir_blk, block_buf) != 0) {
+    if (journal_write_dir_block(dir_blk, block_buf) != 0) {
         return -1;
     }
 
-    dir_ip->m_dinode.d_direct[0] = (uint16_t)dir_blk;
+    if (extent_set_single(dir_ip, 0, (uint16_t)dir_blk, 1) != 0) {
+        return -1;
+    }
     dir_ip->m_dinode.d_size = 2 * DIR_ENTRY_SIZE;
     dir_ip->m_dinode.d_nlink = 2;
     dir_ip->m_flags |= MINODE_DIRTY;
     return 0;
 }
 
-int vfs_mkdir(const char *path, uint16_t mode)
+int upfs_mkdir(const char *path, uint16_t mode)
 {
     char        parent_path[PATH_BUF_SIZE];
     char        name[MAX_FILENAME_LEN + 1];
@@ -577,13 +531,13 @@ int vfs_mkdir(const char *path, uint16_t mode)
         return -1;
     }
 
-    ino = ialloc();
+    ino = ialloc_for(parent->m_inode_no);
     if (ino < 0) {
         iput(parent);
         return -1;
     }
 
-    blk = balloc();
+    blk = balloc_for((uint16_t)ino);
     if (blk < 0) {
         ifree((uint16_t)ino);
         iput(parent);
@@ -702,7 +656,7 @@ int dir_list(const char *path)
         DirEntry *de;
         uint16_t  ino;
 
-        if (inode_bmap(&dir_ip->m_dinode, lblk, &phys) != 0) {
+        if (extent_lookup(&dir_ip->m_dinode, lblk, &phys) != 0) {
             break;
         }
         if (read_block((int)phys, block_buf) != 0) {

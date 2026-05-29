@@ -28,10 +28,10 @@ int disk_sync(void);
 void disk_shutdown(void);
 
 
-int read_block(int block_no, void *buf);
+int disk_read_block(int block_no, void *buf);
 
 
-int write_block(int block_no, const void *buf);
+int disk_write_block(int block_no, const void *buf);
 
 
 void *disk_memory(void);

@@ -6,7 +6,7 @@
 #include "kernel/pipe.h"
 #include "kernel/ipc.h"
 #include "kernel_shared.h"
-#include "fs/file_sys.h"
+#include "vfs.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

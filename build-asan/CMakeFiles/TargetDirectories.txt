@@ -1,0 +1,3 @@
+/Users/ac/lab/OS/build-asan/CMakeFiles/OS_design.dir
+/Users/ac/lab/OS/build-asan/CMakeFiles/edit_cache.dir
+/Users/ac/lab/OS/build-asan/CMakeFiles/rebuild_cache.dir

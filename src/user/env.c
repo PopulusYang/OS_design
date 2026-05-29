@@ -1,7 +1,7 @@
 
 
 #include "env.h"
-#include "fs/file_sys.h"
+#include "vfs.h"
 #include "fs/dir_sys.h"
 #include <string.h>
 #include <stdio.h>
