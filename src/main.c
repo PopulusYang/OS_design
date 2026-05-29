@@ -177,6 +177,7 @@ static void startup_disk_probe(void)
 
     if (found_at != NULL) {
         printf("\n");
+        shared_set_disk(g_disk_path);
         ui_ok("Disk image found");
         printf("    %sLocation:%s %s/%s\n", ANSI_DIM, ANSI_RESET, found_at, DEFAULT_DISK_PATH);
         ui_info("Use  mount   to restore filesystem");

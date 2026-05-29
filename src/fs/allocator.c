@@ -230,7 +230,8 @@ int fs_sync_disk(void)
         return -1;
     }
 
-    
+    bflush_all();
+
     for (i = 0; i < INODE_CACHE_SIZE; i++) {
         if (!g_inode_pool[i].in_use) {
             continue;

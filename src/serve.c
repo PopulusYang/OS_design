@@ -1,6 +1,7 @@
 #include "serve.h"
 #include "kernel_shared.h"
 #include "web_page.h"
+#include "fs/disk_io.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -324,12 +325,23 @@ int serve_main(int term_port) {
     if (g_shared == MAP_FAILED) { fprintf(stderr, "mmap failed\n"); return 1; }
     memset(g_shared, 0, sizeof(*g_shared));
 
-    
+
     if (kernel_shared_create() == NULL) {
         fprintf(stderr, "kernel_shared_create failed\n"); return 1;
     }
 
-    
+    /* 提前探测磁盘镜像，设置共享路径，避免 API 子进程等待 */
+    {
+        const char *dirs[] = { ".", "..", "../.." };
+        for (size_t di = 0; di < sizeof(dirs)/sizeof(dirs[0]); di++) {
+            char candidate[512];
+            snprintf(candidate, sizeof(candidate), "%s/%s", dirs[di], DEFAULT_DISK_PATH);
+            FILE *fp = fopen(candidate, "rb");
+            if (fp) { fclose(fp); shared_set_disk(candidate); break; }
+        }
+    }
+
+
     memset(g_pfds,0,sizeof(g_pfds));
     memset(g_conn,0,sizeof(g_conn));
     for(int i=0;i<MAX_CONN;i++){g_pfds[i].fd=-1;g_conn[i].fd=-1;}

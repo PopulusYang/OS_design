@@ -54,29 +54,40 @@ static int json_parse(const char *s, JsonObj *j)
         s++;
         while (*s == ' ' || *s == '\t') s++;
 
-        if (*s != '"') return -1;
-        s++;
         int v = 0;
-        while (*s && v < JMAX_VLEN - 1) {
-            if (*s == '\\' && *(s + 1)) {
-                s++;
-                switch (*s) {
-                case '"':  j->vals[ki][v++] = '"';  break;
-                case '\\': j->vals[ki][v++] = '\\'; break;
-                case 'n':  j->vals[ki][v++] = '\n'; break;
-                case 't':  j->vals[ki][v++] = '\t'; break;
-                case '/':  j->vals[ki][v++] = '/';  break;
-                default:   j->vals[ki][v++] = *s;   break;
+        if (*s == '"') {
+            /* string value */
+            s++;
+            while (*s && v < JMAX_VLEN - 1) {
+                if (*s == '\\' && *(s + 1)) {
+                    s++;
+                    switch (*s) {
+                    case '"':  j->vals[ki][v++] = '"';  break;
+                    case '\\': j->vals[ki][v++] = '\\'; break;
+                    case 'n':  j->vals[ki][v++] = '\n'; break;
+                    case 't':  j->vals[ki][v++] = '\t'; break;
+                    case '/':  j->vals[ki][v++] = '/';  break;
+                    default:   j->vals[ki][v++] = *s;   break;
+                    }
+                    s++;
+                } else if (*s == '"') {
+                    break;
+                } else {
+                    j->vals[ki][v++] = *s++;
                 }
-                s++;
-            } else if (*s == '"') {
-                break;
-            } else {
+            }
+            if (*s == '"') s++;
+        } else if (*s == '-' || (*s >= '0' && *s <= '9')) {
+            /* number / boolean / null → store as-is */
+            while (*s && v < JMAX_VLEN - 1 &&
+                   (*s == '-' || (*s >= '0' && *s <= '9') ||
+                    (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z'))) {
                 j->vals[ki][v++] = *s++;
             }
+        } else {
+            return -1;
         }
         j->vals[ki][v] = '\0';
-        if (*s == '"') s++;
         j->count++;
     }
     return 0;

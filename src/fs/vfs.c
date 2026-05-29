@@ -31,8 +31,8 @@ static int upfs_mount_wrap(const char *path)
 
 static int upfs_umount_wrap(void)
 {
-    int rc = fs_umount();
     bflush_all();
+    int rc = fs_umount();
     buf_shutdown();
     return rc;
 }
