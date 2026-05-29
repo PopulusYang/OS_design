@@ -352,8 +352,7 @@ int serve_main(int term_port) {
         
         for(int i=2;i<g_nfds;i++){
             if(g_pfds[i].fd<0) continue;
-            if(g_pfds[i].revents&(POLLERR|POLLHUP)){
-                fprintf(stderr,"[srv] slot=%d err/hup revents=0x%x, closing\n",i,g_pfds[i].revents);
+            if((g_pfds[i].revents&(POLLERR|POLLHUP)) && !(g_pfds[i].revents&POLLIN)){
                 conn_close(i);
             }
         }
