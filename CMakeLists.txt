@@ -43,6 +43,8 @@ add_executable(OS_design
     src/binaries.c
     # TCP 服务端
     src/serve.c
+    # JSON API
+    src/web_api.c
     # 汇编器
     src/assembler.c
     # 编辑器

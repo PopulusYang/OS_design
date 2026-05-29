@@ -26,10 +26,22 @@ make && ./upfs
 
 ### TCP Server Mode (`--serve`)
 
-In `--serve` mode, UPFS acts as a multi-terminal daemon:
-- **Port 8080**: HTTP server serving the terminal web page + WebSocket upgrade at `/ws/*`
+In `--serve` mode, UPFS acts as a multi-terminal daemon with a Web management UI:
+- **Port 8080**: HTTP server serving the three-panel Web UI + WebSocket upgrade at `/ws/*` (terminal) and `/api` (JSON API)
 - **Port 4096** (or custom): Raw TCP terminal — connect with `nc localhost 4096` or `telnet`
-- Each connection forks a child process running `upfs_session()`; the parent polls and forwards I/O
+- Terminal connections (`/ws/N`) fork child processes running `upfs_session()`
+- API connections (`/api`) fork child processes running `upfs_api_session()` — reads JSON requests, calls VFS/kernel APIs, returns JSON responses
+- Parent process runs `poll` event loop forwarding I/O between WebSocket frames and child socketpairs
+
+### Web UI Architecture
+
+```
+Browser → GET /          → HTTP → three-panel SPA (embedded in web_page.h)
+Browser → /ws/N          → WS   → term_spawn() → upfs_session()     [terminal]
+Browser → /api           → WS   → api_spawn()  → upfs_api_session() [JSON API]
+```
+
+The Web UI has three panels: file browser (left, via /api), interactive terminal (center, via /ws), and monitoring dashboard (right, via /api with debug commands).
 
 
 ## Directory Structure
@@ -40,6 +52,8 @@ src/
   binaries.h/c        # Pre-built demo program binaries (.upx format)
   assembler.h/c       # Two-pass assembler: .s source → .upx binary
   serve.h/c           # TCP multi-terminal server (HTTP + WebSocket + raw TCP)
+  web_api.c           # JSON API session: parse requests, call VFS/kernel, serialize JSON responses
+  web_page.h          # Embedded three-panel Web UI (HTML/CSS/JS as C string)
   fs/                 # File system layer
     disk_io.h/c       # Block-level read/write, disk persistence
     format.h/c        # mkfs: superblock, block groups, root dir

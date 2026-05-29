@@ -127,7 +127,12 @@ void mem_zero(uint32_t phys_addr, uint32_t len)
     memset(g_kernel->phys_mem + phys_addr, 0, len);
 }
 
-// ---------- 调试输出 ----------
+const uint8_t *mem_get_page_bitmap(int *total_out)
+{
+    if (g_kernel == NULL) { if (total_out) *total_out = 0; return NULL; }
+    if (total_out) *total_out = g_kernel->total_pages;
+    return g_kernel->page_bitmap;
+}
 
 void mem_debug_print(void)
 {

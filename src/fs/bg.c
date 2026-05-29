@@ -360,3 +360,9 @@ void bg_debug_print(void)
     }
     printf("\n");
 }
+
+uint32_t bg_group_free(int group)
+{
+    if (group < 0 || group >= BG_COUNT) return 0;
+    return g_bg[group].block_free;
+}

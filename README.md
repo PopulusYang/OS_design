@@ -42,14 +42,22 @@ cmake --build build
 
 程序启动后会自动扫描当前目录及上级目录中的磁盘镜像文件。若首次运行，需输入 `format` 命令创建文件卷；之后可通过 `mount` 命令恢复已有数据。
 
-**多终端服务模式**：
+**Web 管理界面模式**（推荐）：
 
 ```
-./build/bin/OS_design --serve        # 默认端口 4096
-./build/bin/OS_design --serve 9999   # 自定义端口
+./build/bin/OS_design --serve        # HTTP :8080, 原始终端 :4096
+./build/bin/OS_design --serve 9999   # 自定义原始终端端口
 ```
 
-该模式下，可通过浏览器访问 `http://localhost:8080` 的网页终端，或通过 `nc localhost 4096` 连接原始终端，支持多个终端同时操作同一文件系统。
+启动后打开浏览器访问 `http://localhost:8080`，即可进入三栏 Web 管理界面：
+
+- **左侧**：文件浏览器 —— 树形展开目录结构，右键菜单支持新建/删除/查看文件
+- **中央**：交互式终端 —— 支持多标签、ANSI 24-bit 颜色、自动滚动
+- **右侧**：系统监控仪表盘 —— 块组使用率、进程列表、内存页面热力图，每 3 秒自动刷新
+
+也可通过 `nc localhost 4096` 连接原始文本终端，多个终端可同时操作同一文件系统。
+
+> **首次使用**：先在终端中执行 `format` 格式化磁盘，创建用户后即可在文件浏览器和仪表盘中看到实时数据。
 
 ---
 
@@ -604,6 +612,8 @@ src/
   binaries.h/c        # 预置演示程序二进制（.upx 格式）
   assembler.h/c       # 两遍汇编器：.s 源码 → .upx 二进制
   serve.h/c           # TCP 多终端服务器（HTTP + WebSocket + raw TCP）
+  web_api.c           # JSON API 会话：解析请求、调用 VFS/内核接口、序列化 JSON 响应
+  web_page.h          # 内嵌的三栏 Web UI 页面（HTML/CSS/JS）
   editor.h/c          # 内置文本编辑器
   fs/                 # 文件系统层
     disk_io.h/c       # 块级读写、磁盘持久化（mmap）
@@ -642,7 +652,55 @@ include/
 
 ---
 
-## 十、主要数据结构间的关系总结
+## 十、Web 管理界面
+
+### 10.1 架构
+
+```
+浏览器 (http://localhost:8080)
+├── GET /         → HTTP 响应 → 三栏单页应用（HTML/CSS/JS 内嵌于 C 源码）
+├── /ws/N         → WebSocket → term_spawn() → upfs_session()   [交互终端]
+└── /api          → WebSocket → api_spawn()  → upfs_api_session() [JSON API]
+```
+
+`--serve` 模式下，`serve.c` 作为父进程运行事件循环（`poll`），对每个新连接 `fork` 子进程：
+- 终端连接（`/ws/N`）的子进程运行 `upfs_session()`，与交互式模式完全相同
+- API 连接（`/api`）的子进程运行 `upfs_api_session()`，接收 JSON 请求并返回结构化 JSON 响应
+
+父子进程通过 `socketpair` 传递 I/O，通过 `mmap` 共享内核状态（进程表、内存、调度器）和磁盘路径。
+
+### 10.2 三栏布局
+
+| 区域 | 功能 | 数据来源 |
+|------|------|----------|
+| 左侧面板 | 文件浏览器：树形目录、点击展开/折叠、右键菜单（新建/删除/查看/stat） | `/api` WebSocket |
+| 中央区域 | 交互终端：多标签、ANSI 全彩解析、自动滚动、命令输入 | `/ws/N` WebSocket |
+| 右侧面板 | 监控仪表盘：块组使用率图、进程列表、内存热力图，3 秒自动刷新 | `/api` WebSocket |
+
+### 10.3 JSON API 命令集
+
+| 命令 | 请求示例 | 响应说明 |
+|------|----------|----------|
+| 列目录 | `{"cmd":"ls","path":"/"}` | `entries` 数组，含 name/type/ino/mode/size |
+| 文件属性 | `{"cmd":"stat","path":"/foo"}` | ino/mode/size/type/nlink/uid/gid |
+| 读文件 | `{"cmd":"cat","path":"/foo"}` | `data` 字段含文件文本内容 |
+| 创建目录 | `{"cmd":"mkdir","path":"/new"}` | `ok:true` |
+| 创建文件 | `{"cmd":"create","path":"/f"}` | `ok:true` |
+| 删除 | `{"cmd":"rm","path":"/f"}` | `ok:true` |
+| 超级块 | `{"cmd":"debug","type":"super"}` | 超级块信息 + 8 组块组统计（含各组空闲块数） |
+| 进程表 | `{"cmd":"debug","type":"process"}` | 所有活跃进程的 PID/名称/状态 |
+| 内存 | `{"cmd":"debug","type":"memory"}` | 总页数/已用页数/页面位图（1024 采样点） |
+
+### 10.4 设计决策
+
+- **零外部依赖**：前端 HTML/CSS/JS 全部内嵌在 C 字符串中，无需 CDN 或外部库
+- **自实现 ANSI 解析**：支持 24-bit RGB 颜色（SGR 38/48;2;R;G;B）、粗体、暗淡等样式
+- **手写 JSON 解析器**：仅处理 `{"key":"value"}` 扁平对象，约 60 行 C 代码
+- **文件浏览器使用 API 通道**：避免解析终端 ANSI 彩色输出，直接获取结构化数据
+
+---
+
+## 十一、主要数据结构间的关系总结
 
 系统运行时涉及的核心数据结构及其关联关系如下：
 

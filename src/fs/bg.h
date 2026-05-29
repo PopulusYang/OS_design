@@ -22,6 +22,7 @@ int  bg_is_inode_disk_block(int blockno);
 int  bg_is_anchor_block(int blockno);
 
 void bg_debug_print(void);
+uint32_t bg_group_free(int group);
 
 #ifdef __cplusplus
 }

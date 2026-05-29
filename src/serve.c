@@ -1,5 +1,6 @@
 #include "serve.h"
 #include "kernel_shared.h"
+#include "web_page.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,7 @@
 #include <poll.h>
 
 extern int upfs_session(int in_fd, int out_fd);
+extern int upfs_api_session(int in_fd, int out_fd);
 
 
 
@@ -46,7 +48,7 @@ void shared_set_disk(const char *path) {
 #define WS_GUID       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-enum { T_HTTP, T_WS, T_RAW };
+enum { T_HTTP, T_WS, T_RAW, T_API };
 
 
 typedef struct {
@@ -253,6 +255,20 @@ static int term_spawn(void) {
     return sv[0];
 }
 
+static int api_spawn(void) {
+    int sv[2];
+    if(socketpair(AF_UNIX,SOCK_STREAM,0,sv)<0) return -1;
+    pid_t p=fork();
+    if(p<0){close(sv[0]);close(sv[1]);return -1;}
+    if(p==0){
+        close(sv[0]);
+        _exit(upfs_api_session(sv[1],sv[1]));
+    }
+    close(sv[1]);
+    fcntl(sv[0],F_SETFL,fcntl(sv[0],F_GETFL,0)|O_NONBLOCK);
+    return sv[0];
+}
+
 
 
 static int tcp_listen(int port) {
@@ -291,115 +307,7 @@ static int conn_alloc(int fd, int type) {
 
 
 
-static const char PAGE[] =
-"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
-"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">\n"
-"<title>UPFS term</title>\n<style>\n"
-"*{margin:0;padding:0;box-sizing:border-box}\n"
-"body{background:#000;color:#ccc;font:14px/1.4 'Courier New',monospace;height:100vh;display:flex;flex-direction:column}\n"
-"#tabs{display:flex;background:#111;border-bottom:1px solid #333;flex-shrink:0;overflow-x:auto}\n"
-".tab{padding:6px 14px;cursor:pointer;color:#888;border-right:1px solid #333;font-size:12px;white-space:nowrap;display:flex;align-items:center}\n"
-".tab.on{background:#000;color:#fff;font-weight:bold}\n"
-".tab:hover:not(.on){background:#1a1a1a;color:#aaa}\n"
-".tab .x{margin-left:8px;color:#555;cursor:pointer;font-size:14px}\n"
-".tab .x:hover{color:#f66}\n"
-"#add{padding:6px 14px;cursor:pointer;color:#666;font-size:14px;border:none;background:none;flex-shrink:0}\n"
-"#add:hover{color:#fff}\n"
-"#terms{flex:1;overflow:hidden}\n"
-".t{display:none;height:100%;padding:8px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}\n"
-".t.on{display:block}\n"
-"#inp{display:flex;border-top:1px solid #333;background:#111;flex-shrink:0}\n"
-"#pr{color:#888;padding:8px 0 8px 12px;font:14px 'Courier New',monospace}\n"
-"#cmd{flex:1;background:none;border:none;color:#fff;font:14px 'Courier New',monospace;outline:none;padding:8px 8px 8px 0;caret-color:#fff}\n"
-"::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#000}::-webkit-scrollbar-thumb{background:#333}\n"
-"</style>\n</head>\n<body>\n"
-"<div id=\"tabs\"><button id=\"add\">+</button></div>\n<div id=\"terms\"></div>\n"
-"<div id=\"inp\"><span id=\"pr\">$ </span><input id=\"cmd\" autofocus autocomplete=\"off\" spellcheck=\"false\"></div>\n"
-"<script>\n"
-"var M=8,T=[],A=0;\n"
-"function H(s){"
-"var o='',i=0,c='',f=null,b=null,bd=!1,dm=!1,sp=!1;"
-"function sc(){var a=[];"
-"if(bd)a.push('font-weight:bold');"
-"if(dm)a.push('opacity:0.6');"
-"if(f)a.push('color:rgb('+f.join(',')+')');"
-"if(b)a.push('background:rgb('+b.join(',')+')');"
-"return a.join(';');}"
-"while(i<s.length){"
-"if(s.charCodeAt(i)===27&&s[i+1]==='['){"
-"var j=i+2;while(j<s.length&&s[j]!=='m')j++;if(j>=s.length)break;"
-"var t=s.substring(i+2,j).split(';');var k=0;"
-"while(k<t.length){var v=parseInt(t[k])||0;"
-"if(v===0){f=null;b=null;bd=!1;dm=!1;k++;}"
-"else if(v===1){bd=!0;k++;}"
-"else if(v===2){dm=!0;k++;}"
-"else if(v===38&&k+3<t.length&&parseInt(t[k+1])===2){f=[parseInt(t[k+2])||0,parseInt(t[k+3])||0,parseInt(t[k+4])||0];k+=5;}"
-"else if(v===48&&k+3<t.length&&parseInt(t[k+1])===2){b=[parseInt(t[k+2])||0,parseInt(t[k+3])||0,parseInt(t[k+4])||0];k+=5;}"
-"else{k++;}}"
-"var nc=sc();if(nc!==c){if(sp){o+='</span>';sp=!1;}c=nc;if(c){o+='<span style=\"'+c+'\">';sp=!0;}}"
-"i=j+1;"
-"}else{"
-"var ch=s[i];"
-"if(ch==='&')o+='&amp;';else if(ch==='<')o+='&lt;';else if(ch==='>')o+='&gt;';else o+=ch;"
-"i++;}"
-"}"
-"if(sp)o+='</span>';return o;}\n"
-"function N(){\n"
-" if(T.length>=M)return;\n"
-" var i=T.length;\n"
-" var w=new WebSocket('ws://'+location.host+'/ws/'+i);\n"
-" w.binaryType='arraybuffer';\n"
-" var d=document.createElement('div');d.className='t';\n"
-" var o={id:i,ws:w,el:d,ok:0};\n"
-" w.onopen=function(){o.ok=1};\n"
-" w.onmessage=function(e){\n"
-"  var s=typeof e.data=='string'?e.data:new TextDecoder().decode(e.data);\n"
-"  d.innerHTML+=H(s);\n"
-"  d.scrollTop=d.scrollHeight;\n"
-" };\n"
-" w.onclose=function(){o.ok=0;d.innerHTML+='\\n-- closed --\\n'};\n"
-" T.push(o);document.getElementById('terms').appendChild(d);\n"
-" B(i);if(T.length===1)S(0);\n"
-"}\n"
-"function B(i){\n"
-" var b=document.createElement('span');b.className='tab';\n"
-" var s=document.createElement('span');s.textContent='t'+i;\n"
-" s.onclick=function(){S(i)};\n"
-" b.appendChild(s);\n"
-" var x=document.createElement('span');x.className='x';x.textContent=' x';\n"
-" x.onclick=function(e){e.stopPropagation();C(i)};\n"
-" b.appendChild(x);\n"
-" document.getElementById('tabs').insertBefore(b,document.getElementById('add'));\n"
-"}\n"
-"function S(i){A=i;\n"
-" var ts=document.querySelectorAll('.tab');\n"
-" for(var j=0;j<ts.length;j++)ts[j].classList.toggle('on',j===i);\n"
-" var es=document.querySelectorAll('.t');\n"
-" for(var j=0;j<es.length;j++)es[j].classList.toggle('on',j===i);\n"
-" document.getElementById('cmd').focus();\n"
-"}\n"
-"function C(i){\n"
-" if(T.length<=1)return;\n"
-" var t=T[i];if(t.ws.readyState===1)t.ws.close();\n"
-" t.el.remove();\n"
-" var ts=document.querySelectorAll('.tab');if(ts[i])ts[i].remove();\n"
-" T.splice(i,1);\n"
-" for(var j=i;j<T.length;j++)T[j].id=j;\n"
-" var ts2=document.querySelectorAll('.tab');\n"
-" for(var j=0;j<T.length;j++){\n"
-"  var s=ts2[j].querySelector('span');if(s){s.textContent='t'+j;s.onclick=(function(k){return function(){S(k)}})(j)}\n"
-"  var x=ts2[j].querySelector('.x');if(x){x.onclick=(function(k){return function(e){e.stopPropagation();C(k)}})(j)}\n"
-" }\n"
-" if(A>=T.length)A=T.length-1;S(A);\n"
-"}\n"
-"document.getElementById('add').onclick=N;\n"
-"document.getElementById('cmd').onkeydown=function(e){\n"
-" if(e.key==='Enter'){\n"
-"  var t=T[A];if(t&&t.ok)t.ws.send(document.getElementById('cmd').value+'\\n');\n"
-"  document.getElementById('cmd').value='';\n"
-" }\n"
-"};\n"
-"N();\n</script>\n</body>\n</html>\n";
+/* PAGE is now in web_page.h as WEB_PAGE */
 
 
 
@@ -521,10 +429,23 @@ int serve_main(int term_port) {
                     g_pfds[i].revents=0;  
                     
                     int tfd=term_spawn();
-                    fprintf(stderr,"[ws] slot=%d term_spawn → tfd=%d pid=%d\n",i,tfd,g_conn[i].term_pid);
+                    fprintf(stderr,"[ws] slot=%d term_spawn -> tfd=%d pid=%d\n",i,tfd,g_conn[i].term_pid);
+                    if(tfd>=0) c->term_fd=tfd;
+                }else if(wsk&&plen>=4&&strncmp(path,"/api",4)==0){
+                    uint8_t hash[20];char akey[64],ext[256],comb[256];
+                    snprintf(comb,sizeof(comb),"%s%s",wsk,WS_GUID);
+                    sha1_hash((uint8_t*)comb,(int)strlen(comb),hash);
+                    b64enc(hash,20,akey);
+                    snprintf(ext,sizeof(ext),"Upgrade: websocket\r\nSec-WebSocket-Accept: %s\r\n",akey);
+                    http_send(fd,101,NULL,NULL,0,ext);
+                    c->type=T_API;c->rlen=0;
+                    fprintf(stderr,"[api] slot=%d upgraded\n",i);
+                    g_pfds[i].revents=0;
+                    int tfd=api_spawn();
+                    fprintf(stderr,"[api] slot=%d api_spawn -> tfd=%d\n",i,tfd);
                     if(tfd>=0) c->term_fd=tfd;
                 }else if((plen==1&&path[0]=='/')||(plen>=10&&strncmp(path,"/index.html",11)==0)){
-                    http_send(fd,200,"text/html; charset=utf-8",PAGE,(int)strlen(PAGE),NULL);
+                    http_send(fd,200,"text/html; charset=utf-8",WEB_PAGE,(int)strlen(WEB_PAGE),NULL);
                     conn_close(i);
                 }else{
                     const char *nope="not found\n";
@@ -535,12 +456,16 @@ int serve_main(int term_port) {
             }
 
             
-            if(c->type==T_WS&&(g_pfds[i].revents&POLLIN)){
+            if((c->type==T_WS||c->type==T_API)&&(g_pfds[i].revents&POLLIN)){
                 uint8_t payload[BUF_SIZE];
                 int plen=ws_recv(c,payload,BUF_SIZE-1);
                 if(plen<0){fprintf(stderr,"[ws] slot=%d recv err, closing\n",i);conn_close(i);}
                 else if(plen>0&&c->term_fd>=0){
-                    fprintf(stderr,"[ws] slot=%d recv %d bytes → term\n",i,plen);
+                    payload[plen]='\0';
+                    if(c->type==T_API){
+                        /* API: forward JSON line + newline */
+                        if(payload[plen-1]!='\n'){payload[plen]='\n';plen++;}
+                    }
                     if(nb_write(c->term_fd,payload,(size_t)plen)<0) conn_close(i);
                 }
             }
@@ -572,8 +497,7 @@ int serve_main(int term_port) {
                 close(c->term_fd);c->term_fd=-1;continue;
             }
 
-            if(c->type==T_WS) {
-                fprintf(stderr,"[ws] slot=%d send %d bytes → client\n",i,n);
+            if(c->type==T_WS||c->type==T_API) {
                 ws_send(c->fd,buf,n);
             }
             else if(c->type==T_RAW){if(nb_write(c->fd,buf,(size_t)n)<0) conn_close(i);}
