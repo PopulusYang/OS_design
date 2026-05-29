@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 #include "serve.h"
 #include "kernel_shared.h"
 
