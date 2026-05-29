@@ -1,0 +1,81 @@
+.
+├── CLAUDE.md
+├── CMakeLists.txt
+├── Makefile
+├── README.md
+├── include
+│   ├── kernel_shared.h
+│   └── vfs_core.h
+├── involve_src
+│   ├── fork_test.c
+│   ├── hello_c.c
+│   ├── hello_test.c
+│   ├── ipcfifo.c
+│   ├── ipcmsg.c
+│   ├── ipcsem.c
+│   ├── ipcshm.c
+│   ├── ipcsig.c
+│   ├── pipe_test.c
+│   ├── pr.c
+│   ├── pw.c
+│   ├── sum.c
+│   ├── systest.c
+│   └── testLT.c
+├── src
+│   ├── assembler.c   //不需要
+│   ├── assembler.h   //不需要
+│   ├── binaries.c    //不需要
+│   ├── binaries.h    //不需要
+│   ├── compiler      //整个compiler文件夹都不许需要
+│   │   ├── ast.c
+│   │   ├── ast.h
+│   │   ├── c2s.c
+│   │   ├── c2s.h
+│   │   ├── codegen.c
+│   │   ├── codegen.h
+│   │   ├── lexer.c
+│   │   ├── lexer.h
+│   │   ├── parser.c
+│   │   ├── parser.h
+│   │   ├── regalloc.c
+│   │   ├── regalloc.h
+│   │   ├── runtime.h
+│   │   └── runtime.s
+│   ├── editor.c     //不需要
+│   ├── editor.h     //不需要
+│   ├── fs
+│   │   ├── allocator.c
+│   │   ├── allocator.h
+│   │   ├── dir_sys.c
+│   │   ├── dir_sys.h
+│   │   ├── disk_io.c
+│   │   ├── disk_io.h
+│   │   ├── file_sys.c
+│   │   ├── file_sys.h
+│   │   ├── format.c
+│   │   └── format.h
+│   ├── kernel
+│   │   ├── cpu.c
+│   │   ├── cpu.h
+│   │   ├── ipc.c
+│   │   ├── ipc.h
+│   │   ├── kernel_shared.c
+│   │   ├── memory.c
+│   │   ├── memory.h
+│   │   ├── pipe.c
+│   │   ├── pipe.h
+│   │   ├── process.c
+│   │   ├── process.h
+│   │   ├── scheduler.c
+│   │   ├── scheduler.h
+│   │   ├── syscall.c
+│   │   └── syscall.h
+│   ├── main.c
+│   ├── serve.c     //不需要
+│   ├── serve.h     //不需要
+│   └── user
+│       ├── env.c
+│       ├── env.h
+│       ├── user_mgmt.c
+│       └── user_mgmt.h
+
