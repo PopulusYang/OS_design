@@ -24,3 +24,6 @@ test.txrt
 script/websrv
 
 */build
+
+/build-asan
+*/build-asan
