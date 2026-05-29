@@ -127,10 +127,21 @@ static void json_print_str(const char *s, int len)
 
 /* ── response helpers ────────────────────────────────────────────── */
 
-static void api_ok(void)  { puts("{\"_cb\":1,\"ok\":true}"); }
+static int g_req_cb = -1;
+
+static void api_start_response(void)
+{
+    if (g_req_cb >= 0)
+        printf("{\"_cb\":%d", g_req_cb);
+    else
+        fputs("{\"_cb\":1", stdout);
+}
+
+static void api_ok(void)  { api_start_response(); puts(",\"ok\":true}"); }
 static void api_err(const char *msg)
 {
-    printf("{\"_cb\":1,\"ok\":false,\"error\":");
+    api_start_response();
+    fputs(",\"ok\":false,\"error\":", stdout);
     json_print_str(msg, (int)strlen(msg));
     puts("}");
 }
@@ -161,7 +172,7 @@ static void cmd_ls(const char *path)
         return;
     }
 
-    printf("{\"_cb\":1,\"ok\":true,\"entries\":[");
+    api_start_response(); fputs(",\"ok\":true,\"entries\":[", stdout);
     uint32_t size = dir_ip->m_dinode.d_size;
     char block_buf[BLOCK_SIZE];
     int first = 1;
@@ -212,7 +223,7 @@ static void cmd_stat(const char *path)
         api_err("stat failed");
         return;
     }
-    printf("{\"_cb\":1,\"ok\":true,\"ino\":%u,\"mode\":%u,\"size\":%u,"
+    api_start_response(); printf(",\"ok\":true,\"ino\":%u,\"mode\":%u,\"size\":%u,"
            "\"type\":\"%s\",\"nlink\":%u,\"uid\":%u,\"gid\":%u}\n",
            (unsigned)ino, (unsigned)mode, (unsigned)size,
            (mode & IFDIR) ? "dir" : "file",
@@ -226,7 +237,7 @@ static void cmd_cat(const char *path)
     int fd = vfs_open(path, O_RDONLY);
     if (fd < 0) { api_err("open failed"); return; }
 
-    printf("{\"_cb\":1,\"ok\":true,\"data\":");
+    api_start_response(); fputs(",\"ok\":true,\"data\":\"", stdout);
     putchar('"');
 
     char buf[BLOCK_SIZE];
@@ -292,7 +303,8 @@ static void cmd_debug_super(void)
     if (!sb) { api_err("not mounted"); return; }
 
     uint32_t inodes_used = sb->s_inode_total - sb->s_inode_free_count;
-    printf("{\"_cb\":1,\"ok\":true,"
+    api_start_response();
+    printf(",\"ok\":true,"
            "\"magic\":\"0x%08X\","
            "\"inodes_total\":%u,"
            "\"inodes_used\":%u,"
@@ -323,7 +335,7 @@ static void cmd_debug_process(void)
     int count = 0;
     PCB *table = proc_get_table(&count);
 
-    printf("{\"_cb\":1,\"ok\":true,\"procs\":[");
+    api_start_response(); fputs(",\"ok\":true,\"procs\":[", stdout);
     int first = 1;
     for (int i = 0; i < count; i++) {
         if (table[i].p_state == PROC_FREE) continue;
@@ -347,7 +359,8 @@ static void cmd_debug_memory(void)
     const uint8_t *bm = mem_get_page_bitmap(&total);
     int used = total - free_pages;
 
-    printf("{\"_cb\":1,\"ok\":true,"
+    api_start_response();
+    printf(",\"ok\":true,"
            "\"total_pages\":%d,"
            "\"used_pages\":%d,"
            "\"kernel_pages\":%u,"
@@ -362,6 +375,65 @@ static void cmd_debug_memory(void)
             int pg = i * step;
             int bit = (bm[pg / 8] >> (pg % 8)) & 1;
             putchar(bit ? '1' : '0');
+        }
+    }
+    puts("\"}");
+}
+
+/* ── cmd: debug all ─────────────────────────────────────────────── */
+
+static void cmd_debug_all(void)
+{
+    const SuperBlock *sb = fs_get_superblock();
+    int count = 0;
+    PCB *table = proc_get_table(&count);
+    int free_pages = mem_free_page_count();
+    int total_pg = 0;
+    const uint8_t *bm = mem_get_page_bitmap(&total_pg);
+    int used_pg = total_pg - free_pages;
+
+    api_start_response(); fputs(",\"ok\":true", stdout);
+
+    /* super */
+    if (sb) {
+        uint32_t inodes_used = sb->s_inode_total - sb->s_inode_free_count;
+        printf(",\"inodes_total\":%u,\"inodes_used\":%u,"
+               "\"blocks_total\":%u,\"blocks_free\":%u,\"bg\":[",
+               sb->s_inode_total, inodes_used,
+               sb->s_block_total, sb->s_block_free_count);
+        for (int i = 0; i < BG_COUNT; i++) {
+            if (i) putchar(',');
+            const BlockGroupDesc *bg = &sb->s_bg_table[i];
+            printf("{\"anchor\":%u,\"data_start\":%u,\"data_blocks\":%u,\"free\":%u}",
+                   (unsigned)bg->bgd_anchor_block, (unsigned)bg->bgd_data_start,
+                   (unsigned)bg->bgd_data_blocks, bg_group_free(i));
+        }
+        printf("]");
+    }
+
+    /* process */
+    printf(",\"procs\":[");
+    int first = 1;
+    for (int i = 0; i < count; i++) {
+        if (table[i].p_state == PROC_FREE) continue;
+        if (!first) putchar(',');
+        first = 0;
+        printf("{\"pid\":%u,\"ppid\":%u,\"state\":%u,\"name\":",
+               table[i].p_pid, table[i].p_ppid, (unsigned)table[i].p_state);
+        json_print_str(table[i].p_name, (int)strlen(table[i].p_name));
+        putchar('}');
+    }
+    printf("]");
+
+    /* memory */
+    printf(",\"total_pages\":%d,\"used_pages\":%d,\"kernel_pages\":%u,\"page_size\":%u",
+           total_pg, used_pg, (unsigned)MEM_KERNEL_PAGES, (unsigned)MEM_PAGE_SIZE);
+    printf(",\"bitmap\":\"");
+    if (bm && total_pg > 0) {
+        int step = total_pg > 1024 ? total_pg / 1024 : 1;
+        for (int i = 0; i * step < total_pg && i < 1024; i++) {
+            int pg = i * step;
+            putchar((bm[pg / 8] >> (pg % 8)) & 1 ? '1' : '0');
         }
     }
     puts("\"}");
@@ -385,6 +457,9 @@ static void dispatch(const JsonObj *j)
     const char *cmd  = json_get(j, "cmd");
     const char *path = json_get(j, "path");
     const char *type = json_get(j, "type");
+    const char *cb_id = json_get(j, "_cb");
+
+    g_req_cb = (cb_id && cb_id[0]) ? atoi(cb_id) : -1;
 
     if (!cmd) { api_err("missing cmd"); return; }
 
@@ -416,6 +491,7 @@ static void dispatch(const JsonObj *j)
         if (strcmp(type, "super") == 0)        cmd_debug_super();
         else if (strcmp(type, "process") == 0)  cmd_debug_process();
         else if (strcmp(type, "memory") == 0)   cmd_debug_memory();
+        else if (strcmp(type, "all") == 0)      cmd_debug_all();
         else api_err("unknown debug type");
     } else {
         api_err("unknown cmd");

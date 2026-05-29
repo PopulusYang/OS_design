@@ -53,12 +53,14 @@ enum { T_HTTP, T_WS, T_RAW, T_API };
 
 
 typedef struct {
-    int fd;          
-    int type;        
-    int term_fd;     
-    int term_pid;    
-    char rbuf[BUF_SIZE]; 
+    int fd;
+    int type;
+    int term_fd;
+    int term_pid;
+    char rbuf[BUF_SIZE];
     int  rlen;
+    char abuf[BUF_SIZE];
+    int  alen;
 } Conn;
 
 static struct pollfd g_pfds[MAX_CONN];
@@ -288,7 +290,7 @@ static void conn_close(int i) {
     if(g_conn[i].fd>=0){close(g_conn[i].fd);g_conn[i].fd=-1;}
     
     if(g_conn[i].term_fd>=0){close(g_conn[i].term_fd);g_conn[i].term_fd=-1;}
-    g_conn[i].type=0;g_conn[i].rlen=0;
+    g_conn[i].type=0;g_conn[i].rlen=0;g_conn[i].alen=0;
     g_pfds[i].fd=-1;g_pfds[i].events=0;
 }
 
@@ -298,6 +300,7 @@ static int conn_alloc(int fd, int type) {
         if(g_pfds[i].fd<0){
             memset(&g_conn[i],0,sizeof(Conn));
             g_conn[i].fd=fd;g_conn[i].type=type;
+            g_conn[i].alen=0;
             g_pfds[i].fd=fd;g_pfds[i].events=POLLIN;
             if(i>=g_nfds)g_nfds=i+1;
             return i;
@@ -358,7 +361,7 @@ int serve_main(int term_port) {
     fflush(stdout);
 
     for(;;){
-        int rc=poll(g_pfds,(nfds_t)g_nfds,50);
+        int rc=poll(g_pfds,(nfds_t)g_nfds,10);
         if(rc<0&&errno!=EINTR) break;
 
         
@@ -468,17 +471,40 @@ int serve_main(int term_port) {
 
             
             if((c->type==T_WS||c->type==T_API)&&(g_pfds[i].revents&POLLIN)){
-                uint8_t payload[BUF_SIZE];
-                int plen=ws_recv(c,payload,BUF_SIZE-1);
-                if(plen<0){fprintf(stderr,"[ws] slot=%d recv err, closing\n",i);conn_close(i);}
-                else if(plen>0&&c->term_fd>=0){
-                    payload[plen]='\0';
-                    if(c->type==T_API){
-                        /* API: forward JSON line + newline */
-                        if(payload[plen-1]!='\n'){payload[plen]='\n';plen++;}
+                /* drain all available frames: browser may send multiple frames
+                   that arrive in one read() call; ws_recv buffers the overflow.
+                   Keep calling it until the buffer is empty or socket is dry. */
+                int loop_guard = 0;
+                while (loop_guard < 64) {
+                    uint8_t payload[BUF_SIZE];
+                    int plen;
+                    /* try a non-blocking read to refill buffer */
+                    {   int room = BUF_SIZE - c->rlen - 1;
+                        if (room > 0) {
+                            int n = (int)read(c->fd, (uint8_t *)c->rbuf + c->rlen, (size_t)room);
+                            if (n > 0) c->rlen += n;
+                        }
                     }
-                    if(nb_write(c->term_fd,payload,(size_t)plen)<0) conn_close(i);
+                    plen = ws_recv(c, payload, BUF_SIZE - 1);
+                    if (plen < 0) {
+                        fprintf(stderr, "[ws] slot=%d recv err, closing\n", i);
+                        conn_close(i);
+                        break;
+                    }
+                    if (plen == 0) break; /* no complete frame available */
+                    if (c->term_fd >= 0) {
+                        payload[plen] = '\0';
+                        if (c->type == T_API) {
+                            if (payload[plen - 1] != '\n') { payload[plen] = '\n'; plen++; }
+                        }
+                        if (nb_write(c->term_fd, payload, (size_t)plen) < 0) {
+                            conn_close(i);
+                            break;
+                        }
+                    }
+                    loop_guard++;
                 }
+                g_pfds[i].revents &= ~POLLIN;
             }
 
             
@@ -508,8 +534,17 @@ int serve_main(int term_port) {
                 close(c->term_fd);c->term_fd=-1;continue;
             }
 
-            if(c->type==T_WS||c->type==T_API) {
+            if(c->type==T_WS) {
                 ws_send(c->fd,buf,n);
+            } else if(c->type==T_API) {
+                /* line-delimited: split on newlines, send each line as a separate frame */
+                for (int bi = 0; bi < n; bi++) {
+                    if (c->alen < BUF_SIZE - 1) c->abuf[c->alen++] = buf[bi];
+                    if (buf[bi] == '\n' || c->alen >= BUF_SIZE - 1) {
+                        ws_send(c->fd, c->abuf, c->alen);
+                        c->alen = 0;
+                    }
+                }
             }
             else if(c->type==T_RAW){if(nb_write(c->fd,buf,(size_t)n)<0) conn_close(i);}
         }

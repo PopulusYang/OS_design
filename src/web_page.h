@@ -140,7 +140,7 @@ static const char WEB_PAGE[] =
 
 /* ---- Globals ---- */
 "var terms=[],curTerm=0,MAX_TERMS=8;\n"
-"var apiWs=null,apiOk=false,apiQ=[];\n"
+"var apiWs=null,apiOk=false,apiCallbacks={},apiReqId=0;\n"
 "var treeData={},selPath='/';\n"
 
 /* ---- ANSI parser ---- */
@@ -234,21 +234,21 @@ static const char WEB_PAGE[] =
 /* ---- API WebSocket ---- */
 "function apiConnect(){\n"
 "apiWs=new WebSocket('ws://'+location.host+'/api');\n"
-"apiWs.onopen=function(){apiOk=true;updStatus();flushQ();refreshTree();refreshDash();};\n"
+"apiWs.onopen=function(){apiOk=true;updStatus();refreshTree();refreshDash();};\n"
 "apiWs.onmessage=function(e){\n"
-"try{var d=JSON.parse(e.data);if(d._cb){var fn=apiQ.shift();if(fn)fn(d);}}catch(ex){}};\n"
-"apiWs.onclose=function(){apiOk=false;updStatus();setTimeout(apiConnect,2000);};\n"
+"try{var d=JSON.parse(e.data);if(d._cb){var fn=apiCallbacks[d._cb];if(fn){delete apiCallbacks[d._cb];fn(d);}}}catch(ex){}};\n"
+"apiWs.onclose=function(){apiOk=false;updStatus();apiCallbacks={};setTimeout(apiConnect,2000);};\n"
 "apiWs.onerror=function(){};}\n"
 
 "function apiSend(obj,cb){\n"
 "if(!obj||!obj.cmd)return;\n"
 "if(!obj.path&&obj.cmd!=='debug')return;\n"
-"obj._cb=1;\n"
 "if(!apiOk){setTimeout(function(){apiSend(obj,cb)},500);return;}\n"
-"apiQ.push(cb||function(){});\n"
+"var id=++apiReqId;obj._cb=id;\n"
+"apiCallbacks[id]=cb||function(){};\n"
 "apiWs.send(JSON.stringify(obj));}\n"
 
-"function flushQ(){}\n"
+"function flushQ(){apiCallbacks={};}\n"
 
 /* ---- Status ---- */
 "function updStatus(){\n"
@@ -384,7 +384,7 @@ static const char WEB_PAGE[] =
 /* ---- Init ---- */
 "newTerm();\n"
 "apiConnect();\n"
-"setInterval(refreshDash,3000);\n"
+"setInterval(refreshDash,5000);\n"
 
 "</script>\n"
 "</body>\n"
