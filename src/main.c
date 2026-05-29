@@ -672,6 +672,7 @@ static void cmd_help(void)
     printf("  %skill%s   <pid> [sig]            send signal (9/15/10)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %smkfifo%s </path>                create named FIFO\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sps%s                          list processes\n", ANSI_ROSE, ANSI_RESET);
+    printf("  %sdesign_debug%s <topic>          show OS internals (super/inodes/blocks/memory/process/all)\n", ANSI_ROSE, ANSI_RESET);
     printf("  %senv%s                          show environment variables\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sexport%s <KEY=VALUE>           set environment variable\n", ANSI_ROSE, ANSI_RESET);
     printf("  %sunset%s  <KEY>                 remove environment variable\n", ANSI_ROSE, ANSI_RESET);
@@ -1061,6 +1062,102 @@ static int cmd_mkfifo(const char *path)
     return 0;
 }
 
+static int cmd_design_debug(int argc, char **argv)
+{
+    if (argc < 2) {
+        ui_err("Usage: design_debug <super|inodes|blocks|memory|process|all>");
+        return -1;
+    }
+    const char *sub = argv[1];
+
+    if (strcmp(sub, "super") == 0 || strcmp(sub, "sb") == 0 || strcmp(sub, "all") == 0) {
+        if (require_mounted()) return -1;
+        fs_debug_print_super();
+    }
+    if (strcmp(sub, "inodes") == 0 || strcmp(sub, "ino") == 0 || strcmp(sub, "all") == 0) {
+        if (require_mounted()) return -1;
+        fs_debug_print_inodes();
+    }
+    if (strcmp(sub, "blocks") == 0 || strcmp(sub, "blk") == 0) {
+        if (require_mounted()) return -1;
+        fs_debug_print_super();
+    }
+    if (strcmp(sub, "memory") == 0 || strcmp(sub, "mem") == 0 || strcmp(sub, "all") == 0) {
+        mem_debug_print();
+    }
+    if (strcmp(sub, "process") == 0 || strcmp(sub, "proc") == 0 || strcmp(sub, "all") == 0) {
+        int count = 0;
+        PCB *table = proc_get_table(&count);
+        if (table == NULL) { printf("  No process table.\n"); return 0; }
+
+        printf("\n");
+        printf("  ── Process Table (%d/%d slots) ─────────────────\n",
+               proc_count(), PROC_MAX_COUNT);
+        const char *states[] = { "FREE", "READY", "RUN", "BLOCK", "ZOMBIE" };
+        for (int i = 0; i < count; i++) {
+            if (table[i].p_state == PROC_FREE) continue;
+            printf("\n");
+            printf("  PID %-5u  %-16s  state=%-6s  ppid=%u\n",
+                   (unsigned)table[i].p_pid, table[i].p_name,
+                   states[table[i].p_state < 5 ? table[i].p_state : 0],
+                   (unsigned)table[i].p_ppid);
+            printf("    mem: text=%u pages (%u KB)  data=%u pages  bss_end=0x%X  stack_top=0x%X  heap=0x%X\n",
+                   table[i].p_text_pages,
+                   table[i].p_text_pages * MEM_PAGE_SIZE / 1024,
+                   table[i].p_data_pages,
+                   (unsigned)table[i].p_bss_end,
+                   (unsigned)table[i].p_stack_top,
+                   (unsigned)table[i].p_heap_brk);
+            CPUContext *cpu = &table[i].p_cpu;
+            printf("    cpu: PC=0x%X  SP=0x%X  FP=0x%X  FLAGS=0x%X  ticks_left=%u\n",
+                   (unsigned)cpu->pc, (unsigned)cpu->regs[CPU_REG_SP],
+                   (unsigned)cpu->regs[14],  /* R14 = FP */
+                   (unsigned)cpu->flags, (unsigned)cpu->ticks_left);
+            printf("    fd: ");
+            int fd_any = 0;
+            for (int j = 0; j < PROC_MAX_FD; j++) {
+                if (table[i].p_ofile[j].fd_type != 0) {
+                    const char *ft = "?";
+                    switch (table[i].p_ofile[j].fd_type) {
+                        case PROC_FD_TERM: ft = "term"; break;
+                        case PROC_FD_FILE: ft = "file"; break;
+                        case PROC_FD_PIPE_RD: ft = "pipe-rd"; break;
+                        case PROC_FD_PIPE_WR: ft = "pipe-wr"; break;
+                        case PROC_FD_FIFO_RD: ft = "fifo-rd"; break;
+                        case PROC_FD_FIFO_WR: ft = "fifo-wr"; break;
+                    }
+                    printf("%d:%s(fs=%d) ", j, ft, table[i].p_ofile[j].fd_fs_fd);
+                    fd_any++;
+                }
+            }
+            if (!fd_any) printf("(none)");
+            printf("\n");
+            if (table[i].p_pending_sig)
+                printf("    pending_sig=%u  sigusr1_count=%d\n",
+                       (unsigned)table[i].p_pending_sig,
+                       table[i].p_sigusr1_count);
+            if (table[i].p_child_count > 0) {
+                printf("    children: ");
+                for (int j = 0; j < table[i].p_child_count; j++)
+                    printf("%u ", (unsigned)table[i].p_children[j]);
+                printf("\n");
+            }
+        }
+        printf("\n");
+    }
+
+    if (strcmp(sub, "all") != 0 &&
+        strcmp(sub, "super") != 0 && strcmp(sub, "sb") != 0 &&
+        strcmp(sub, "inodes") != 0 && strcmp(sub, "ino") != 0 &&
+        strcmp(sub, "blocks") != 0 && strcmp(sub, "blk") != 0 &&
+        strcmp(sub, "memory") != 0 && strcmp(sub, "mem") != 0 &&
+        strcmp(sub, "process") != 0 && strcmp(sub, "proc") != 0) {
+        ui_err("Unknown subcommand. Try: super, inodes, blocks, memory, process, all");
+        return -1;
+    }
+    return 0;
+}
+
 static int cmd_ps(void)
 {
     int count = 0;
@@ -1436,6 +1533,8 @@ static int dispatch_command(int argc, char **argv)
         if (argc < 2) { ui_err("Usage: mkfifo </path>"); return -1; }
         return cmd_mkfifo(argv[1]);
     }
+    if (strcmp(cmd, "design_debug") == 0 || strcmp(cmd, "dd") == 0)
+        return cmd_design_debug(argc, argv);
     if (strcmp(cmd, "ps") == 0) return cmd_ps();
     if (strcmp(cmd, "env") == 0) return cmd_env();
     if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }

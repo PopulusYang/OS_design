@@ -818,21 +818,45 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
     }
 }
 
+// ---------- 局部变量计数（递归扫描嵌套块） ----------
+
+static void count_local_vars(ASTNode *node, int *total) {
+    if (!node) return;
+    switch (node->kind) {
+    case AST_BLOCK:
+        for (int i = 0; i < node->block.nstmts; i++)
+            count_local_vars(node->block.stmts[i], total);
+        break;
+    case AST_DECL:
+        if (!node->decl.is_global)
+            *total += node->decl.sym ? node->decl.sym->size : 4;
+        break;
+    case AST_IF:
+        count_local_vars(node->if_stmt.then_stmt, total);
+        count_local_vars(node->if_stmt.else_stmt, total);
+        break;
+    case AST_WHILE:
+    case AST_DO_WHILE:
+        count_local_vars(node->while_stmt.body, total);
+        break;
+    case AST_FOR:
+        count_local_vars(node->for_stmt.init, total);
+        count_local_vars(node->for_stmt.body, total);
+        break;
+    default:
+        break;
+    }
+}
+
 // ---------- 函数代码生成 ----------
 
 static void emit_func(CodeGen *cg, ASTNode *n) {
     strncpy(cg->cur_func, n->func.name, sizeof(cg->cur_func) - 1);
 
-    // 计算局部变量空间：遍历函数体收集所有声明的变量大小
+    // 计算局部变量空间：递归遍历函数体收集所有嵌套块内的声明
     cg->local_var_size = 0;
-    if (n->func.body) {
-        for (int si = 0; si < n->func.body->block.nstmts; si++) {
-            ASTNode *stmt = n->func.body->block.stmts[si];
-            if (stmt->kind == AST_DECL && !stmt->decl.is_global) {
-                cg->local_var_size += stmt->decl.sym ? stmt->decl.sym->size : 4;
-            }
-        }
-    }
+    if (n->func.body)
+        count_local_vars(n->func.body, &cg->local_var_size);
     cg->local_var_size = (cg->local_var_size + 3) & ~3;
     // 额外 64 字节安全边距，防止被调用函数的 PUSH/POP 踩到局部变量
     cg->local_var_size += 64;

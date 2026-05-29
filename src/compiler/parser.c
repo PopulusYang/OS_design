@@ -445,7 +445,6 @@ static ASTNode *parse_compound_statement(Parser *p) {
 
     // 为局部变量创建新作用域
     p->comp->current_scope = scope_new(p->comp->current_scope);
-    p->comp->func_local_offset = 0;
 
     while (p->cur.type != TOK_RBRACE && p->cur.type != TOK_EOF) {
         block->block.nstmts++;

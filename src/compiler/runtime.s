@@ -277,15 +277,21 @@ __rt_print_int:
     MOVI R5, 10             ; divisor
     MOVI R6, 0              ; digit count
     MOVI R11, 0             ; zero constant (R11 untouched by rest of function)
-    ; 处理 0
+    ; 处理 0：压栈后以 SP 为地址传给 write
     CMP R1, R11
     JNZ .rt_pi_nonzero
     MOVI R7, 48             ; '0'
-    MOV R8, R7
+    PUSH R7
     MOVI R1, 1              ; fd=stdout
-    MOV R2, R8
+    MOV R2, R15             ; buf = SP
     MOVI R3, 1
-    SYSCALL 8
+    SYSCALL 8               ; write '0'
+    MOVI R7, 10             ; '\n'
+    ST R7, R15, 0           ; 替换栈顶 '0' 为 '\n'
+    MOV R2, R15
+    MOVI R3, 1
+    SYSCALL 8               ; write '\n'
+    POP R7                  ; 清理栈
     RET
 .rt_pi_nonzero:
     ; 缓冲区：利用栈空间

@@ -69,6 +69,9 @@ void     mem_copy(uint32_t dst_phys, uint32_t src_phys, uint32_t len);
 
 void     mem_zero(uint32_t phys_addr, uint32_t len);
 
+/* 调试：输出物理内存页分配位图和统计信息 */
+void mem_debug_print(void);
+
 #ifdef __cplusplus
 }
 #endif

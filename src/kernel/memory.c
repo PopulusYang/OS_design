@@ -2,6 +2,7 @@
 
 #include "kernel/memory.h"
 #include "kernel_shared.h"
+#include <stdio.h>
 #include <string.h>
 
 extern KernelShared *g_kernel;
@@ -124,4 +125,50 @@ void mem_zero(uint32_t phys_addr, uint32_t len)
 {
     if (!addr_valid(phys_addr + len - 1)) return;
     memset(g_kernel->phys_mem + phys_addr, 0, len);
+}
+
+// ---------- 调试输出 ----------
+
+void mem_debug_print(void)
+{
+    if (g_kernel == NULL) {
+        printf("  Kernel not initialized.\n");
+        return;
+    }
+
+    int total = g_kernel->total_pages;
+    int kernel_pages = (int)MEM_KERNEL_PAGES;
+    int used = total - g_kernel->free_pages;
+    int user_used = used - kernel_pages;
+
+    printf("\n");
+    printf("  ── Physical Memory (128 MB) ────────────────────\n");
+    printf("  Page size:          %u bytes\n", MEM_PAGE_SIZE);
+    printf("  Total pages:        %d\n", total);
+    printf("  Kernel reserved:    %d pages (%u MB)\n",
+           kernel_pages, (kernel_pages * MEM_PAGE_SIZE) / (1024 * 1024));
+    printf("  Free pages:         %d pages (%u KB)\n",
+           g_kernel->free_pages,
+           (unsigned)(g_kernel->free_pages * MEM_PAGE_SIZE / 1024));
+    printf("  Used (user):        %d pages\n", user_used);
+    printf("  Used (total):       %d pages\n", used);
+
+    /* 可视化位图 — 64 pages per line */
+    printf("\n  ── Page Bitmap (kernel=K, user=U, free=.) ──────\n");
+    int bytes = (total + 7) / 8;
+    int per_line = 64;
+    for (int row = 0; row * per_line < total; row++) {
+        int start = row * per_line;
+        int end = (start + per_line) < total ? (start + per_line) : total;
+        printf("  %4d: ", start);
+        for (int i = start; i < end; i++) {
+            int allocated = (g_kernel->page_bitmap[i / 8] >> (i % 8)) & 1;
+            if (!allocated)      putchar('.');
+            else if (i < kernel_pages) putchar('K');
+            else                 putchar('U');
+            if ((i + 1) % 64 == 0 && i + 1 < end) printf("\n        ");
+        }
+        putchar('\n');
+    }
+    printf("\n");
 }

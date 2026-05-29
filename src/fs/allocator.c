@@ -520,6 +520,101 @@ const SuperBlock *fs_get_superblock(void)
     return &g_super;
 }
 
+// ---------- 调试输出 ----------
+
+void fs_debug_print_super(void)
+{
+    if (!g_fs_mounted) {
+        printf("  Filesystem not mounted.\n");
+        return;
+    }
+    const SuperBlock *sb = &g_super;
+
+    printf("\n");
+    printf("  ── Disk SuperBlock ──────────────────────────────\n");
+    printf("  Magic:              0x%08X  %s\n", sb->s_magic,
+           sb->s_magic == VFS_MAGIC ? "(valid)" : "(INVALID)");
+    printf("  Inodes total:       %u\n", sb->s_inode_total);
+    printf("  Inodes free:        %u\n", sb->s_inode_free_count);
+    printf("  Blocks total:       %u\n", sb->s_block_total);
+    printf("  Blocks free:        %u\n", sb->s_block_free_count);
+    printf("\n");
+    printf("  ── Free Block Chain (成组链接法) ────────────────\n");
+    printf("  Stack entries:      %u / %d\n",
+           sb->s_free_block_count, MAX_FREE_BLOCKS);
+    printf("  Next chain block:   %u\n", sb->s_free_block_chain);
+    if (sb->s_free_block_count > 0) {
+        printf("  Stack [0..%d]:     ", sb->s_free_block_count - 1);
+        for (int i = 0; i < sb->s_free_block_count && i < 20; i++) {
+            printf(" %u", sb->s_free_block_stack[i]);
+        }
+        if (sb->s_free_block_count > 20) printf(" ...");
+        printf("\n");
+    } else {
+        printf("  Stack: (empty — chain block %u holds next group)\n",
+               sb->s_free_block_chain);
+    }
+    printf("\n");
+    printf("  ── Free Inode Stack ─────────────────────────────\n");
+    printf("  Stack top:          %u", sb->s_inode_stack_top);
+    if (sb->s_inode_stack_top == INODE_STACK_EMPTY)
+        printf(" (empty)\n");
+    else
+        printf(" (index into stack)\n");
+    if (sb->s_inode_stack_top != INODE_STACK_EMPTY && sb->s_inode_stack_top < 20) {
+        printf("  Stack [0..%d]:     ", sb->s_inode_stack_top);
+        for (int i = 0; i <= (int)sb->s_inode_stack_top; i++)
+            printf(" %u", sb->s_inode_free_stack[i]);
+        printf("\n");
+    }
+    printf("\n");
+}
+
+void fs_debug_print_inodes(void)
+{
+    if (!g_fs_mounted) {
+        printf("  Filesystem not mounted.\n");
+        return;
+    }
+
+    int in_use = 0, dirty = 0, cached = 0;
+    for (int i = 0; i < TOTAL_INODES; i++) {
+        if (g_inode_pool[i].in_use) { in_use++; cached++; }
+        if (g_inode_pool[i].in.m_flags & MINODE_DIRTY) dirty++;
+    }
+    for (int i = 0; i < MINODE_HASH_SIZE; i++) {
+        for (IHashNode *p = g_inode_hash[i]; p; p = p->h_next) {
+            /* already counted */
+        }
+    }
+
+    printf("\n");
+    printf("  ── Inode Cache ──────────────────────────────────\n");
+    printf("  Pool capacity:      %d\n", TOTAL_INODES);
+    printf("  Cached (in-use):    %d\n", in_use);
+    printf("  Dirty (pending):    %d\n", dirty);
+    printf("  Hash buckets:       %d\n", MINODE_HASH_SIZE);
+
+    /* 列出前 32 个在用的 i 节点 */
+    int shown = 0;
+    printf("\n  ── Active Inodes (first 32) ─────────────────────\n");
+    printf("  %-6s %-6s %-8s %-4s %s\n", "Ino", "Mode", "Size", "Ref", "Flags");
+    for (int i = 0; i < TOTAL_INODES && shown < 32; i++) {
+        if (!g_inode_pool[i].in_use) continue;
+        MemINode *ip = &g_inode_pool[i].in;
+        const char *typ = (ip->m_dinode.d_mode & IFDIR) ? "DIR" :
+                          (ip->m_dinode.d_mode & IFREG) ? "REG" : "?";
+        printf("  %-6u %-6s %-8u %-4u %s%s\n",
+               ip->m_inode_no, typ, ip->m_dinode.d_size,
+               ip->m_ref_count,
+               (ip->m_flags & MINODE_DIRTY) ? "D" : "-",
+               (ip->m_flags & MINODE_LOCKED) ? "L" : "-");
+        shown++;
+    }
+    if (in_use > shown) printf("  ... (%d more)\n", in_use - shown);
+    printf("\n");
+}
+
 
 
 int balloc(void)
