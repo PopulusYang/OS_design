@@ -149,7 +149,7 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 
 **System**: `format`, `mount`, `umount`
 **Directories**: `mkdir`, `cd`, `pwd`, `ls`
-**Files**: `create`, `write`, `cat`, `rm`
+**Files**: `create`, `write`, `cat`, `rm`, `cp`, `ln`, `stat`, `chmod`
 **Users**: `useradd`, `login`, `logout`, `whoami`, `passwd`, `users`
 **Process/Env**: `asm`, `run`, `ps`, `env`, `export`, `unset`
 **Other**: `help`, `clear`, `exit`
@@ -157,6 +157,10 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 ## Key Implementation Notes
 
 - Each `MemINode` has a `pthread_rwlock_t` for concurrency
+- **Two-level open file table**: User open file table (20 per user) → System open file table (40 global entries) → Active inode table (hash-indexed cache)
+- Free block management: 成组链接法 (group-chained free block stack, NICFREE=50)
+- Mixed index: 8 direct + 1 single indirect + 1 double indirect = NADDR=10
+- **Permission enforcement**: `vfs_access()` checks owner/group/other rwx bits; root bypasses
 - Memory: 128MB byte array, page allocator with bitmap (4096 pages = 16MB kernel reserved)
 - Processes: max 64, per-process page table (4096 pages max = 16MB)
 - Scheduling: round-robin, 100 instruction time slice
