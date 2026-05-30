@@ -887,6 +887,7 @@ static void resolve_program_path(const char *path, char *resolved, size_t sz)
 
 static void shell_vm_enter_raw(struct termios *saved)
 {
+    if (!isatty(STDIN_FILENO)) return;
     tcgetattr(STDIN_FILENO, saved);
     struct termios raw = *saved;
     raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
@@ -900,6 +901,7 @@ static void shell_vm_enter_raw(struct termios *saved)
 
 static void shell_vm_leave_raw(const struct termios *saved)
 {
+    if (!isatty(STDIN_FILENO)) return;
     tcsetattr(STDIN_FILENO, TCSAFLUSH, saved);
 }
 
@@ -1279,13 +1281,15 @@ static int dispatch_command(int argc, char **argv)
             iput(ip);
             int fd = vfs_open(argv[1], O_RDONLY);
             if (fd < 0) { ui_err("Cannot open source"); return -1; }
-            char buf[8192]; int total = 0, n;
-            while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+            char *buf = malloc(65536); int total = 0, n;
+            if (!buf) { vfs_close(fd); ui_err("Out of memory"); return -1; }
+            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0) total += n;
             vfs_close(fd);
             FILE *f = fopen(tmp_src, "w");
             if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+            free(buf);
         }
-        
+
         if (assemble_file(tmp_src, tmp_out) != 0) { unlink(tmp_src); unlink(tmp_out); ui_err("Assembly failed"); return -1; }
         
         {
@@ -1392,11 +1396,13 @@ static int dispatch_command(int argc, char **argv)
             iput(ip);
             int fd = vfs_open(argv[1], O_RDONLY);
             if (fd < 0) { ui_err("Cannot open source"); return -1; }
-            char buf[8192]; int total = 0, n;
-            while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0) total += n;
+            char *buf = malloc(65536); int total = 0, n;
+            if (!buf) { vfs_close(fd); ui_err("Out of memory"); return -1; }
+            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0) total += n;
             vfs_close(fd);
             FILE *f = fopen(tmp_src, "w");
             if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+            free(buf);
         }
         // 2. 编译 C → 汇编
         if (compile_c_to_asm(tmp_src, tmp_asm) != 0) {
