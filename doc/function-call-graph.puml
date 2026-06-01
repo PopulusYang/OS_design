@@ -1,0 +1,759 @@
+@startuml
+'=============================================================================
+' UPFS 完整函数调用关系图
+' 生成日期: 2026-06-01
+' 项目: OS Design Course Project
+'=============================================================================
+
+skinparam backgroundColor #FEFEFE
+skinparam packageBackgroundColor #F8F8F8
+skinparam packageBorderColor #888888
+skinparam componentBackgroundColor #E8F0FE
+skinparam componentBorderColor #4060A0
+skinparam noteBackgroundColor #FFFFE0
+skinparam noteBorderColor #CCCC00
+
+title UPFS — 函数调用关系全景图\n(所有函数、所在文件、功能、调用关系)
+
+'=============================================================================
+' PACKAGE: 入口与 Shell 层 (main.c)
+'=============================================================================
+package "Shell 层\n(main.c)" as Shell #LightBlue {
+
+  component "main\n→ 入口函数: 解析 --serve 参数\n→ 调用: upfs_session|serve_main" as main
+  component "upfs_session\n→ 交互式 Shell 主循环\n→ 调用: ui_banner,dispatch_command,shell_mount,shell_umount" as upfs_session
+
+  component "current_user\n→ 获取当前登录用户" as current_user
+  component "ui_banner\n→ 显示 ASCII 艺术 Banner" as ui_banner
+  component "ui_ok / ui_info / ui_err\n→ 分别输出成功/信息/错误消息" as ui_status
+  component "cwd_display\n→ 将路径 ~ 缩写格式化" as cwd_display
+  component "ui_prompt\n→ 渲染交互式提示符 [user:~/path >]" as ui_prompt
+
+  component "disk_file_exists\n→ 检查宿主机文件是否存在" as disk_file_exists
+  component "probe_disk_at\n→ 在指定目录探测磁盘镜像" as probe_disk_at
+  component "startup_disk_probe\n→ 启动时自动搜索磁盘镜像" as startup_disk_probe
+
+  component "init_root_user\n→ 初始化 root 用户" as init_root_user
+  component "shell_bind_user\n→ 绑定当前用户到目录系统" as shell_bind_user
+
+  component "read_password\n→ 关闭回显读取密码" as read_password
+  component "shell_login_prompt\n→ 登录交互：用户名+密码验证" as shell_login_prompt
+  component "shell_create_first_user\n→ 首次运行时创建用户交互" as shell_create_first_user
+
+  component "shell_mount\n→ 挂载命令：加载文件系统 + 初始化内核" as shell_mount
+  component "shell_umount\n→ 卸载命令：保存并关闭文件系统" as shell_umount
+  component "shell_format\n→ 格式化命令：创建新磁盘镜像" as shell_format
+
+  component "cwd_resolve_dots\n→ 解析路径中的 . 和 .. 得到规范路径" as cwd_resolve_dots
+  component "cwd_update_after_cd\n→ cd 后更新全局 CWD" as cwd_update_after_cd
+
+  component "trim\n→ 去除字符串首尾空白" as trim
+  component "parse_octal_mode\n→ 解析八进制权限字符串" as parse_octal_mode
+  component "parse_command_line\n→ 将输入行解析为 argc/argv" as parse_command_line
+
+  component "cmd_help\n→ 显示帮助菜单" as cmd_help
+  component "require_mounted\n→ 检查文件系统是否已挂载" as require_mounted
+
+  ' 文件操作命令
+  component "cmd_cat\n→ cat: 读取并显示文件内容\n调用: vfs_open,vfs_read,vfs_close" as cmd_cat
+  component "cmd_write_existing\n→ write: 写入文本到文件\n调用: vfs_open,vfs_create,vfs_write" as cmd_write_existing
+
+  ' 用户操作命令
+  component "cmd_useradd\n→ useradd: 添加新用户\n调用: user_add" as cmd_useradd
+  component "cmd_login\n→ login: 用户名密码登录\n调用: user_verify" as cmd_login
+  component "cmd_su\n→ su: 切换用户\n调用: user_verify" as cmd_su
+  component "cmd_logout\n→ logout: 注销当前用户" as cmd_logout
+  component "cmd_whoami\n→ whoami: 显示当前用户名" as cmd_whoami
+  component "cmd_passwd\n→ passwd: 修改密码\n调用: user_passwd" as cmd_passwd
+  component "cmd_users\n→ users: 列出所有用户\n调用: user_count,user_get" as cmd_users
+
+  ' 进程/环境命令
+  component "resolve_program_path\n→ 解析程序路径（无/则加 ./）" as resolve_program_path
+  component "shell_vm_enter_raw\n→ 进入 raw 终端模式（VM 运行前）" as shell_vm_enter_raw
+  component "shell_vm_leave_raw\n→ 恢复终端模式（VM 运行后）" as shell_vm_leave_raw
+  component "cmd_run\n→ run: 分配进程并执行 .upx\n调用: proc_alloc,proc_exec,sched_enqueue,sched_tick" as cmd_run
+  component "pipeline_program\n→ 提取管道段中的程序名" as pipeline_program
+  component "proc_bind_pipe_in\n→ 绑定进程 stdin 到管道读取端" as proc_bind_pipe_in
+  component "proc_bind_pipe_out\n→ 绑定进程 stdout 到管道写入端" as proc_bind_pipe_out
+  component "cmd_run_pipeline_chain\n→ 管道链: 创建多个进程+管道串联\n调用: proc_alloc,pipe_alloc,proc_exec,sched_enqueue" as cmd_run_pipeline_chain
+  component "split_pipeline_segments\n→ 按 | 分割管道阶段" as split_pipeline_segments
+  component "try_run_pipeline\n→ 检测并尝试作为管道执行" as try_run_pipeline
+  component "cmd_kill_cmd\n→ kill: 向进程发送信号\n调用: ipc_kill" as cmd_kill_cmd
+  component "cmd_mkfifo\n→ mkfifo: 创建命名 FIFO\n调用: ipc_mkfifo" as cmd_mkfifo
+
+  ' 调试命令
+  component "cmd_design_debug\n→ design_debug: 显示 OS 内部状态" as cmd_design_debug
+  component "cmd_ps\n→ ps: 列出进程表\n调用: proc_get_table" as cmd_ps
+
+  ' 环境变量命令
+  component "env_print_cb\n→ env 回调：打印单条环境变量" as env_print_cb
+  component "cmd_env\n→ env: 遍历并打印所有环境变量\n调用: env_foreach" as cmd_env
+  component "cmd_export\n→ export: 设置环境变量\n调用: env_set" as cmd_export
+  component "cmd_unset\n→ unset: 删除环境变量\n调用: env_unset" as cmd_unset
+
+  ' 命令分发
+  component "dispatch_command\n→ 命令路由: 根据 argv[0] 分发到各 cmd_*" as dispatch_command
+}
+
+'=============================================================================
+' PACKAGE: TCP 服务器层 (serve.c)
+'=============================================================================
+package "TCP 服务器层\n(serve.c)" as Serve #LightCoral {
+
+  component "serve_main\n→ 多终端 TCP 服务器主循环\n→ 监听 :8080 HTTP + :4096 TCP\n→ 调用: tcp_listen,poll,term_spawn,api_spawn,ws_send" as serve_main
+
+  component "shared_disk_path\n→ 获取共享磁盘路径" as shared_disk_path
+  component "shared_set_disk\n→ 设置共享磁盘路径" as shared_set_disk
+
+  component "sha1_t / sha1_u / sha1_f / sha1_hash\n→ SHA1 哈希运算（WebSocket 握手）" as sha1
+  component "b64enc\n→ Base64 编码" as b64enc
+
+  component "nb_write\n→ 非阻塞 write（带 poll 重试）" as nb_write
+  component "ws_send\n→ WebSocket 帧发送" as ws_send
+  component "ws_recv\n→ WebSocket 帧接收与解包" as ws_recv
+  component "http_send\n→ HTTP 响应发送" as http_send
+
+  component "term_spawn\n→ fork 子进程运行 upfs_session" as term_spawn
+  component "api_spawn\n→ fork 子进程运行 upfs_api_session" as api_spawn
+  component "tcp_listen\n→ 创建 TCP 监听 socket" as tcp_listen
+
+  component "conn_close\n→ 关闭连接并清理资源" as conn_close
+  component "conn_alloc\n→ 分配连接槽位" as conn_alloc
+}
+
+'=============================================================================
+' PACKAGE: Web API 层 (web_api.c)
+'=============================================================================
+package "Web API 层\n(web_api.c)" as WebAPI #LemonChiffon {
+
+  component "upfs_api_session\n→ Web API 会话主循环\n→ 逐行读取 JSON 请求并分发" as upfs_api_session
+
+  component "json_parse\n→ 简易 JSON 解析器" as json_parse
+  component "json_get\n→ JSON 字段值获取" as json_get
+  component "json_print_str\n→ JSON 字符串转义输出" as json_print_str
+
+  component "api_start_response\n→ API 响应头（含回调 ID）" as api_start_response
+  component "api_ok / api_err\n→ API 成功/错误响应" as api_ok_err
+
+  component "proc_state_str\n→ 进程状态码→字符串" as proc_state_str
+
+  component "cmd_ls\n→ API: 列出目录\n调用: namei,extent_lookup,read_block,iget" as api_cmd_ls
+  component "cmd_stat\n→ API: 文件状态\n调用: vfs_stat" as api_cmd_stat
+  component "cmd_cat\n→ API: 读取文件\n调用: vfs_open,vfs_read" as api_cmd_cat
+  component "cmd_mkdir\n→ API: 创建目录\n调用: vfs_mkdir" as api_cmd_mkdir
+  component "cmd_create\n→ API: 创建文件\n调用: vfs_create" as api_cmd_create
+  component "cmd_rm\n→ API: 删除文件\n调用: vfs_delete" as api_cmd_rm
+  component "cmd_debug_super\n→ API: 超级块调试\n调用: fs_get_superblock" as api_cmd_debug_super
+  component "cmd_debug_process\n→ API: 进程调试\n调用: proc_get_table" as api_cmd_debug_process
+  component "cmd_debug_memory\n→ API: 内存调试\n调用: mem_free_page_count,mem_get_page_bitmap" as api_cmd_debug_memory
+  component "cmd_debug_all\n→ API: 所有调试信息" as api_cmd_debug_all
+
+  component "try_mount\n→ API 延迟挂载" as api_try_mount
+  component "dispatch\n→ API 命令路由" as api_dispatch
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 磁盘 I/O (fs/disk_io.c)
+'=============================================================================
+package "磁盘 I/O\n(fs/disk_io.c)" as DiskIO #Lavender {
+
+  component "disk_create\n→ 在内存中创建空白磁盘（calloc）" as disk_create
+  component "disk_load\n→ 通过 mmap 加载磁盘镜像文件" as disk_load
+  component "disk_save\n→ 将内存磁盘写入文件" as disk_save
+  component "disk_sync\n→ 将内存磁盘 msync 到文件" as disk_sync
+  component "disk_shutdown\n→ 释放/unmap 磁盘内存" as disk_shutdown
+  component "disk_read_block\n→ 读取一个磁盘块到缓冲区" as disk_read_block
+  component "disk_write_block\n→ 将缓冲区写入一个磁盘块" as disk_write_block
+  component "disk_memory\n→ 获取磁盘内存指针" as disk_memory
+  component "disk_memory_size\n→ 获取磁盘总字节数" as disk_memory_size
+  component "disk_check_block\n→ [static] 校验块号是否合法" as disk_check_block
+  component "ensure_parent_dir\n→ [static] 确保宿主机父目录存在" as ensure_parent_dir
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 格式化 (fs/format.c)
+'=============================================================================
+package "格式化\n(fs/format.c)" as Format #Thistle {
+
+  component "format\n→ 创建新文件系统: 引导块→块组→日志→imap→根目录\n→ 调用: disk_create,bg_format_init,journal_init_format,inomap_format_init,disk_save" as format
+  component "init_boot_block\n→ [static] 初始化引导块 (UPFSBOOT 魔数)" as init_boot_block
+  component "init_root_directory\n→ [static] 初始化根目录 (. 和 ..)" as init_root_directory
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 块组管理 (fs/bg.c)
+'=============================================================================
+package "块组管理\n(fs/bg.c)" as BG #MistyRose {
+
+  component "bg_from_block\n→ 由块号计算所属块组编号" as bg_from_block
+  component "bg_block_in_data_zone\n→ 判断块是否在数据区" as bg_block_in_data_zone
+  component "bg_is_inode_disk_block\n→ 判断是否为 inode chunk 块" as bg_is_inode_disk_block
+  component "bg_is_anchor_block\n→ 判断是否为锚点块" as bg_is_anchor_block
+  component "bg_format_init\n→ 格式化块组空闲块栈\n→ 调用: bg_build_layout,bg_init_free_stack,bg_write_anchor" as bg_format_init
+  component "bg_init_from_super\n→ 从超级块恢复块组运行时数据\n→ 调用: bg_build_layout,bg_read_anchor" as bg_init_from_super
+  component "bg_fill_super\n→ 将块组统计信息写入超级块\n→ 调用: inomap_sync" as bg_fill_super
+  component "bg_sync\n→ 同步所有块组锚点块到磁盘" as bg_sync
+  component "bg_balloc_for\n→ 为指定 inode 优先分配同组数据块\n→ 调用: bg_hint_to_group,bg_reload_free_stack" as bg_balloc_for
+  component "bg_bfree\n→ 释放一个数据块回空闲链" as bg_bfree
+  component "bg_debug_print\n→ 打印块组空闲状态" as bg_debug_print
+  component "bg_group_free\n→ 获取指定块组的空闲块数" as bg_group_free
+
+  component "bg_build_layout\n→ [static] 计算块组锚点/数据区布局" as bg_build_layout
+  component "bg_init_free_stack\n→ [static] 初始化空闲块成组链接栈" as bg_init_free_stack
+  component "bg_write_anchor\n→ [static] 将锚点数据写入磁盘" as bg_write_anchor
+  component "bg_read_anchor\n→ [static] 从磁盘读取锚点数据" as bg_read_anchor
+  component "bg_reload_free_stack\n→ [static] 从链头块重新加载空闲栈" as bg_reload_free_stack
+  component "bg_hint_to_group\n→ [static] 根据 inode 所在块推断块组" as bg_hint_to_group
+  component "reg_header_valid\n→ [static] 校验成组链头" as reg_header_valid
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 块缓存 (fs/buf.c)
+'=============================================================================
+package "块缓存\n(fs/buf.c)" as Buf #Honeydew {
+
+  component "buf_init\n→ 初始化 LRU+哈希块缓存" as buf_init
+  component "buf_shutdown\n→ 关闭缓存（刷脏）" as buf_shutdown
+  component "bread\n→ 读取块到缓存并返回 Buf*" as bread
+  component "brelse\n→ 释放缓存引用" as brelse
+  component "bwrite\n→ 同步写脏块到磁盘" as bwrite
+  component "bdwrite\n→ 标记脏块并释放（延迟写）" as bdwrite
+  component "bflush_all\n→ 刷新所有脏块" as bflush_all
+  component "read_block\n→ 便捷读块 (bread + memcpy + brelse)" as read_block
+  component "write_block\n→ 便捷写块 (bread + memcpy + bdwrite)" as write_block
+
+  component "buf_hash_key\n→ [static] 计算哈希键" as buf_hash_key
+  component "lru_remove / lru_insert_mru\n→ [static] LRU 链表操作" as lru_ops
+  component "buf_hash_find / buf_hash_insert / buf_hash_remove\n→ [static] 哈希表操作" as hash_ops
+  component "buf_invalidate\n→ [static] 失效一个缓存槽" as buf_invalidate
+  component "buf_alloc_slot\n→ [static] 分配空闲缓存槽" as buf_alloc_slot
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 日志 (fs/journal.c)
+'=============================================================================
+package "日志\n(fs/journal.c)" as Journal #LavenderBlush {
+
+  component "journal_is_metadata_block\n→ 判断是否为元数据块" as journal_is_metadata_block
+  component "journal_init_format\n→ 格式化时初始化日志区" as journal_init_format
+  component "journal_replay\n→ 挂载时回放已提交日志" as journal_replay
+  component "journal_begin\n→ 开启事务" as journal_begin
+  component "journal_log_block\n→ 记录块变更到事务" as journal_log_block
+  component "journal_abort\n→ 中止事务" as journal_abort
+  component "journal_commit\n→ 提交事务: 写日志→写数据→刷新缓存" as journal_commit
+  component "journal_write_metadata\n→ 元数据块写（自动判断是否日志）\n→ 调用: journal_write_logged或write_block" as journal_write_metadata
+  component "journal_write_dir_block\n→ 目录数据块写（日志保护）\n→ 调用: journal_write_logged或write_block" as journal_write_dir_block
+
+  component "journal_header_block / journal_data_block\n→ [static] 计算日志头/数据块号" as journal_block_pos
+  component "journal_read_header\n→ [static] 读取日志头" as journal_read_header
+  component "journal_apply_log\n→ [static] 应用一条日志记录到磁盘" as journal_apply_log
+  component "journal_write_logged\n→ [static] 自动 begin→log→commit" as journal_write_logged
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 动态 Inode 映射 (fs/inomap.c)
+'=============================================================================
+package "动态 Inode 映射\n(fs/inomap.c)" as InoMap #Seashell {
+
+  component "inomap_is_chunk_block\n→ 判断块号是否为 inode chunk" as inomap_is_chunk_block
+  component "inomap_lookup\n→ 查询 inode 所在的 chunk+偏移" as inomap_lookup
+  component "inomap_read_disk_inode\n→ 从磁盘读取 DiskINode" as inomap_read_disk_inode
+  component "inomap_write_disk_inode\n→ 将 DiskINode 写入磁盘" as inomap_write_disk_inode
+  component "inomap_ialloc_for\n→ 分配新 inode（优先同块组）\n→ 调用: imap_pop_free,chunk_find_free_slot,chunk_alloc_new,loc_insert" as inomap_ialloc_for
+  component "inomap_ifree\n→ 释放 inode 回空闲池" as inomap_ifree
+  component "inomap_format_init\n→ 格式化时初始化 inode 映射\n→ 调用: chunk_alloc_new,loc_insert" as inomap_format_init
+  component "inomap_load\n→ 从超级块恢复 imap 运行时数据" as inomap_load
+  component "inomap_sync\n→ 将 imap 运行时数据写入超级块" as inomap_sync
+  component "inomap_debug_print\n→ 打印 imap 状态" as inomap_debug_print
+
+  component "imap_blk_read / imap_write_blk\n→ [static] 读/写 imap 块（格式化时用 disk，运行时用 buf+journal）" as imap_blk_rw
+  component "imap_leaf_read / imap_leaf_write\n→ [static] B+树叶节点读写" as imap_leaf_rw
+  component "imap_index_read / imap_index_write\n→ [static] B+树索引节点读写" as imap_index_rw
+  component "imap_alloc_meta\n→ [static] 为 B+树分配一个元数据块\n→ 调用: bg_balloc_for" as imap_alloc_meta
+  component "loc_find_leaf / loc_lookup / loc_insert / loc_split_leaf\n→ [static] B+树 (location) 查找/插入/分裂" as loc_ops
+  component "chk_get / chk_set\n→ [static] Chunk 位图读/写" as chk_ops
+  component "chunk_find_free_slot / chunk_alloc_new\n→ [static] 查找空闲 inode 槽/分配新 chunk" as chunk_ops
+  component "imap_push_free / imap_pop_free\n→ [static] Inode 号回收栈" as imap_free_stack
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — Extent 树 (fs/extent.c)
+'=============================================================================
+package "Extent 树\n(fs/extent.c)" as Extent #PapayaWhip {
+
+  component "extent_lookup\n→ 根据逻辑块号查找物理块号\n→ 调用: find_leaf_for_lblk,leaf_lookup_blk" as extent_lookup
+  component "extent_clear\n→ 释放文件的全部 extent 和物理块\n→ 调用: free_tree,bfree" as extent_clear
+  component "extent_set_single\n→ 设置单个 extent（清空旧树）" as extent_set_single
+  component "extent_bmap\n→ 块映射: 查找或分配新块\n→ 调用: extent_lookup,balloc_for,insert_extent" as extent_bmap
+
+  component "extent_in_range / extent_phys_at\n→ [static] 判断 lblk 是否在 extent 内/计算物理块号" as extent_helpers
+  component "leaf_read / leaf_write\n→ [static] Extent 叶节点读写" as leaf_rw
+  component "index_read / index_write\n→ [static] Extent 索引节点读写" as index_rw
+  component "find_leaf_for_lblk\n→ [static] 在索引树中定位叶节点" as find_leaf_for_lblk
+  component "leaf_lookup_blk\n→ [static] 在叶节点中查找块映射" as leaf_lookup_blk
+  component "try_merge_adjacent\n→ [static] 合并相邻 extent" as try_merge_adjacent
+  component "alloc_metadata_block\n→ [static] 分配 extent 树的元数据块\n→ 调用: balloc_for" as alloc_metadata_block
+  component "insert_into_leaf_blk\n→ [static] 插入 extent 到指定叶节点" as insert_into_leaf_blk
+  component "insert_extent\n→ [static] 插入 extent（可能分裂为 B+树）\n→ 调用: alloc_metadata_block,insert_into_leaf_blk" as insert_extent
+  component "free_leaf_blocks\n→ [static] 递归释放叶节点中的全部数据块" as free_leaf_blocks
+  component "free_tree\n→ [static] 递归释放整个 extent B+树" as free_tree
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 分配器 (fs/allocator.c)
+'=============================================================================
+package "分配器\n(fs/allocator.c)" as Alloc #PowderBlue {
+
+  component "fs_mount\n→ 挂载文件系统\n→ 调用: disk_load,read_block,bg_init_from_super,inomap_load" as fs_mount
+  component "fs_sync_superblock\n→ 同步超级块\n→ 调用: bg_fill_super,bg_sync,journal_write_metadata" as fs_sync_superblock
+  component "fs_sync_disk\n→ 全量同步: 刷脏 inode+超级块+磁盘\n→ 调用: bflush_all,write_disk_inode,fs_sync_superblock,disk_sync" as fs_sync_disk
+  component "fs_umount\n→ 卸载文件系统\n→ 调用: write_disk_inode,fs_sync_superblock,bg_sync,disk_save,disk_shutdown" as fs_umount
+  component "fs_get_superblock\n→ 获取超级块指针" as fs_get_superblock
+  component "fs_debug_print_super\n→ 打印超级块和块组调试信息" as fs_debug_print_super
+  component "fs_debug_print_inodes\n→ 打印 inode 缓存状态" as fs_debug_print_inodes
+
+  component "balloc / balloc_for\n→ 分配数据块\n→ 调用: bg_balloc_for" as balloc_func
+  component "bfree\n→ 释放数据块\n→ 调用: bg_bfree" as bfree_func
+  component "ialloc / ialloc_for\n→ 分配 inode\n→ 调用: inomap_ialloc_for" as ialloc_func
+  component "ifree\n→ 释放 inode\n→ 调用: inomap_ifree" as ifree_func
+
+  component "iget\n→ 获取 inode 缓存引用\n→ 调用: inode_hash_find,read_disk_inode" as iget
+  component "iput\n→ 释放 inode 缓存引用（引用归零时写回+可能释放）" as iput
+  component "inode_rdlock / inode_wrlock / inode_unlock\n→ Inode 读写锁操作" as inode_lock
+
+  component "read_disk_inode / write_disk_inode\n→ [static] 读写磁盘 inode\n→ 调用: inomap_read_disk_inode/inomap_write_disk_inode" as alloc_disk_inode_rw
+  component "inode_hash_key / inode_hash_find / inode_hash_insert / inode_hash_remove\n→ [static] Inode 哈希表操作" as alloc_hash
+  component "inode_pool_alloc / inode_pool_free\n→ [static] Inode 缓存池分配/释放" as alloc_pool
+  component "inode_cache_reset\n→ [static] 重置 inode 缓存" as inode_cache_reset
+  component "inode_node_from_mem\n→ [static] 从 MemINode* 反查 IHashNode*" as inode_node_from_mem
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — VFS 层 (fs/vfs.c)
+'=============================================================================
+package "VFS 层\n(fs/vfs.c)" as VFS #LightCyan {
+
+  component "vfs_register_filesystem\n→ 注册当前文件系统类型" as vfs_register_filesystem
+  component "vfs_current_fs\n→ 获取已注册的文件系统类型" as vfs_current_fs
+  component "vfs_mount / vfs_umount / vfs_format_disk / vfs_sync_all\n→ 通过 ops 表分发挂载/卸载/格式化/同步" as vfs_sys_ops
+  component "vfs_create / vfs_mkdir / vfs_lookup / vfs_delete\n→ 通过 iops 表分发 inode 操作" as vfs_iops
+  component "vfs_open / vfs_read / vfs_write / vfs_close / vfs_lseek\n→ 通过 fops 表分发文件操作" as vfs_fops
+  component "vfs_access / vfs_stat / vfs_chmod / vfs_copy / vfs_link / vfs_chdir / vfs_listdir\n→ 更多 VFS 操作分发" as vfs_misc
+  component "vfs_upfs_register\n→ 注册 UPFS 的所有 ops 函数指针" as vfs_upfs_register
+
+  component "upfs_mount_wrap\n→ [static] UPFS 挂载包装: buf_init→fs_mount→journal_replay" as upfs_mount_wrap
+  component "upfs_umount_wrap\n→ [static] UPFS 卸载包装: bflush_all→fs_umount→buf_shutdown" as upfs_umount_wrap
+  component "upfs_format_wrap\n→ [static] UPFS 格式化包装→调用: format" as upfs_format_wrap
+  component "upfs_sync_wrap\n→ [static] UPFS 同步包装→调用: bflush_all+fs_sync_disk" as upfs_sync_wrap
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 目录操作 (fs/dir_sys.c)
+'=============================================================================
+package "目录操作\n(fs/dir_sys.c)" as DirSys #Linen {
+
+  component "dir_bind_user\n→ 绑定当前操作用户" as dir_bind_user
+  component "dir_get_user\n→ 获取当前用户指针" as dir_get_user
+  component "namei\n→ 路径名→inode 解析（核心路径遍历）\n→ 调用: iget,dir_lookup,iput" as namei
+  component "dir_split_path\n→ 分割路径为父路径+文件名" as dir_split_path
+  component "dir_link_entry\n→ 在目录中创建硬链接条目" as dir_link_entry
+  component "dir_unlink_entry\n→ 从目录中删除条目" as dir_unlink_entry
+  component "upfs_mkdir\n→ 创建目录\n→ 调用: ialloc_for,balloc_for,iget,dir_init_dots,dir_add_entry" as upfs_mkdir
+  component "chdir\n→ 切换当前目录\n→ 调用: namei" as chdir
+  component "dir_list\n→ ls 列表目录内容\n→ 调用: iget,extent_lookup,read_block,namei" as dir_list
+
+  component "inode_is_dir\n→ [static] 判断 inode 是否为目录" as inode_is_dir
+  component "dir_name_equal / dir_name_copy\n→ [static] 目录项名称比较/复制" as dir_name
+  component "dir_name_valid\n→ [static] 校验文件名合法性" as dir_name_valid
+  component "dir_lookup\n→ [static] 在目录中按名称查找 inode\n→ 调用: extent_lookup,read_block" as dir_lookup
+  component "path_skip_slash / path_next_component / path_is_last_component\n→ [static] 路径解析辅助" as path_helpers
+  component "path_split_parent\n→ [static] 分割路径为父目录+文件名" as path_split_parent
+  component "dir_add_entry\n→ [static] 向目录添加条目\n→ 调用: extent_lookup,extent_bmap,read_block,journal_write_dir_block" as dir_add_entry
+  component "dir_init_dots\n→ [static] 初始化目录的 . 和 .. 条目\n→ 调用: journal_write_dir_block,extent_set_single" as dir_init_dots
+  component "mode_type_char\n→ [static] 权限模式→类型字符" as mode_type_char
+}
+
+'=============================================================================
+' PACKAGE: 文件系统 — 文件操作 (fs/file_sys.c)
+'=============================================================================
+package "文件操作\n(fs/file_sys.c)" as FileSys #MintCream {
+
+  component "sys_open_file_init\n→ 初始化系统打开文件表" as sys_open_file_init
+  component "sys_open_file_count\n→ 获取打开文件数量" as sys_open_file_count
+  component "sys_open_file_table\n→ 获取系统打开文件表指针" as sys_open_file_table
+  component "upfs_create\n→ 创建文件\n→ 调用: ialloc_for,iget,dir_link_entry" as upfs_create
+  component "upfs_open\n→ 打开文件\n→ 调用: namei,alloc_fd,sys_ofile_alloc" as upfs_open
+  component "upfs_read\n→ 读取文件\n→ 调用: extent_bmap,read_block" as upfs_read
+  component "upfs_write\n→ 写文件\n→ 调用: extent_bmap,read_block,write_block" as upfs_write
+  component "upfs_close\n→ 关闭文件\n→ 调用: inode_unlock,iput" as upfs_close
+  component "upfs_unlink\n→ 删除文件\n→ 调用: dir_unlink_entry,extent_clear" as upfs_unlink
+  component "upfs_lseek\n→ 文件定位" as upfs_lseek
+  component "upfs_access\n→ 权限检查\n→ 调用: namei" as upfs_access
+  component "upfs_stat\n→ 文件状态\n→ 调用: namei" as upfs_stat
+  component "upfs_chmod\n→ 修改权限\n→ 调用: namei" as upfs_chmod
+  component "upfs_copy\n→ 文件复制\n→ 调用: upfs_open,upfs_read,upfs_write,upfs_create" as upfs_copy
+  component "upfs_link\n→ 创建硬链接\n→ 调用: namei,dir_link_entry" as upfs_link
+
+  component "inode_is_reg\n→ [static] 判断 inode 是否为普通文件" as inode_is_reg
+  component "alloc_fd\n→ [static] 为用户分配文件描述符" as alloc_fd
+  component "oft_get\n→ [static] 获取用户的打开文件表项" as oft_get
+  component "sys_ofile_alloc / sys_ofile_free\n→ [static] 系统打开文件表分配/释放" as sys_ofile
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 内存管理 (kernel/memory.c)
+'=============================================================================
+package "内存管理\n(kernel/memory.c)" as Memory #PeachPuff {
+
+  component "mem_init\n→ 初始化 128MB 物理内存+页位图" as mem_init
+  component "mem_shutdown\n→ 关闭内存管理" as mem_shutdown
+  component "mem_alloc_pages\n→ 分配连续物理页" as mem_alloc_pages
+  component "mem_free_pages\n→ 释放物理页" as mem_free_pages
+  component "mem_page_ptr\n→ 获取页的物理地址指针" as mem_page_ptr
+  component "mem_kernel_ptr\n→ 获取内核内存起始指针" as mem_kernel_ptr
+  component "mem_free_page_count\n→ 获取空闲页数" as mem_free_page_count
+  component "mem_read32 / mem_write32\n→ 32位物理内存读写" as mem_rw32
+  component "mem_read8 / mem_write8\n→ 8位物理内存读写" as mem_rw8
+  component "mem_copy\n→ 物理内存块复制 (memmove)" as mem_copy
+  component "mem_zero\n→ 物理内存块清零 (memset)" as mem_zero
+  component "mem_get_page_bitmap\n→ 获取页位图指针" as mem_get_page_bitmap
+  component "mem_debug_print\n→ 打印内存状态和位图" as mem_debug_print
+  component "addr_valid\n→ [static] 校验物理地址范围" as addr_valid
+}
+
+'=============================================================================
+' PACKAGE: 内核 — CPU/VM (kernel/cpu.c)
+'=============================================================================
+package "CPU/VM\n(kernel/cpu.c)" as CPU #Bisque {
+
+  component "cpu_init\n→ 初始化 CPU 上下文 (PC,SP,ticks)" as cpu_init
+  component "cpu_virt_to_phys\n→ 虚拟地址→物理地址（查页表）" as cpu_virt_to_phys
+  component "cpu_read32 / cpu_write32\n→ 虚拟地址 32 位读写" as cpu_rw32
+  component "cpu_read8 / cpu_write8\n→ 虚拟地址 8 位读写" as cpu_rw8
+  component "cpu_map_page\n→ 按需分配+映射一页" as cpu_map_page
+  component "cpu_step\n→ 取指→译码→执行 单条指令\n→ 调用: cpu_read32,cpu_write32,mem_read32,mem_write32...等" as cpu_step
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 进程管理 (kernel/process.c)
+'=============================================================================
+package "进程管理\n(kernel/process.c)" as Process #Wheat {
+
+  component "proc_init\n→ 初始化进程表" as proc_init
+  component "proc_shutdown\n→ 关闭进程管理" as proc_shutdown
+  component "proc_current\n→ 获取当前运行进程" as proc_current
+  component "proc_set_current\n→ 设置当前运行进程" as proc_set_current
+  component "proc_find\n→ 按 PID 查找进程" as proc_find
+  component "proc_alloc\n→ 分配新进程 PCB\n→ 调用: mem_alloc_pages" as proc_alloc
+  component "proc_free\n→ 释放进程 PCB 及其资源\n→ 调用: mem_free_pages" as proc_free
+  component "proc_create_init\n→ 创建 init 进程 (PID 0)\n→ 调用: proc_alloc,cpu_init" as proc_create_init
+  component "proc_fork\n→ Fork 进程：复制页表+上下文+FD\n→ 调用: proc_alloc,mem_alloc_pages,mem_copy,sched_enqueue" as proc_fork
+  component "proc_pipe\n→ 创建匿名管道 FD 对\n→ 调用: pipe_alloc,proc_alloc_fd" as proc_pipe
+  component "upx_validate\n→ 验证 .upx 二进制格式" as upx_validate
+  component "upx_load\n→ 加载 .upx 二进制到进程页表\n→ 调用: mem_alloc_pages,mem_write8,cpu_virt_to_phys" as upx_load
+  component "proc_exec\n→ exec: 从 VFS 加载并执行程序\n→ 调用: vfs_open,vfs_read,upx_load" as proc_exec
+  component "proc_wait\n→ wait: 等待子进程退出\n→ 调用: proc_find,sched_cooperate" as proc_wait
+  component "proc_exit\n→ exit: 将进程标记为 ZOMBIE" as proc_exit
+  component "proc_count\n→ 获取活跃进程数" as proc_count
+  component "proc_get_table\n→ 获取进程表指针" as proc_get_table
+  component "proc_alloc_fd\n→ 为进程分配空闲 FD 槽" as proc_alloc_fd
+  component "proc_free_fd\n→ 释放进程 FD（关闭管道/文件）" as proc_free_fd
+  component "proc_sbrk\n→ 扩展进程堆\n→ 调用: cpu_map_page" as proc_sbrk
+
+  component "proc_by_idx\n→ [static] 按索引获取进程 PCB" as proc_by_idx
+  component "proc_to_idx\n→ [static] PCB 指针→索引" as proc_to_idx
+  component "proc_dup_fd\n→ [static] 复制 FD（fork 时用）" as proc_dup_fd
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 调度器 (kernel/scheduler.c)
+'=============================================================================
+package "调度器\n(kernel/scheduler.c)" as Sched #LightSalmon {
+
+  component "sched_init\n→ 初始化就绪队列" as sched_init
+  component "sched_enqueue\n→ 进程入就绪队列" as sched_enqueue
+  component "sched_pick_next\n→ 从队列取出下一个进程" as sched_pick_next
+  component "sched_remove\n→ 从就绪队列移除进程" as sched_remove
+  component "sched_ready_count\n→ 获取就绪队列长度" as sched_ready_count
+  component "sched_cooperate\n→ 协同调度: 主动让出 CPU" as sched_cooperate
+  component "sched_tick\n→ 时间片轮转调度入口\n→ 调用: sched_run_slice,sched_pick_next" as sched_tick
+
+  component "sched_run_slice\n→ [static] 运行一个时间片\n→ 调用: cpu_step,ipc_deliver_signals,syscall_dispatch,proc_exit" as sched_run_slice
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 系统调用 (kernel/syscall.c)
+'=============================================================================
+package "系统调用\n(kernel/syscall.c)" as Syscall #LemonChiffon {
+
+  component "syscall_read_str\n→ 从 VM 虚拟地址读取字符串" as syscall_read_str
+  component "syscall_write_str\n→ 将字符串写入 VM 虚拟地址" as syscall_write_str
+  component "syscall_dispatch\n→ 系统调用分发 (20+ 个系统调用)\n→ 调用: proc_exit,proc_fork,proc_exec,proc_wait,proc_sbrk,chdir,env_get,env_set,vfs_*等" as syscall_dispatch
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 管道 (kernel/pipe.c)
+'=============================================================================
+package "管道\n(kernel/pipe.c)" as Pipe #Lavender {
+
+  component "pipe_alloc\n→ 分配管道" as pipe_alloc
+  component "pipe_free\n→ 释放管道" as pipe_free
+  component "pipe_add_reader / pipe_add_writer\n→ 增加读写引用计数" as pipe_add
+  component "pipe_close_read / pipe_close_write\n→ 关闭读写端" as pipe_close
+  component "pipe_read\n→ 从管道读取数据（阻塞）\n→ 调用: pipe_try_read,sched_cooperate" as pipe_read
+  component "pipe_write\n→ 向管道写入数据（阻塞）\n→ 调用: pipe_try_write,sched_cooperate" as pipe_write
+
+  component "pipe_get\n→ [static] 获取管道指针" as pipe_get
+  component "pipe_try_read / pipe_try_write\n→ [static] 环形缓冲区读写" as pipe_try
+}
+
+'=============================================================================
+' PACKAGE: 内核 — IPC (kernel/ipc.c)
+'=============================================================================
+package "IPC\n(kernel/ipc.c)" as IPC #Thistle {
+
+  component "ipc_init / ipc_shutdown\n→ IPC 子系统初始化/关闭" as ipc_init_n_shutdown
+  component "ipc_deliver_signals\n→ 向进程投递待处理信号" as ipc_deliver_signals
+  component "ipc_kill\n→ 向进程发送信号\n→ 调用: proc_find,ipc_deliver_signals,sched_enqueue" as ipc_kill
+  component "ipc_semget\n→ 获取或创建信号量" as ipc_semget
+  component "ipc_semop\n→ 信号量 P/V 操作\n→ 调用: sched_cooperate" as ipc_semop
+  component "ipc_msgget\n→ 获取或创建消息队列" as ipc_msgget
+  component "ipc_msgsnd\n→ 发送消息\n→ 调用: sched_cooperate" as ipc_msgsnd
+  component "ipc_msgrcv\n→ 接收消息\n→ 调用: sched_cooperate" as ipc_msgrcv
+  component "ipc_shmget\n→ 创建共享内存段\n→ 调用: mem_alloc_pages,mem_zero" as ipc_shmget
+  component "ipc_shmat\n→ 将共享内存映射到进程页表" as ipc_shmat
+  component "ipc_shmdt\n→ 从进程页表解除共享内存映射" as ipc_shmdt
+  component "ipc_mkfifo\n→ 创建命名 FIFO\n→ 调用: pipe_alloc" as ipc_mkfifo
+  component "ipc_fifo_open\n→ 打开命名 FIFO\n→ 调用: proc_alloc_fd" as ipc_fifo_open
+
+  component "ipc_table / sem_get / msgq_get / shm_get\n→ [static] IPC 表/信号量/消息队列/共享内存获取" as ipc_gets
+  component "fifo_find_path\n→ [static] 按路径查找 FIFO" as fifo_find_path
+  component "proc_shm_find / proc_shm_alloc_slot\n→ [static] 进程共享内存附件管理" as proc_shm
+  component "shm_pages_for_size\n→ [static] 计算大小所需页数" as shm_pages_for_size
+}
+
+'=============================================================================
+' PACKAGE: 内核 — 内核共享 (kernel/kernel_shared.c)
+'=============================================================================
+package "内核共享\n(kernel/kernel_shared.c)" as KShared #LightYellow {
+
+  component "kernel_shared_create\n→ 创建跨进程共享内核结构（mmap）" as kernel_shared_create
+  component "kernel_shared_attach\n→ 附属到已有共享内核" as kernel_shared_attach
+  component "kernel_shared_destroy\n→ 销毁共享内核" as kernel_shared_destroy
+  component "kernel_local_init\n→ 初始化本地内核（单进程模式）\n→ 调用: ks_local_create" as kernel_local_init
+  component "kernel_local_shutdown\n→ 关闭本地内核" as kernel_local_shutdown
+  component "ks_local_create\n→ [static] 分配本地内核结构（calloc）" as ks_local_create
+}
+
+'=============================================================================
+' PACKAGE: 用户管理 (user/user_mgmt.c)
+'=============================================================================
+package "用户管理\n(user/user_mgmt.c)" as UserMgmt #MintCream {
+
+  component "user_hash_password\n→ 密码哈希: salt+10000轮迭代\n→ 调用: hex_to_bytes,hash_state_mix" as user_hash_password
+  component "user_gen_salt\n→ 生成随机 salt\n→ 调用: bytes_to_hex" as user_gen_salt
+  component "user_db_load\n→ 从 /etc/passwd 加载用户数据库\n→ 调用: vfs_open,vfs_read" as user_db_load
+  component "user_db_save\n→ 保存用户数据库到 /etc/passwd\n→ 调用: vfs_open,vfs_write" as user_db_save
+  component "user_init\n→ 用户子系统初始化" as user_init
+  component "user_add\n→ 添加用户\n→ 调用: user_gen_salt,user_hash_password,user_create_home" as user_add
+  component "user_verify\n→ 验证用户名密码\n→ 调用: user_hash_password" as user_verify
+  component "user_find\n→ 按用户名查找" as user_find
+  component "user_find_by_uid\n→ 按 UID 查找" as user_find_by_uid
+  component "user_count\n→ 获取用户数" as user_count
+  component "user_get\n→ 按索引获取用户" as user_get
+  component "user_delete\n→ 删除用户" as user_delete
+  component "user_passwd\n→ 修改密码\n→ 调用: user_gen_salt,user_hash_password" as user_passwd
+  component "user_create_posix_dirs\n→ 创建 POSIX 标准目录 (/bin,/home,/root,/etc)\n→ 调用: vfs_mkdir" as user_create_posix_dirs
+  component "user_create_home\n→ 创建用户主目录\n→ 调用: vfs_mkdir" as user_create_home
+
+  component "bytes_to_hex / hex_to_bytes\n→ [static] 字节数组与十六进制互转" as hex_conv
+  component "hash_state_mix\n→ [static] 10000 轮哈希混合" as hash_state_mix
+  component "passwd_exists\n→ [static] 检查 /etc/passwd 是否存在" as passwd_exists
+}
+
+'=============================================================================
+' PACKAGE: 环境变量 (user/env.c)
+'=============================================================================
+package "环境变量\n(user/env.c)" as Env #Honeydew {
+
+  component "env_set_current_user\n→ 设置当前用户名" as env_set_current_user
+  component "env_init\n→ 初始化环境变量数组" as env_init
+  component "env_system_load\n→ 加载系统环境变量 (/etc/environment)\n→ 调用: env_load_file" as env_system_load
+  component "env_system_save\n→ 保存系统环境变量\n→ 调用: env_save_file" as env_system_save
+  component "env_user_load\n→ 加载用户环境变量 (~/.env)\n→ 调用: env_load_file" as env_user_load
+  component "env_user_save\n→ 保存用户环境变量\n→ 调用: env_save_file" as env_user_save
+  component "env_get\n→ 获取环境变量值（先用户后系统）" as env_get
+  component "env_set\n→ 设置环境变量" as env_set
+  component "env_unset\n→ 删除环境变量" as env_unset
+  component "env_foreach\n→ 遍历所有环境变量" as env_foreach
+  component "env_get_path\n→ 获取 PATH 环境变量" as env_get_path
+
+  component "env_parse_line\n→ [static] 解析 KEY=VALUE 行" as env_parse_line
+  component "env_load_file\n→ [static] 加载配置文件\n→ 调用: vfs_open,vfs_read" as env_load_file
+  component "env_save_file\n→ [static] 保存配置文件\n→ 调用: vfs_create,vfs_open,vfs_write" as env_save_file
+  component "env_is_root\n→ [static] 判断当前用户是否为 root" as env_is_root
+}
+
+'=============================================================================
+' PACKAGE: 汇编器 (assembler.c)
+'=============================================================================
+package "汇编器\n(assembler.c)" as Asm #LavenderBlush {
+
+  component "assemble_file\n→ 汇编入口: read→pass1→pass2→write_upx" as assemble_file
+
+  component "asm_error_v\n→ [static] 格式化汇编错误输出" as asm_error_v
+  component "read_all_lines\n→ [static] 读取源文件全部行" as read_all_lines
+  component "tokenize\n→ [static] 将一行分解为 Token 数组" as tokenize
+  component "label_name\n→ [static] 检测并提取标签名" as label_name
+  component "parse_reg\n→ [static] 解析寄存器名 (R0-R15, SP)" as parse_reg
+  component "parse_imm\n→ [static] 解析立即数 (十进制/十六进制/二进制/字符)" as parse_imm
+  component "is_symbol\n→ [static] 判断 Token 是否为符号引用" as is_symbol
+  component "find_label / find_label_abs\n→ [static] 查找标签地址（相对/绝对）" as find_label_funcs
+  component "find_insn\n→ [static] 查找指令定义" as find_insn
+  component "encode\n→ [static] 将 OP,RD,RS1,RS2,imm 编码为 32 位指令" as encode
+  component "emit32\n→ [static] 将 32 位值以小端序写入缓冲区" as emit32
+  component "pass1\n→ [static] 第一遍: 收集标签+计算段大小" as pass1
+  component "pass2\n→ [static] 第二遍: 生成指令代码+数据" as pass2
+  component "write_upx\n→ [static] 写入 .upx 文件" as write_upx
+}
+
+'=============================================================================
+' PACKAGE: 预置二进制程序 (binaries.c)
+'=============================================================================
+package "预置二进制\n(binaries.c)" as Bin #Seashell {
+
+  component "binaries_get_all\n→ 获取全部预置演示程序" as binaries_get_all
+  component "binaries_find\n→ 按名称查找预置程序" as binaries_find
+
+  component "w32\n→ [static] 写 32 位小端值" as w32
+  component "build_upx\n→ [static] 构建 .upx 二进制" as build_upx
+  component "init_binaries\n→ [static] 懒初始化 5 个预置程序" as init_binaries
+  component "fill_demos\n→ [static] 填充 DemoBinary 数组" as fill_demos
+}
+
+'=============================================================================
+' PACKAGE: 编辑器 (editor.c)
+'=============================================================================
+package "编辑器\n(editor.c)" as Editor #Wheat {
+
+  component "editor_open\n→ 打开 mini-Vim 风格编辑器主循环" as editor_open
+
+  component "term_raw / term_restore\n→ [static] 设置/恢复终端 raw 模式" as ed_term
+  component "get_term_size\n→ [static] 获取终端行列数" as get_term_size
+  component "set_status\n→ [static] 设置状态栏消息" as set_status
+  component "ed_render\n→ [static] 渲染全屏编辑界面" as ed_render
+  component "line_insert / line_delete\n→ [static] 插入/删除行" as ed_line
+  component "char_insert / char_delete\n→ [static] 插入/删除字符" as ed_char
+  component "ed_load\n→ [static] 加载文件到编辑器" as ed_load
+  component "ed_save\n→ [static] 保存编辑器内容到文件" as ed_save
+  component "cmd_execute\n→ [static] 执行 : 命令 (w/q/q!/wq/e)" as ed_cmd_execute
+  component "handle_normal\n→ [static] Normal 模式按键处理" as handle_normal
+  component "handle_insert\n→ [static] Insert 模式按键处理" as handle_insert
+  component "handle_command\n→ [static] Command 模式按键处理" as handle_command
+}
+
+'=============================================================================
+' PACKAGE: C 编译器 (compiler/)
+'=============================================================================
+package "C 编译器\n(compiler/)" as Compiler #LemonChiffon {
+
+  ' c2s.c
+  component "compile_c_to_asm\n[compiler/c2s.c]\n→ 编译器入口: 词法→语法→代码生成\n→ 调用: compiler_init,lexer_init,parser_parse,codegen_emit" as compile_c_to_asm
+
+  ' lexer.c
+  component "lexer_init\n[compiler/lexer.c]\n→ 初始化词法分析器" as lexer_init
+  component "lexer_close\n[compiler/lexer.c]\n→ 关闭词法分析器" as lexer_close
+  component "lexer_next\n[compiler/lexer.c]\n→ 获取下一个 Token" as lexer_next
+  component "token_type_name\n[compiler/lexer.c]\n→ Token 类型→字符串名" as token_type_name
+
+  component "lookup_keyword\n→ [static] 查找关键字" as lookup_keyword
+  component "lexer_getch / lexer_ungetch\n→ [static] 字符获取/回退" as lexer_getch
+  component "lexer_error\n→ [static] 词法错误报告" as lexer_error
+
+  ' parser.c
+  component "parser_init / parser_close\n[compiler/parser.c]\n→ 初始化/关闭语法分析器" as parser_init_n_close
+  component "parser_parse\n[compiler/parser.c]\n→ 解析翻译单元→AST\n→ 调用: parser_advance,parse_declaration" as parser_parse
+  component "parser_error\n[compiler/parser.c]\n→ 语法错误报告" as parser_error
+
+  component "parser_advance\n→ [static] 读取下一个 Token" as parser_advance
+  component "expect\n→ [static] 期望并消费 Token" as expect
+  component "token_precedence\n→ [static] Token→优先级" as token_precedence
+  component "token_to_binop / token_to_unop\n→ [static] Token→二元/一元运算符" as token_to_binop
+  component "parse_primary\n→ [static] 基本表达式解析" as parse_primary
+  component "parse_expression\n→ [static] Pratt 表达式解析" as parse_expression
+  component "parse_statement\n→ [static] 语句解析（if/while/for/do-while/return/break/continue/复合/声明/表达式/空）" as parse_statement
+  component "parse_compound_statement\n→ [static] 复合语句 { ... } 解析" as parse_compound_statement
+  component "parse_declaration\n→ [static] 声明解析（函数/变量）" as parse_declaration
+
+  ' ast.c
+  component "scope_new / scope_free\n[compiler/ast.c]\n→ 创建/释放作用域" as scope_new_n_free
+  component "scope_lookup\n[compiler/ast.c]\n→ 在作用域链中查找符号" as scope_lookup
+  component "scope_add\n[compiler/ast.c]\n→ 向作用域添加符号" as scope_add
+  component "ast_new\n[compiler/ast.c]\n→ 创建 AST 节点" as ast_new
+  component "ast_free\n[compiler/ast.c]\n→ 递归释放 AST" as ast_free
+  component "compiler_init / compiler_free\n[compiler/ast.c]\n→ 初始化/释放编译器上下文" as compiler_init_n_free
+  component "compiler_new_label\n[compiler/ast.c]\n→ 生成新标签 .L<n>" as compiler_new_label
+  component "compiler_new_string_label\n[compiler/ast.c]\n→ 生成字符串标签 .L_str_<n>" as compiler_new_string_label
+  component "compiler_register_string\n[compiler/ast.c]\n→ 注册字符串字面量" as compiler_register_string
+
+  ' codegen.c
+  component "codegen_init / codegen_close\n[compiler/codegen.c]\n→ 初始化/关闭代码生成器" as codegen_init_n_close
+  component "codegen_emit\n[compiler/codegen.c]\n→ AST→汇编代码生成主入口\n→ 调用: emit_global_data,emit_func" as codegen_emit
+
+  component "emit / emit_reg / emit_escaped_string\n→ [static] 输出汇编指令" as emit_helpers
+  component "emit_load_imm / emit_load_addr\n→ [static] 加载立即数/地址到寄存器" as emit_load
+  component "emit_load_local / emit_store_local\n→ [static] 局部变量加载/存储" as emit_local
+  component "emit_load_global / emit_store_global\n→ [static] 全局变量加载/存储" as emit_global
+  component "emit_expr\n→ [static] 表达式代码生成（递归生成）" as emit_expr
+  component "emit_cond_jump\n→ [static] 条件跳转代码生成" as emit_cond_jump
+  component "emit_stmt\n→ [static] 语句代码生成（递归生成）" as emit_stmt
+  component "count_local_vars\n→ [static] 递归统计局部变量空间" as count_local_vars
+  component "emit_func\n→ [static] 函数代码生成：序言+体+尾声" as emit_func
+  component "emit_global_data\n→ [static] 全局变量数据段生成" as emit_global_data
+
+  ' regalloc.c
+  component "regalloc_init\n[compiler/regalloc.c]\n→ 初始化寄存器分配器" as regalloc_init
+  component "regalloc_alloc\n[compiler/regalloc.c]\n→ 分配一个临时寄存器" as regalloc_alloc
+  component "regalloc_free\n[compiler/regalloc.c]\n→ 释放寄存器" as regalloc_free
+  component "regalloc_count_used\n[compiler/regalloc.c]\n→ 统计已用寄存器数" as regalloc_count_used
+  component "regalloc_spill_offset\n[compiler/regalloc.c]\n→ 获取溢出栈槽偏移" as regalloc_spill_offset
+}
+
+'=============================================================================
+' 关键调用关系（仅展示顶层/模块间调用）
+'=============================================================================
+
+note right of main
+  ── ENTRY POINTS ──
+  main → 无参数: upfs_session()
+  main → --serve: serve_main()
+  upfs_session → dispatch_command → 各 cmd_* 函数
+  dispatch_command 根据命令名路由到对应处理函数
+end note
+
+note right of serve_main
+  ── SERVER MODE ──
+  serve_main → term_spawn → fork → upfs_session
+  serve_main → api_spawn → fork → upfs_api_session
+  ws_send/ws_recv 在 WebSocket 连接上转发终端 I/O
+end note
+
+note right of shell_mount
+  ── MOUNT FLOW ──
+  shell_mount → vfs_mount → upfs_mount_wrap → buf_init → fs_mount → journal_replay
+  shell_mount → mem_init → proc_init → sched_init → env_init → proc_create_init
+end note
+
+note right of syscall_dispatch
+  ── SYSCALL FLOW ──
+  sched_tick → sched_run_slice → cpu_step → (SYSCALL) → syscall_dispatch → vfs_*/proc_* 等
+  寄存器 R1-R3 传递参数, R0 存放返回值
+end note
+
+note right of codegen_emit
+  ── COMPILER FLOW ──
+  compile_c_to_asm → lexer_next (词法) → parser_parse (语法→AST)
+  → codegen_emit (AST→汇编) → assemble_file (汇编→.upx)
+end note
+
+@enduml
