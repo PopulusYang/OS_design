@@ -57,6 +57,18 @@ void sched_remove(uint32_t pid)
 
 int sched_ready_count(void) { return g_kernel ? g_kernel->ready_count : 0; }
 
+/* 回收父进程为 init（PID=0）的僵尸进程 */
+static void sched_reap_zombies(void)
+{
+    if (g_kernel == NULL) return;
+    for (int i = 0; i < PROC_MAX_COUNT; i++) {
+        PCB *p = &g_kernel->proc_table[i];
+        if (p->p_state == PROC_ZOMBIE && p->p_ppid == 0) {
+            proc_free(p);
+        }
+    }
+}
+
 static int sched_run_slice(PCB *p)
 {
     ipc_deliver_signals(p);
@@ -99,16 +111,19 @@ void sched_cooperate(void)
             sched_enqueue(next);
         proc_set_current(self);
     }
+    sched_reap_zombies();
 }
 
 int sched_tick(void)
 {
     if (g_kernel == NULL || !g_kernel->sched_inited) return 1;
 
+    sched_reap_zombies();
+
     PCB *cur = proc_current();
     if (cur == NULL || cur->p_state == PROC_ZOMBIE || cur->p_state == PROC_FREE || cur->p_state == PROC_READY) {
         cur = sched_pick_next();
-        if (cur == NULL) return 1;
+        if (cur == NULL) { sched_reap_zombies(); return 1; }
         proc_set_current(cur);
         cur->p_cpu.ticks_left = CPU_TIMESLICE;
     }
@@ -124,6 +139,7 @@ int sched_tick(void)
 
     PCB *next = sched_pick_next();
     if (next == NULL) {
+        sched_reap_zombies();
         if (proc_count() <= 1) return 1;
         return 1;
     }

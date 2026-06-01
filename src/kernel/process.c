@@ -111,6 +111,19 @@ void proc_free(PCB *p)
         for (int i = 0; i < p->p_envc; i++) free(p->p_envp[i]);
         free(p->p_envp);
     }
+
+    /* 将子进程过继给 init，防止变成孤儿僵尸 */
+    PCB *init = proc_find(0);
+    for (int i = 0; i < p->p_child_count; i++) {
+        PCB *child = proc_find(p->p_children[i]);
+        if (child && child->p_state != PROC_FREE) {
+            child->p_ppid = 0;
+            if (init && init->p_child_count < PROC_MAX_COUNT) {
+                init->p_children[init->p_child_count++] = child->p_pid;
+            }
+        }
+    }
+
     p->p_state = PROC_FREE;
 }
 
@@ -390,6 +403,18 @@ void proc_exit(int code)
 {
     PCB *p = proc_current();
     if (p == NULL || p->p_pid == 0) return;
+
+    /* 将子进程过继给 init（PID=0），避免子进程变成孤儿僵尸 */
+    PCB *init = proc_find(0);
+    for (int i = 0; i < p->p_child_count; i++) {
+        PCB *child = proc_find(p->p_children[i]);
+        if (child && child->p_state != PROC_FREE) {
+            child->p_ppid = 0;
+            if (init && init->p_child_count < PROC_MAX_COUNT) {
+                init->p_children[init->p_child_count++] = child->p_pid;
+            }
+        }
+    }
 
     p->p_exit_code = code;
     p->p_state = PROC_ZOMBIE;
