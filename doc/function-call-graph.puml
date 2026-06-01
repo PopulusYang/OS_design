@@ -5,6 +5,8 @@
 ' 项目: OS Design Course Project
 '=============================================================================
 
+!pragma layout smetana
+
 skinparam backgroundColor #FEFEFE
 skinparam packageBackgroundColor #F8F8F8
 skinparam packageBorderColor #888888
