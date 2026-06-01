@@ -536,6 +536,9 @@ static void dispatch(const JsonObj *j)
         return;
     }
 
+    if (g_mounted)
+        fs_reload_super();
+
     if (strcmp(cmd, "ls") == 0) {
         cmd_ls(path ? path : "/");
     } else if (strcmp(cmd, "stat") == 0) {

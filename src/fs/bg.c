@@ -284,32 +284,26 @@ static int bg_hint_to_group(uint16_t ino_hint)
 
 int bg_balloc_for(uint16_t ino_hint)
 {
-    int bg = bg_hint_to_group(ino_hint);
+    int start = bg_hint_to_group(ino_hint);
+    int bg;
     BgRuntime *rt;
     uint16_t blk;
 
-    rt = &g_bg[bg];
-    if (rt->block_free == 0) {
-        for (int i = 0; i < BG_COUNT; i++) {
-            if (g_bg[i].block_free > 0) {
-                bg = i;
-                rt = &g_bg[bg];
-                break;
-            }
+    for (int pass = 0; pass < BG_COUNT; pass++) {
+        bg = (start + pass) % BG_COUNT;
+        rt = &g_bg[bg];
+        if (rt->block_free == 0)
+            continue;
+        if (rt->free_stack_count == 0) {
+            if (bg_reload_free_stack(rt) != 0)
+                continue;
         }
+        rt->free_stack_count--;
+        blk = rt->free_stack[rt->free_stack_count];
+        rt->block_free--;
+        return (int)blk;
     }
-    if (rt->block_free == 0)
-        return -1;
-
-    if (rt->free_stack_count == 0) {
-        if (bg_reload_free_stack(rt) != 0)
-            return -1;
-    }
-
-    rt->free_stack_count--;
-    blk = rt->free_stack[rt->free_stack_count];
-    rt->block_free--;
-    return (int)blk;
+    return -1;
 }
 
 int bg_bfree(int blockno)

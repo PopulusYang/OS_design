@@ -1430,6 +1430,7 @@ static int dispatch_command(int argc, char **argv)
                 if (sz > 0) {
                     char *buf = malloc((size_t)sz);
                     if (buf) {
+                        int wn;
                         fread(buf, 1, (size_t)sz, f);
                         vfs_delete(out_name);
                         if (vfs_create(out_name, 0644) != 0) {
@@ -1437,8 +1438,20 @@ static int dispatch_command(int argc, char **argv)
                             vfs_create(out_name, 0644);
                         }
                         int fd = vfs_open(out_name, O_WRONLY);
-                        if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                        if (fd < 0) {
+                            free(buf);
+                            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+                            ui_err("Cannot open output file on VFS");
+                            return -1;
+                        }
+                        wn = vfs_write(fd, buf, (int)sz);
+                        vfs_close(fd);
                         free(buf);
+                        if (wn != (int)sz) {
+                            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+                            ui_err("Failed to write output to VFS (short write)");
+                            return -1;
+                        }
                     }
                 }
                 fclose(f);
