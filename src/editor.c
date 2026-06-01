@@ -100,7 +100,7 @@ static void ed_render(void) {
     printf("%s %-6s \033[0m \033[2m%s\033[0m%s%s\033[K\r\n",
            mod_color, mode_str,
            g_ed.path[0] ? g_ed.path : "[No Name]",
-           g_ed.modified ? " \033[38;2;205;137;135m[modified]\033[0m" : "",
+           g_ed.modified ? " \033[38;2;88;166;255m[modified]\033[0m" : "",
            g_ed.path[0] ? "" : "");
 
     

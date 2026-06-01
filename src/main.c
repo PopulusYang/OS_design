@@ -32,13 +32,11 @@
 #include <termios.h>
 
 
-#define ANSI_ROSE           "\033[38;2;205;137;135m"
-#define ANSI_MAUVE          "\033[38;2;205;172;161m"
+#define ANSI_ROSE           "\033[38;2;88;166;255m"   /* primary accent (blue) */
+#define ANSI_MAUVE          "\033[38;2;120;170;230m" /* secondary accent */
 #define ANSI_RESET          "\033[0m"
 #define ANSI_BOLD           "\033[1m"
 #define ANSI_DIM            "\033[2m"
-#define ANSI_GLASS_BG       "\033[48;2;28;26;30m"
-#define ANSI_GLASS_EDGE     "\033[38;2;120;108;112m"
 #define ANSI_ERR            "\033[38;2;180;90;90m"
 #define ANSI_OK             ANSI_ROSE
 
@@ -63,22 +61,8 @@ static User *current_user(void)
 
 static void ui_banner(void)
 {
-    printf("\n");
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE, stdout);
-    fputs("╔══════════════════════════════════════════════════════════╗\n", stdout);
-    fputs(ANSI_RESET, stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "║" ANSI_RESET "  ", stdout);
-    fputs(ANSI_BOLD ANSI_ROSE "UPFS" ANSI_RESET, stdout);
-    fputs(ANSI_MAUVE " . Unix File System Simulator", stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "                       ║\n", stdout);
-    fputs(ANSI_RESET, stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "║" ANSI_RESET "  ", stdout);
-    fputs(ANSI_DIM ANSI_MAUVE "Glass Terminal - cold-elegant cyber shell", stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE "               ║\n", stdout);
-    fputs(ANSI_RESET, stdout);
-    fputs(ANSI_GLASS_BG ANSI_GLASS_EDGE, stdout);
-    fputs("╚══════════════════════════════════════════════════════════╝\n", stdout);
-    fputs(ANSI_RESET "\n", stdout);
+    printf("\n%s%sUPFS%s%s . Unix File System Simulator%s\n\n",
+           ANSI_BOLD, ANSI_ROSE, ANSI_RESET, ANSI_MAUVE, ANSI_RESET);
     fflush(stdout);
 }
 

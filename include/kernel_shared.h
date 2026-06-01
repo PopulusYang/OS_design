@@ -1,9 +1,3 @@
-
-
-
-
-
-
 #ifndef KERNEL_SHARED_H
 #define KERNEL_SHARED_H
 

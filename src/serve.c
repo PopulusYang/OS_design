@@ -333,14 +333,22 @@ int serve_main(int term_port) {
         fprintf(stderr, "kernel_shared_create failed\n"); return 1;
     }
 
-    /* 提前探测磁盘镜像，设置共享路径，避免 API 子进程等待 */
+    /* 提前探测磁盘镜像，设置共享路径（尽量用绝对路径），供 API 子进程挂载 */
     {
         const char *dirs[] = { ".", "..", "../.." };
         for (size_t di = 0; di < sizeof(dirs)/sizeof(dirs[0]); di++) {
             char candidate[512];
+            char resolved[512];
             snprintf(candidate, sizeof(candidate), "%s/%s", dirs[di], DEFAULT_DISK_PATH);
             FILE *fp = fopen(candidate, "rb");
-            if (fp) { fclose(fp); shared_set_disk(candidate); break; }
+            if (fp) {
+                fclose(fp);
+                if (realpath(candidate, resolved) != NULL)
+                    shared_set_disk(resolved);
+                else
+                    shared_set_disk(candidate);
+                break;
+            }
         }
     }
 

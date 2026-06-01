@@ -6,8 +6,11 @@
 #include "fs/dir_sys.h"
 #include "fs/extent.h"
 #include "fs/buf.h"
+#include "fs/disk_io.h"
+#include "user/user_mgmt.h"
 #include "kernel/memory.h"
 #include "kernel/process.h"
+#include "kernel/scheduler.h"
 #include "kernel_shared.h"
 #include "vfs_core.h"
 
@@ -138,6 +141,7 @@ static void api_start_response(void)
 }
 
 static void api_ok(void)  { api_start_response(); puts(",\"ok\":true}"); }
+static int  api_mount_fs(void);
 static void api_err(const char *msg)
 {
     api_start_response();
@@ -299,7 +303,10 @@ static void cmd_rm(const char *path)
 
 static void cmd_debug_super(void)
 {
-    const SuperBlock *sb = fs_get_superblock();
+    const SuperBlock *sb;
+
+    api_mount_fs();
+    sb = fs_get_superblock();
     if (!sb) { api_err("not mounted"); return; }
 
     uint32_t inodes_used = sb->s_inode_total - sb->s_inode_free_count;
@@ -333,7 +340,10 @@ static void cmd_debug_super(void)
 static void cmd_debug_process(void)
 {
     int count = 0;
-    PCB *table = proc_get_table(&count);
+    PCB *table;
+
+    api_mount_fs();
+    table = proc_get_table(&count);
 
     api_start_response(); fputs(",\"ok\":true,\"procs\":[", stdout);
     int first = 1;
@@ -354,7 +364,10 @@ static void cmd_debug_process(void)
 
 static void cmd_debug_memory(void)
 {
-    int free_pages = mem_free_page_count();
+    int free_pages;
+
+    api_mount_fs();
+    free_pages = mem_free_page_count();
     int total = 0;
     const uint8_t *bm = mem_get_page_bitmap(&total);
     int used = total - free_pages;
@@ -443,13 +456,67 @@ static void cmd_debug_all(void)
 
 static int g_mounted = 0;
 
-static void try_mount(void)
+static int path_readable(const char *path)
 {
-    if (g_mounted) return;
-    const char *disk = shared_disk_path();
-    if (disk && disk[0] && vfs_mount(disk) == 0) {
-        g_mounted = 1;
+    FILE *fp;
+
+    if (path == NULL || path[0] == '\0')
+        return 0;
+    fp = fopen(path, "rb");
+    if (fp == NULL)
+        return 0;
+    fclose(fp);
+    return 1;
+}
+
+static int api_mount_fs(void)
+{
+    const char *candidates[8];
+    int n = 0;
+    int i, j;
+    const char *shared;
+    static const char *fallbacks[] = {
+        "testimg/vfs_disk.img",
+        "./testimg/vfs_disk.img",
+        "../testimg/vfs_disk.img",
+        "../../testimg/vfs_disk.img",
+        NULL
+    };
+
+    if (g_mounted)
+        return 0;
+
+    shared = shared_disk_path();
+    if (shared && shared[0])
+        candidates[n++] = shared;
+    for (i = 0; fallbacks[i] != NULL; i++) {
+        int dup = 0;
+        for (j = 0; j < n; j++) {
+            if (strcmp(candidates[j], fallbacks[i]) == 0) {
+                dup = 1;
+                break;
+            }
+        }
+        if (!dup)
+            candidates[n++] = fallbacks[i];
     }
+
+    for (i = 0; i < n; i++) {
+        if (!path_readable(candidates[i]))
+            continue;
+        if (vfs_mount(candidates[i]) != 0)
+            continue;
+        (void)user_init();
+        g_mounted = 1;
+        if (g_kernel != NULL && proc_find(0) == NULL) {
+            (void)mem_init();
+            (void)proc_init();
+            (void)sched_init();
+            (void)proc_create_init();
+        }
+        return 0;
+    }
+    return -1;
 }
 
 static void dispatch(const JsonObj *j)
@@ -463,7 +530,7 @@ static void dispatch(const JsonObj *j)
 
     if (!cmd) { api_err("missing cmd"); return; }
 
-    try_mount();
+    api_mount_fs();
     if (!g_mounted && strcmp(cmd, "debug") != 0) {
         api_err("not mounted");
         return;
@@ -510,7 +577,8 @@ int upfs_api_session(int in_fd, int out_fd)
     setvbuf(stdout, NULL, _IONBF, 0);
 
     vfs_upfs_register();
-    if (g_kernel == NULL) kernel_local_init();
+    if (g_kernel == NULL)
+        (void)kernel_local_init();
 
     static User g_api_user;
     memset(&g_api_user, 0, sizeof(g_api_user));
