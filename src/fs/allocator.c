@@ -300,6 +300,25 @@ int fs_umount(void)
     return rc;
 }
 
+int fs_reload_super(void)
+{
+    if (!g_fs_mounted)
+        return -1;
+
+    bcache_invalidate();
+
+    if (read_block(SUPERBLOCK_BLOCKNO, &g_super) != 0)
+        return -1;
+    if (bg_init_from_super(&g_super) != 0)
+        return -1;
+    if (inomap_load(&g_super) != 0)
+        return -1;
+
+    inode_cache_reset();
+    g_super_dirty = 0;
+    return 0;
+}
+
 const SuperBlock *fs_get_superblock(void)
 {
     if (!g_fs_mounted) {

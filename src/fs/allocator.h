@@ -47,7 +47,8 @@ MemINode *iget(uint16_t ino);
 
 void iput(MemINode *ip);
 
-/* 调试：输出超级块详细信息（磁盘布局、空闲块链、i节点栈） */
+int fs_reload_super(void);
+
 void fs_debug_print_super(void);
 
 /* 调试：输出 i节点缓存/池使用情况 */

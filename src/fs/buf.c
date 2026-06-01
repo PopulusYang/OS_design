@@ -224,6 +224,18 @@ int bflush_all(void)
     return rc;
 }
 
+void bcache_invalidate(void)
+{
+    if (!g_buf_inited)
+        return;
+    for (int i = 0; i < BC_NBUF; i++) {
+        Buf *bp = &g_bufs[i];
+        if (bp->b_refcnt > 0 || (bp->b_flags & B_BUSY))
+            continue;
+        bp->b_flags &= (uint16_t)~B_VALID;
+    }
+}
+
 int read_block(int block_no, void *buf)
 {
     Buf *bp = bread(BC_DEV, block_no);

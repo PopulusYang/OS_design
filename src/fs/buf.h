@@ -35,6 +35,7 @@ void brelse(Buf *bp);
 void bdwrite(Buf *bp);
 void bwrite(Buf *bp);
 int  bflush_all(void);
+void bcache_invalidate(void);
 
 int read_block(int block_no, void *buf);
 int write_block(int block_no, const void *buf);

@@ -69,7 +69,8 @@ static int leaf_write(int blk, uint16_t count, const Extent *ents)
     }
     if (count > 0)
         memcpy(buf + EXT_HDR_SIZE, ents, (size_t)count * sizeof(Extent));
-    return journal_write_dir_block(blk, buf);
+    /* Extent B+ tree blocks are file metadata; use direct write (see dir_sys). */
+    return write_block(blk, buf);
 }
 
 static int index_read(int blk, uint16_t *count_out, uint16_t *level_out,
@@ -225,7 +226,7 @@ static int alloc_metadata_block(MemINode *ip, uint16_t *out_blk)
     if (blk < 0)
         return -1;
     memset(zero, 0, sizeof(zero));
-    if (journal_write_dir_block(blk, zero) != 0) {
+    if (write_block(blk, zero) != 0) {
         bfree(blk);
         return -1;
     }
@@ -315,7 +316,7 @@ static int insert_extent(MemINode *ip, const Extent *new_e)
             }
             d->d_tree_root = leaf_blk;
             d->d_tree_level = 0;
-            d->d_extent = pair[0];
+            memset(&d->d_extent, 0, sizeof(d->d_extent));
             ip->m_flags |= MINODE_DIRTY;
             return 0;
         }
@@ -407,6 +408,31 @@ int extent_set_single(MemINode *ip, uint32_t lblk, uint16_t pblk, uint16_t len)
     return 0;
 }
 
+static int extent_try_extend_run(MemINode *ip, uint32_t lblk, uint16_t pblk)
+{
+    DiskINode *d;
+    Extent    *e;
+    uint32_t   end_lblk;
+    uint32_t   end_pblk;
+
+    if (ip == NULL || ip->m_dinode.d_tree_root != 0)
+        return -1;
+
+    d = &ip->m_dinode;
+    e = &d->d_extent;
+    if (e->e_len == 0)
+        return -1;
+
+    end_lblk = e->e_lblk + (uint32_t)e->e_len;
+    end_pblk = (uint32_t)e->e_pblk + (uint32_t)e->e_len;
+    if (lblk != end_lblk || pblk != (uint16_t)end_pblk)
+        return -1;
+
+    e->e_len++;
+    ip->m_flags |= MINODE_DIRTY;
+    return 0;
+}
+
 int extent_bmap(MemINode *ip, uint32_t lblk, int create, uint16_t *phys_out)
 {
     Extent new_e;
@@ -424,6 +450,11 @@ int extent_bmap(MemINode *ip, uint32_t lblk, int create, uint16_t *phys_out)
     blk = balloc_for(ip->m_inode_no);
     if (blk < 0)
         return -1;
+
+    if (extent_try_extend_run(ip, lblk, (uint16_t)blk) == 0) {
+        *phys_out = (uint16_t)blk;
+        return 0;
+    }
 
     new_e.e_lblk = lblk;
     new_e.e_pblk = (uint16_t)blk;
