@@ -88,10 +88,17 @@ int vfs_sync_all(void)
     return fs_sync_disk();
 }
 
+/*
+@brief VFS层的文件和目录操作接口，调用当前挂载文件系统的对应函数实现具体功能
+@param path 文件或目录路径
+@param mode 权限模式（仅create和mkdir使用）
+@return 操作结果，通常0表示成功，非0表示失败
+*/
 int vfs_create(const char *path, uint16_t mode)
 {
-    if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
-        g_mounted_fs->iops->create == NULL)
+    if (g_mounted_fs == NULL || 
+        g_mounted_fs->iops == NULL ||
+        g_mounted_fs->iops->create == NULL) //检测当前挂载文件系统和i节点操作函数是否存在
         return -1;
     return g_mounted_fs->iops->create(path, mode);
 }

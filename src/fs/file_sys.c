@@ -89,70 +89,83 @@ static OpenFileTable *oft_get(User *u, int fd)
 }
 
 
-
+/*
+@brief UPFS文件系统的文件操作接口实现，提供create、open、read、write等基本文件操作
+@param path 文件路径
+@param mode 权限模式（仅create和open使用）
+@return 操作结果，通常0表示成功，非0表示失败
+*/
 int upfs_create(const char *path, uint16_t mode)
 {
-    User       *u;
-    char        parent_path[PATH_BUF_SIZE];
-    char        name[MAX_FILENAME_LEN + 1];
-    MemINode   *parent_ip;
-    MemINode   *file_ip;
-    int         ino;
+    User       *u; //当前用户指针，从dir_sys模块获取
+    char        parent_path[PATH_BUF_SIZE]; //父目录路径缓冲区，用于存储从path解析出的父目录路径
+    char        name[MAX_FILENAME_LEN + 1]; //文件名缓冲区，用于存储从path解析出的文件名，最大长度为MAX_FILENAME_LEN字符+1个结尾符
+    MemINode   *parent_ip; //父目录的内存i节点指针，用于操作父目录
+    MemINode   *file_ip; //新文件的内存i节点指针，用于操作新创建的文件
+    int         ino; //新文件的i节点号，由分配器分配得到
 
-    u = dir_get_user();
+    u = dir_get_user(); //获取当前用户信息，如果没有登录用户则返回NULL
     if (path == NULL || u == NULL || fs_get_superblock() == NULL) {
         return -1;
     }
+    //分离路径，获取父目录路径和文件名，如果路径无效则返回错误
     if (dir_split_path(path, parent_path, name) != 0) {
         return -1;
     }
 
-    
+    // 检查目标文件是否已经存在，如果存在则返回错误
     {
         MemINode *exist = namei(path);
         if (exist != NULL) {
-            iput(exist);
+            iput(exist);//如果路径已经存在则返回错误
             return -1;
         }
     }
 
-    parent_ip = namei(parent_path);
-    if (parent_ip == NULL) {
+    parent_ip = namei(parent_path);// 获取父目录
+    //再次检测父目录是否存在且是一个目录，如果不是则返回错误
+    if (parent_ip == NULL) { 
         return -1;
     }
+    //父目录必须是一个目录，否则返回错误
     if ((parent_ip->m_dinode.d_mode & IFDIR) == 0) {
         iput(parent_ip);
         return -1;
     }
 
+    //分配一个新的i节点号用于新文件，如果分配失败则返回错误
     ino = ialloc_for(parent_ip->m_inode_no);
     if (ino < 0) {
         iput(parent_ip);
         return -1;
     }
-
+    
+    // 从磁盘读DiskINode,加载到MemINode缓存
     file_ip = iget((uint16_t)ino);
+    // 如果iget失败，说明分配的i节点号无效或者磁盘读取失败，此时需要释放之前分配的i节点号，并释放父目录的内存i节点，然后返回错误
     if (file_ip == NULL) {
-        ifree((uint16_t)ino);
+        ifree((uint16_t)ino); // 回滚
         iput(parent_ip);
         return -1;
     }
 
     memset(&file_ip->m_dinode, 0, sizeof(file_ip->m_dinode));
-    file_ip->m_dinode.d_mode  = (uint16_t)((mode & 0777U) | IFREG);
-    file_ip->m_dinode.d_nlink = 1;
+    file_ip->m_dinode.d_mode  = (uint16_t)((mode & 0777U) | IFREG); // 设置普通文件
+    file_ip->m_dinode.d_nlink = 1; // 硬链接计数 = 1
     file_ip->m_dinode.d_uid   = u->u_uid;
     file_ip->m_dinode.d_gid   = u->u_gid;
-    file_ip->m_dinode.d_size  = 0;
-    file_ip->m_flags |= MINODE_DIRTY;
+    file_ip->m_dinode.d_size  = 0; // 设置为空文件
+    file_ip->m_flags |= MINODE_DIRTY; //标记为脏数据，需要写回磁盘
 
-    if (dir_link_entry(parent_ip, name, (uint16_t)ino) != 0) {
+    if (dir_link_entry(parent_ip, name, (uint16_t)ino) != 0) 
+    {
         file_ip->m_dinode.d_nlink = 0;
         iput(file_ip);
         iput(parent_ip);
         return -1;
     }
 
+    // 释放
     iput(file_ip);
     iput(parent_ip);
     return 0;

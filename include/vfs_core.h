@@ -106,8 +106,8 @@ extern "C" {
 #define VFS_MAGIC               0x55504653U
 
 
-
-#define IFDIR                   0040000U
+// 模式标志位
+#define IFDIR                   0040000U 
 #define IFREG                   0100000U
 #define IEXEC                   0000100U
 #define IWRITE                  0000200U

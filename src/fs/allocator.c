@@ -473,7 +473,11 @@ int ifree(uint16_t ino)
 }
 
 
-
+/*
+@brief 从磁盘读取指定i节点号的i节点数据到内存，并返回对应的内存i节点结构体指针
+@param ino i节点号，必须大于0
+@return 成功返回指向内存i节点的指针，失败返回NULL
+*/
 MemINode *iget(uint16_t ino)
 {
     IHashNode *node;
@@ -508,6 +512,7 @@ MemINode *iget(uint16_t ino)
     return &node->in;
 }
 
+// 释放内存i节点，如果i节点被修改过则写回磁盘，如果i节点的链接数为0则释放对应的i节点号
 void iput(MemINode *ip)
 {
     IHashNode *node;

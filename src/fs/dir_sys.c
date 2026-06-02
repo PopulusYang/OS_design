@@ -179,6 +179,7 @@ static int path_is_last_component(const char *rest)
 
 #define PATH_BUF_SIZE           256
 
+// 将路径分解为父目录路径和文件名两部分，父目录路径存储在parent缓冲区，文件名存储在name缓冲区
 static int path_split_parent(const char *path, char *parent, char *name)
 {
     const char *last;
@@ -217,6 +218,7 @@ static int path_split_parent(const char *path, char *parent, char *name)
     return dir_name_valid(name) ? 0 : -1;
 }
 
+// 根据路径获取对应的内存i节点指针，如果路径无效或文件不存在则返回NULL
 MemINode *namei(const char *path)
 {
     MemINode   *ip;
@@ -316,7 +318,7 @@ MemINode *namei(const char *path)
     return ip;
 }
 
-
+// 将路径分解为父目录路径和文件名两部分，父目录路径存储在parent缓冲区，文件名存储在name缓冲区
 static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
 {
     uint32_t size;
@@ -403,6 +405,7 @@ static int dir_add_entry(MemINode *dir_ip, const char *name, uint16_t ino)
     return 0;
 }
 
+// 将路径分解为父目录路径和文件名两部分，父目录路径存储在parent缓冲区，文件名存储在name缓冲区
 int dir_split_path(const char *path, char *parent, char *name)
 {
     return path_split_parent(path, parent, name);
