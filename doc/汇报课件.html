@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPFS 项目汇报课件</title>
+<style>
+:root {
+  --bg1: #afc1d6;
+  --bg2: #cef9f2;
+  --accent: #655a7c;
+  --accent2: #5865a8;
+  --text: #1a1a2e;
+  --muted: #4a5568;
+  --card: rgba(255,255,255,.92);
+  --code-bg: #eef2f7;
+  --slide-w: min(1100px, 92vw);
+  --slide-h: min(680px, 86vh);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Helvetica Neue", Arial, sans-serif; color: var(--text); background: linear-gradient(135deg, var(--bg1), var(--bg2)); }
+#deck { height: 100%; position: relative; padding-top: 44px; padding-bottom: 52px; }
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  height: 44px;
+  background: rgba(255,255,255,.82); backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(0,0,0,.08);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  font-size: .85rem; color: var(--muted);
+}
+#topbar .title { font-weight: 600; color: var(--accent); letter-spacing: .3px; }
+#shutdown {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer;
+  padding: 6px 12px; border-radius: 8px;
+  font-size: .82rem; color: var(--muted);
+  transition: background .15s, color .15s;
+}
+#shutdown:hover { background: rgba(220,38,38,.1); color: #dc2626; }
+#shutdown .pwr {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #ff5f57; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+  display: inline-block; flex-shrink: 0;
+}
+#shutdown:hover .pwr { background: #ff3b30; }
+#shutdown-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: linear-gradient(135deg, var(--bg1), var(--bg2));
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity .5s ease;
+}
+#shutdown-overlay.show { opacity: 1; pointer-events: auto; }
+#shutdown-overlay .msg { font-size: 1.4rem; color: var(--accent); font-weight: 600; margin-top: 16px; }
+#shutdown-overlay .sub { font-size: .9rem; color: var(--muted); margin-top: 8px; }
+.slide {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s ease;
+  padding: 24px;
+}
+.slide.active { opacity: 1; pointer-events: auto; z-index: 1; }
+.inner {
+  width: var(--slide-w); max-height: var(--slide-h);
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.12);
+  padding: 40px 48px;
+  overflow-y: auto;
+}
+.inner.center { text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 420px; }
+h1 { font-size: 2.4rem; color: var(--accent); margin-bottom: 12px; letter-spacing: .5px; }
+h2 { font-size: 1.55rem; color: var(--accent2); margin-bottom: 20px; border-bottom: 2px solid var(--bg1); padding-bottom: 8px; }
+h3 { font-size: 1.05rem; color: var(--accent); margin: 16px 0 8px; }
+p, li { font-size: .95rem; line-height: 1.65; color: var(--text); }
+ul { margin: 8px 0 8px 1.4em; }
+li { margin: 4px 0; }
+.sub { color: var(--muted); font-size: 1rem; margin-top: 8px; }
+.tag { display: inline-block; background: var(--bg1); color: var(--accent); padding: 2px 10px; border-radius: 999px; font-size: .78rem; margin: 2px 4px 2px 0; }
+.note { font-size: .82rem; color: var(--muted); margin-top: 12px; font-style: italic; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; margin: 10px 0; }
+th, td { border: 1px solid #d8dee9; padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: #e8eef5; color: var(--accent); font-weight: 600; }
+tr:nth-child(even) td { background: rgba(175,193,214,.12); }
+code, .file { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .78rem; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; color: #2d3748; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 14px 18px; border-radius: 8px; font-size: .82rem; line-height: 1.5; overflow-x: auto; margin: 10px 0; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.card { background: rgba(175,193,214,.18); border-radius: 10px; padding: 14px 16px; }
+.card h4 { font-size: .9rem; color: var(--accent2); margin-bottom: 6px; }
+.card p, .card li { font-size: .82rem; }
+.stat { text-align: center; padding: 16px; }
+.stat .num { font-size: 2rem; font-weight: 700; color: var(--accent2); }
+.stat .lbl { font-size: .85rem; color: var(--muted); margin-top: 4px; }
+.arch { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.layer { padding: 10px 16px; border-radius: 8px; text-align: center; font-size: .88rem; font-weight: 500; }
+.l-ui { background: #c3dafe; color: #3730a3; }
+.l-net { background: #a7f3d0; color: #065f46; }
+.l-kern { background: #fde68a; color: #92400e; }
+.l-fs { background: #fbcfe8; color: #9d174d; }
+.l-disk { background: #e2e8f0; color: #334155; }
+.arrow { text-align: center; color: var(--muted); font-size: .75rem; }
+.flow { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 14px 0; font-size: .85rem; }
+.flow span { background: var(--code-bg); padding: 6px 12px; border-radius: 6px; }
+.flow .arr { background: none; color: var(--accent); font-weight: bold; }
+.issue { border-left: 4px solid var(--accent2); padding: 8px 12px; margin: 8px 0; background: rgba(88,101,168,.06); font-size: .84rem; }
+.issue b { color: var(--accent2); }
+.cover-logo { font-size: 3.2rem; font-weight: 800; color: var(--accent); margin-bottom: 8px; }
+.cover-sub { font-size: 1.25rem; color: var(--muted); margin-bottom: 24px; }
+.cover-meta { font-size: .95rem; color: var(--muted); line-height: 2; }
+#bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(255,255,255,.88); backdrop-filter: blur(8px);
+  border-top: 1px solid #d8dee9;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 24px; font-size: .82rem; color: var(--muted);
+}
+#bar button {
+  background: var(--accent2); color: #fff; border: none;
+  padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: .85rem;
+}
+#bar button:hover { opacity: .9; }
+#bar button:disabled { opacity: .4; cursor: default; }
+#progress { flex: 1; height: 4px; background: #e2e8f0; border-radius: 2px; margin: 0 20px; overflow: hidden; }
+#progress i { display: block; height: 100%; background: var(--accent2); transition: width .3s; }
+kbd { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 1px 6px; font-size: .75rem; }
+@media print {
+  .slide { position: relative; opacity: 1 !important; page-break-after: always; pointer-events: auto; }
+  #bar, #topbar, #shutdown-overlay { display: none; }
+  body { overflow: auto; }
+  #deck { padding: 0; }
+}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="title">UPFS 汇报课件</span>
+  <button id="shutdown" type="button" title="关机">
+    <span class="pwr"></span>
+    <span>关机</span>
+  </button>
+</div>
+
+<div id="shutdown-overlay" aria-hidden="true">
+  <div class="cover-logo">UPFS</div>
+  <div class="msg">已关机</div>
+  <div class="sub">可以关闭此标签页</div>
+</div>
+
+<div id="deck">
+
+<!-- 1 封面 -->
+<section class="slide active">
+<div class="inner center">
+<div class="cover-logo">UPFS</div>
+<div class="cover-sub">UNIX 文件系统模拟器 · 课程设计汇报</div>
+<p class="cover-meta">操作系统课程设计<br>建议时长 12～15 分钟</p>
+<p class="note" style="margin-top:32px">← → 或空格翻页 · F 全屏</p>
+</div>
+</section>
+
+<!-- 2 目录 -->
+<section class="slide">
+<div class="inner">
+<h2>汇报提纲</h2>
+<div class="cols2">
+<ul>
+<li>项目背景与目标</li>
+<li>总体架构与源文件分层</li>
+<li>文件系统设计与实现</li>
+<li>内核、用户态与工具链</li>
+</ul>
+<ul>
+<li>Web 桌面管理界面</li>
+<li>现场演示脚本</li>
+<li>开发难点与解决</li>
+<li>总结与 Q&amp;A</li>
+</ul>
+</div>
+</div>
+</section>
+
+<!-- 3 背景 -->
+<section class="slide">
+<div class="inner">
+<h2>项目背景与目标</h2>
+<p>将操作系统各知识点串联为完整链路：</p>
+<div class="flow">
+<span>format</span><span class="arr">→</span>
+<span>创建文件</span><span class="arr">→</span>
+<span>cc 编译</span><span class="arr">→</span>
+<span>run 运行</span><span class="arr">→</span>
+<span>持久化</span>
+</div>
+<ul>
+<li><b>文件系统</b>：虚拟磁盘、目录树、权限、硬链接、日志恢复</li>
+<li><b>内核模拟</b>：32 位 RISC VM、进程表、页式内存、时间片调度</li>
+<li><b>用户接口</b>：Shell、C 编译器/汇编器、多用户登录</li>
+<li><b>远程访问</b>：<code>--serve</code> 模式 Web 桌面</li>
+</ul>
+<p class="note">技术栈：C17 · POSIX · pthreads · CMake · 无第三方依赖</p>
+</div>
+</section>
+
+<!-- 4 规模 -->
+<section class="slide">
+<div class="inner">
+<h2>项目规模</h2>
+<div class="cols3">
+<div class="card stat"><div class="num">35+</div><div class="lbl">Shell 命令</div></div>
+<div class="card stat"><div class="num">20</div><div class="lbl">系统调用</div></div>
+<div class="card stat"><div class="num">21</div><div class="lbl">VM 指令</div></div>
+<div class="card stat"><div class="num">9</div><div class="lbl">JSON API</div></div>
+<div class="card stat"><div class="num">546</div><div class="lbl">磁盘块 × 512B</div></div>
+<div class="card stat"><div class="num">~15k</div><div class="lbl">行 C 代码</div></div>
+</div>
+<p class="note" style="margin-top:20px">入口：<span class="file">src/main.c</span> · 构建：<span class="file">CMakeLists.txt</span></p>
+</div>
+</section>
+
+<!-- 5 架构 -->
+<section class="slide">
+<div class="inner">
+<h2>总体架构</h2>
+<div class="arch">
+<div class="layer l-ui">用户界面 · Shell / Web 桌面（Terminal · Finder · TextEdit · Monitor）</div>
+<div class="arrow">↓</div>
+<div class="layer l-net">网络层 · HTTP :8080 · WebSocket /ws /api · TCP :4096</div>
+<div class="arrow">↓</div>
+<div class="layer l-kern">内核层 · VM · 进程 · 调度 · 内存 · 20 系统调用</div>
+<div class="arrow">↓</div>
+<div class="layer l-fs">文件系统 · VFS · Extent · 动态 Inode · 块组 · 日志 · 块缓存</div>
+<div class="arrow">↓</div>
+<div class="layer l-disk">存储 · vfs_disk.img（mmap 持久化）</div>
+</div>
+<p><b>普通模式</b>：终端直接调用 VFS/内核。<br>
+<b>Serve 模式</b>：父进程 poll 网络，每连接 fork 子进程；磁盘 mmap 共享。</p>
+</div>
+</section>
+
+<!-- 6 源文件分层 -->
+<section class="slide">
+<div class="inner">
+<h2>各层主要源文件</h2>
+<table>
+<tr><th>层次</th><th>主要文件</th></tr>
+<tr><td>程序入口</td><td><span class="file">src/main.c</span> · <span class="file">src/serve.c</span></td></tr>
+<tr><td>Web 界面</td><td><span class="file">src/web_page.h</span> · <span class="file">src/web_api.c</span></td></tr>
+<tr><td>VFS</td><td><span class="file">src/fs/vfs.c</span> · <span class="file">include/vfs.h</span></td></tr>
+<tr><td>文件系统</td><td><span class="file">src/fs/*.c</span> · <span class="file">include/vfs_core.h</span></td></tr>
+<tr><td>内核</td><td><span class="file">src/kernel/*.c</span></td></tr>
+<tr><td>用户管理</td><td><span class="file">src/user/user_mgmt.c</span> · <span class="file">src/user/env.c</span></td></tr>
+<tr><td>工具链</td><td><span class="file">src/assembler.c</span> · <span class="file">src/compiler/*</span> · <span class="file">src/editor.c</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- 7 磁盘布局 -->
+<section class="slide">
+<div class="inner">
+<h2>文件系统 · 磁盘布局</h2>
+<table>
+<tr><th>区域</th><th>块号</th><th>说明</th><th>实现文件</th></tr>
+<tr><td>引导块</td><td>0</td><td>魔数标识</td><td><span class="file">src/fs/format.c</span></td></tr>
+<tr><td>超级块</td><td>1</td><td>全局统计、块组表、Inode 映射根</td><td><span class="file">include/vfs_core.h</span> · <span class="file">src/fs/allocator.c</span></td></tr>
+<tr><td>块组区</td><td>2～513</td><td>8 组 × 64 块</td><td><span class="file">src/fs/bg.c</span></td></tr>
+<tr><td>日志区</td><td>514～545</td><td>32 块元数据日志</td><td><span class="file">src/fs/journal.c</span></td></tr>
+</table>
+<p>底层 I/O：<span class="file">src/fs/disk_io.c</span>（mmap 读写镜像）</p>
+</div>
+</section>
+
+<!-- 8 块组 -->
+<section class="slide">
+<div class="inner">
+<h2>块组与空闲管理</h2>
+<p>8 个块组，每组 1 Anchor + 63 数据块；组内<b>成组链接法</b>管理空闲块，分配优先父 Inode 同组。</p>
+<table>
+<tr><th>功能</th><th>实现文件</th></tr>
+<tr><td>块组布局、Anchor 读写</td><td><span class="file">src/fs/bg.c</span></td></tr>
+<tr><td>bg_balloc_for / bg_bfree</td><td><span class="file">src/fs/bg.c</span></td></tr>
+<tr><td>balloc / bfree 对外接口</td><td><span class="file">src/fs/allocator.c</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- 9 动态 Inode -->
+<section class="slide">
+<div class="inner">
+<h2>动态 Inode（XFS 风格）</h2>
+<p>无固定 Inode 区；按需分配 <b>Inode Chunk</b>（1 块存 16 个 Inode）。</p>
+<div class="cols2">
+<div class="card">
+<h4>Loc B+ 树</h4>
+<p>inode 号 → (chunk 块号, slot)</p>
+<p class="file">src/fs/inomap.c</p>
+</div>
+<div class="card">
+<h4>Chunk B+ 树</h4>
+<p>chunk 块号 → 16 位空闲掩码</p>
+<p class="file">src/fs/inomap.c</p>
+</div>
+</div>
+<p style="margin-top:12px">内存缓存 iget/iput：<span class="file">src/fs/allocator.c</span> · 格式化初始化：<span class="file">src/fs/format.c</span></p>
+</div>
+</section>
+
+<!-- 10 Extent + 缓存 -->
+<section class="slide">
+<div class="inner">
+<h2>Extent · 缓存 · 日志</h2>
+<div class="cols2">
+<div>
+<h3>Extent 区段映射</h3>
+<p>小文件内联 Extent，大文件 B+ 树；相邻块自动合并。</p>
+<p class="file">src/fs/extent.c</p>
+<h3 style="margin-top:14px">块缓存</h3>
+<p>64 槽 LRU + 哈希，延迟写。</p>
+<p class="file">src/fs/buf.c</p>
+</div>
+<div>
+<h3>元数据日志</h3>
+<p>begin → log → commit → replay</p>
+<p class="file">src/fs/journal.c</p>
+<h3 style="margin-top:14px">VFS / 文件操作</h3>
+<p>namei · ls · create/read/write</p>
+<p><span class="file">src/fs/vfs.c</span> · <span class="file">src/fs/dir_sys.c</span> · <span class="file">src/fs/file_sys.c</span></p>
+</div>
+</div>
+</div>
+</section>
+
+<!-- 11 内核 -->
+<section class="slide">
+<div class="inner">
+<h2>内核层</h2>
+<table>
+<tr><th>模块</th><th>内容</th><th>实现文件</th></tr>
+<tr><td>虚拟机</td><td>32 位 RISC，21 条指令，UPX 加载</td><td><span class="file">src/kernel/cpu.c</span> · <span class="file">src/kernel/process.c</span></td></tr>
+<tr><td>内存</td><td>128MB 物理页，位图分配</td><td><span class="file">src/kernel/memory.c</span></td></tr>
+<tr><td>进程</td><td>64 PCB，fork/exec/wait/exit</td><td><span class="file">src/kernel/process.c</span></td></tr>
+<tr><td>调度</td><td>时间片 100 指令，轮转</td><td><span class="file">src/kernel/scheduler.c</span></td></tr>
+<tr><td>系统调用</td><td>20 个，VM 桥接 VFS</td><td><span class="file">src/kernel/syscall.c</span></td></tr>
+<tr><td>IPC</td><td>管道、共享内存、信号</td><td><span class="file">src/kernel/pipe.c</span> · <span class="file">src/kernel/ipc.c</span></td></tr>
+<tr><td>共享内核</td><td>serve 模式 mmap 共享</td><td><span class="file">src/kernel/kernel_shared.c</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- 12 用户态与工具链 -->
+<section class="slide">
+<div class="inner">
+<h2>用户态与工具链</h2>
+<table>
+<tr><th>功能</th><th>实现文件</th></tr>
+<tr><td>多用户、login、passwd</td><td><span class="file">src/user/user_mgmt.c</span> · <span class="file">src/main.c</span></td></tr>
+<tr><td>环境变量</td><td><span class="file">src/user/env.c</span></td></tr>
+<tr><td>汇编器 .s → .upx</td><td><span class="file">src/assembler.c</span></td></tr>
+<tr><td>C 编译器（词法/语法/代码生成）</td><td><span class="file">src/compiler/c2s.c</span> 等</td></tr>
+<tr><td>Shell cc/asm 桥接</td><td><span class="file">src/main.c</span></td></tr>
+<tr><td>内置 vim 编辑器</td><td><span class="file">src/editor.c</span></td></tr>
+<tr><td>预置演示程序</td><td><span class="file">src/binaries.c</span></td></tr>
+</table>
+<p class="note">命令分发总入口：<span class="file">src/main.c</span> → <code>dispatch_command()</code></p>
+</div>
+</section>
+
+<!-- 13 Web -->
+<section class="slide">
+<div class="inner">
+<h2>Web 桌面界面</h2>
+<p><code>./build/bin/OS_design --serve</code> → 浏览器 <code>http://localhost:8080</code></p>
+<table>
+<tr><th>应用</th><th>功能</th><th>实现文件</th></tr>
+<tr><td>Terminal</td><td>多标签命令行、ANSI 彩色</td><td><span class="file">web_page.h</span> · <span class="file">serve.c</span> · <span class="file">main.c</span></td></tr>
+<tr><td>Finder</td><td>目录树、右键菜单</td><td><span class="file">web_page.h</span> · <span class="file">web_api.c</span></td></tr>
+<tr><td>TextEdit</td><td>打开/编辑/保存文件</td><td><span class="file">web_page.h</span> · <span class="file">web_api.c</span></td></tr>
+<tr><td>Activity Monitor</td><td>FS/进程/内存监控</td><td><span class="file">web_page.h</span> · <span class="file">web_api.c</span></td></tr>
+</table>
+<p>跨进程同步：<span class="file">src/fs/allocator.c</span>（fs_reload_super · fs_sync_disk）</p>
+</div>
+</section>
+
+<!-- 14 演示 -->
+<section class="slide">
+<div class="inner">
+<h2>现场演示流程</h2>
+<pre>./build/bin/OS_design --serve          # 浏览器 :8080
+
+format → 创建用户 → ls /
+# TextEdit 编辑 /src/demo.c 并 Save
+cc /src/demo.c /bin/demo
+run /bin/demo
+# Activity Monitor 查看状态</pre>
+<div class="cols2" style="margin-top:12px">
+<div class="card"><h4>format 涉及</h4><p class="file">main.c → format.c · inomap.c · binaries.c</p></div>
+<div class="card"><h4>cc/run 涉及</h4><p class="file">main.c → c2s.c · assembler.c · process.c · cpu.c</p></div>
+</div>
+</div>
+</section>
+
+<!-- 15 难点1 -->
+<section class="slide">
+<div class="inner">
+<h2>开发难点（1/2）</h2>
+<div class="issue"><b>Inode 重复分配</b>（TextEdit 建文件 + 终端 cc 后源文件被覆盖）<br>
+原因：API/终端子进程 inomap 不同步<br>
+修复：<span class="file">inomap.c</span>（跳过已占用 inode）· <span class="file">allocator.c</span>（sync 写 superblock）</div>
+<div class="issue"><b>Web/终端数据不一致</b>（保存后 ls 看不到）<br>
+原因：各进程独立块缓存，脏数据未落盘<br>
+修复：<span class="file">allocator.c</span> · <span class="file">buf.c</span> · <span class="file">main.c</span> / <span class="file">web_api.c</span> reload</div>
+</div>
+</section>
+
+<!-- 16 难点2 -->
+<section class="slide">
+<div class="inner">
+<h2>开发难点（2/2）</h2>
+<div class="issue"><b>cat 二进制导致 Web 终端断开</b><br>
+原因：UPX 含 \0 和控制字符破坏 WebSocket<br>
+修复：<span class="file">main.c</span> · <span class="file">web_api.c</span> 二进制检测</div>
+<div class="issue"><b>cc 输出覆盖源文件</b><br>
+原因：源/输出路径相同或 delete+create 误伤<br>
+修复：<span class="file">main.c</span> paths_same · vfs_write_bytes</div>
+</div>
+</section>
+
+<!-- 17 总结 -->
+<section class="slide">
+<div class="inner center">
+<h2>总结</h2>
+<p style="text-align:left; max-width:640px; margin:20px auto;">
+UPFS 实现从虚拟磁盘到用户程序的完整链路：<br><br>
+<b>文件系统</b> — 块组 · 动态 Inode · Extent · 日志 · 块缓存<br>
+<b>内核</b> — VM · 进程 · 调度 · 系统调用 · IPC<br>
+<b>用户态</b> — Shell · 多用户 · C 工具链<br>
+<b>网络界面</b> — Web 桌面四应用
+</p>
+<p class="sub">C17 · ~15000 行 · macOS/Linux · CMake 构建</p>
+</div>
+</section>
+
+<!-- 18 分工 -->
+<section class="slide">
+<div class="inner">
+<h2>小组分工建议</h2>
+<table>
+<tr><th>成员</th><th>汇报内容</th><th>主要文件</th></tr>
+<tr><td>A</td><td>背景、Shell、工具链、总结</td><td><span class="file">main.c</span> · <span class="file">user/*</span> · <span class="file">compiler/*</span></td></tr>
+<tr><td>B</td><td>文件系统</td><td><span class="file">src/fs/*</span> · <span class="file">vfs_core.h</span></td></tr>
+<tr><td>C</td><td>内核、Web</td><td><span class="file">kernel/*</span> · <span class="file">serve.c</span> · <span class="file">web_*</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- 19 Shell命令对照 -->
+<section class="slide">
+<div class="inner">
+<h2>附录 · Shell 命令与源文件</h2>
+<table>
+<tr><th>命令</th><th>实现路径</th></tr>
+<tr><td>format / mount / umount</td><td><span class="file">main.c</span> → <span class="file">format.c</span> / <span class="file">allocator.c</span></td></tr>
+<tr><td>ls / mkdir / cd</td><td><span class="file">main.c</span> → <span class="file">dir_sys.c</span></td></tr>
+<tr><td>create / cat / write / rm / cp</td><td><span class="file">main.c</span> → <span class="file">file_sys.c</span></td></tr>
+<tr><td>login / useradd / passwd</td><td><span class="file">main.c</span> → <span class="file">user_mgmt.c</span></td></tr>
+<tr><td>cc / asm / run / ps</td><td><span class="file">main.c</span> → 编译器/内核</td></tr>
+<tr><td>API ls/cat/write/debug</td><td><span class="file">web_api.c</span></td></tr>
+</table>
+</div>
+</section>
+
+<!-- 20 Q&A -->
+<section class="slide">
+<div class="inner center">
+<h1 style="font-size:3rem;">Q &amp; A</h1>
+<p class="sub">谢谢各位老师、同学</p>
+<div style="text-align:left; max-width:560px; margin-top:28px; font-size:.88rem; color:var(--muted);">
+<p><b>Q：磁盘为何只有 273KB？</b> — 侧重机制验证，设计可扩展。</p>
+<p><b>Q：与 ext4/XFS 区别？</b> — 借鉴思想，简化生产特性。</p>
+<p><b>Q：用户程序如何访问文件？</b> — SYSCALL → VFS → UPFS。</p>
+</div>
+</div>
+</section>
+
+</div><!-- deck -->
+
+<div id="bar">
+<button id="prev" disabled>← 上一页</button>
+<div id="progress"><i id="prog"></i></div>
+<span id="counter">1 / 20</span>
+<button id="next">下一页 →</button>
+</div>
+
+<script>
+(function(){
+  var slides = document.querySelectorAll('.slide');
+  var n = slides.length, cur = 0;
+  var prev = document.getElementById('prev');
+  var next = document.getElementById('next');
+  var counter = document.getElementById('counter');
+  var prog = document.getElementById('prog');
+
+  function go(i){
+    if(i<0||i>=n) return;
+    slides[cur].classList.remove('active');
+    cur = i;
+    slides[cur].classList.add('active');
+    counter.textContent = (cur+1)+' / '+n;
+    prog.style.width = ((cur+1)/n*100)+'%';
+    prev.disabled = cur===0;
+    next.disabled = cur===n-1;
+  }
+  prev.onclick = function(){ go(cur-1); };
+  next.onclick = function(){ go(cur+1); };
+  document.addEventListener('keydown', function(e){
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){ e.preventDefault(); go(cur+1); }
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); go(cur-1); }
+    if(e.key==='Home') go(0);
+    if(e.key==='End') go(n-1);
+    if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  go(0);
+
+  document.getElementById('shutdown').onclick = function(){
+    if(document.fullscreenElement) document.exitFullscreen();
+    var ov = document.getElementById('shutdown-overlay');
+    ov.classList.add('show');
+    ov.setAttribute('aria-hidden', 'false');
+    document.getElementById('deck').style.visibility = 'hidden';
+    document.getElementById('bar').style.visibility = 'hidden';
+    document.getElementById('topbar').style.visibility = 'hidden';
+    setTimeout(function(){
+      window.close();
+    }, 800);
+  };
+})();
+</script>
+</body>
+</html>

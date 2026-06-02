@@ -706,7 +706,7 @@ static int cmd_cat(const char *path)
     if (path == NULL) { ui_err("Usage: cat <path>"); return -1; }
 
     if (file_is_binary(path)) {
-        ui_err("Binary file (not displayed). Use 'stat' to inspect.");
+        ui_err("Binary file (not displayed)");
         return -1;
     }
 
@@ -789,7 +789,6 @@ static int paths_same(const char *a, const char *b)
     return (na[0] != '\0' && nb[0] != '\0' && strcmp(na, nb) == 0);
 }
 
-/* 覆盖写入：清空旧内容后写入，避免 delete+create 误伤同名路径或破坏目录项 */
 static int vfs_write_bytes(const char *path, const void *data, int len)
 {
     MemINode *ip;
@@ -1493,7 +1492,6 @@ static int dispatch_command(int argc, char **argv)
     }
     if (strcmp(cmd, "cc") == 0) {
         if (argc < 2) { ui_err("Usage: cc <source.c> [output.upx] [--asm]"); return -1; }
-        // 扫描 --asm 标志，有则移除
         int save_asm = 0;
         for (int ai = 1; ai < argc; ai++) {
             if (strcmp(argv[ai], "--asm") == 0) {
@@ -1512,7 +1510,6 @@ static int dispatch_command(int argc, char **argv)
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_cc_src_%d.c", getpid());
         snprintf(tmp_asm, sizeof(tmp_asm), "/tmp/upfs_cc_asm_%d.s", getpid());
         snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_cc_out_%d.upx", getpid());
-        // 1. 导出 VFS 源文件
         {
             MemINode *ip = namei(argv[1]);
             if (!ip) { ui_err("Source file not found"); return -1; }
@@ -1527,16 +1524,13 @@ static int dispatch_command(int argc, char **argv)
             if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
             free(buf);
         }
-        // 2. 编译 C → 汇编
         if (compile_c_to_asm(tmp_src, tmp_asm) != 0) {
             unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
             ui_err("Compilation failed"); return -1;
         }
-        // 3. 附加运行时库
         {
             FILE *asm_f = fopen(tmp_asm, "a");
             if (asm_f) {
-                // 查找运行时库路径
                 const char *rt_paths[] = {
                     "src/compiler/runtime.s",
                     "../src/compiler/runtime.s",
@@ -1556,12 +1550,10 @@ static int dispatch_command(int argc, char **argv)
                 fclose(asm_f);
             }
         }
-        // 4. 汇编 → .upx
         if (assemble_file(tmp_asm, tmp_out) != 0) {
             unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
             ui_err("Assembly after compilation failed"); return -1;
         }
-        // 5. 导入输出到 VFS
         {
             FILE *f = fopen(tmp_out, "rb");
             if (f) {
@@ -1582,7 +1574,6 @@ static int dispatch_command(int argc, char **argv)
                 fclose(f);
             }
         }
-        // --asm: 保存汇编到 VFS，与源文件同目录
         if (save_asm) {
             char asm_vfs[512];
             const char *s = argv[1];
