@@ -26,22 +26,26 @@ make && ./upfs
 
 ### TCP Server Mode (`--serve`)
 
-In `--serve` mode, UPFS acts as a multi-terminal daemon with a Web management UI:
-- **Port 8080**: HTTP server serving the three-panel Web UI + WebSocket upgrade at `/ws/*` (terminal) and `/api` (JSON API)
-- **Port 4096** (or custom): Raw TCP terminal — connect with `nc localhost 4096` or `telnet`
-- Terminal connections (`/ws/N`) fork child processes running `upfs_session()`
-- API connections (`/api`) fork child processes running `upfs_api_session()` — reads JSON requests, calls VFS/kernel APIs, returns JSON responses
-- Parent process runs `poll` event loop forwarding I/O between WebSocket frames and child socketpairs
+In `--serve` mode, UPFS runs as a multi-terminal daemon with a desktop-style Web UI:
+- **Port 8080**: HTTP + WebSocket endpoint used by the browser desktop
+- **Port 4096** (or custom): Raw TCP terminal (`nc localhost 4096`)
+- Each terminal WebSocket connection is served by a child process with an interactive shell session
+- Each API WebSocket connection is served by a child process that handles file browser, text read/write, and dashboard requests
+- The parent process keeps a `poll` loop and forwards WebSocket payloads to child socketpairs
 
 ### Web UI Architecture
 
 ```
-Browser → GET /          → HTTP → three-panel SPA (embedded in web_page.h)
-Browser → /ws/N          → WS   → term_spawn() → upfs_session()     [terminal]
-Browser → /api           → WS   → api_spawn()  → upfs_api_session() [JSON API]
+Browser → GET /          → HTTP → desktop single-page UI (embedded in web_page.h)
+Browser → /ws/N          → WS   → terminal child session
+Browser → /api           → WS   → API child session
 ```
 
-The Web UI has three panels: file browser (left, via /api), interactive terminal (center, via /ws), and monitoring dashboard (right, via /api with debug commands).
+Current UI behavior:
+- Startup transition screen is shown first, then desktop is revealed
+- Desktop includes menu bar, dock, draggable windows, and theme toggle
+- Main apps: Terminal, Finder-style file browser, Activity Monitor, and TextEdit
+- TextEdit can open, edit, and save files in the mounted image through the API socket
 
 
 ## Directory Structure
@@ -53,7 +57,7 @@ src/
   assembler.h/c       # Two-pass assembler: .s source → .upx binary
   serve.h/c           # TCP multi-terminal server (HTTP + WebSocket + raw TCP)
   web_api.c           # JSON API session: parse requests, call VFS/kernel, serialize JSON responses
-  web_page.h          # Embedded three-panel Web UI (HTML/CSS/JS as C string)
+  web_page.h          # Embedded desktop-style Web UI (startup screen + windows + dock)
   fs/                 # File system layer
     disk_io.h/c       # Block-level read/write, disk persistence
     format.h/c        # mkfs: superblock, block groups, root dir
@@ -185,6 +189,7 @@ CPU/VM ───────── Memory Mgmt ── Env Vars ── User Mgmt
 - Disk layout: boot(0) + super(1) + 8 block groups(2–513) + journal(514–545) = 546 blocks; **re-format required** after layout change
 - **Extent mapping**: inode holds inline `Extent` + optional B+ tree root (`d_tree_root`); each extent is `(e_lblk, e_pblk, e_len)`; adjacent logical/physical runs merge on allocate; leaf blocks hold up to 62 extents, index blocks for larger files
 - **Permission enforcement**: `vfs_access()` checks owner/group/other rwx bits; root bypasses
+- **Serve-mode consistency**: both terminal sessions and API sessions reload metadata and invalidate/flush cache paths so Web edits and shell commands stay in sync across processes
 - Memory: 128MB byte array, page allocator with bitmap (4096 pages = 16MB kernel reserved)
 - Processes: max 64, per-process page table (4096 pages max = 16MB)
 - Scheduling: round-robin, 100 instruction time slice
