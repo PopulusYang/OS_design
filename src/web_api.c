@@ -255,7 +255,7 @@ static int api_file_is_binary(const char *path)
 static void cmd_cat(const char *path)
 {
     if (api_file_is_binary(path)) {
-        api_err("binary file (cannot open)");
+        api_err("binary file");
         return;
     }
 

@@ -47,8 +47,12 @@ static const char WEB_PAGE[] =
 "#menubar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:3px;vertical-align:middle}\n"
 ".dot.on{background:var(--green)}.dot.off{background:var(--red)}\n"
 "#menubar .clock{font-variant-numeric:tabular-nums}\n"
-"#themeBtn{background:none;border:none;color:var(--fg2);cursor:pointer;font-size:14px;padding:0 2px}\n"
-"#themeBtn:hover{color:var(--fg)}\n"
+"#themeBtn,#pwrBtn{background:none;border:none;color:var(--fg2);cursor:pointer;font-size:14px;padding:0 2px;line-height:1}\n"
+"#themeBtn:hover,#pwrBtn:hover{color:var(--fg)}\n"
+"#pwrBtn{display:flex;align-items:center;gap:4px;font-size:12px;border-radius:6px;padding:2px 6px}\n"
+"#pwrBtn:hover{background:rgba(255,59,48,.12);color:var(--red)}\n"
+"#pwrBtn .pwr-dot{width:8px;height:8px;border-radius:50%;background:#ff5f57;flex-shrink:0}\n"
+"#pwrBtn:hover .pwr-dot{background:var(--red)}\n"
 
 /* ---- Desktop ---- */
 "#desktop{position:absolute;top:28px;left:0;right:0;bottom:0;background:var(--wallpaper);overflow:hidden}\n"
@@ -204,6 +208,12 @@ static const char WEB_PAGE[] =
 "@keyframes bootspin{to{transform:rotate(360deg)}}\n"
 "@keyframes typing{from{width:0}to{width:37ch}}\n"
 "@keyframes blink{50%{border-color:transparent}}\n"
+".shutdown-screen{position:fixed;inset:0;z-index:1000001;display:none;align-items:center;justify-content:center;\n"
+"background:linear-gradient(115deg,#afc1d6 0%,#b9d6df 45%,#cef9f2 100%);cursor:pointer}\n"
+".shutdown-screen.show{display:flex}\n"
+".shutdown-screen .boot-card{gap:12px}\n"
+".shutdown-msg{font-size:15px;color:#655a7c;font-weight:600}\n"
+".shutdown-hint{font-size:12px;color:rgba(101,90,124,.75);margin-top:4px}\n"
 
 "</style>\n"
 
@@ -233,6 +243,7 @@ static const char WEB_PAGE[] =
 "<span class=\"spacer\"></span>\n"
 "<span class=\"right\">\n"
 "<span><span class=\"dot off\" id=\"sdot\"></span><span id=\"stxt\">Connecting</span></span>\n"
+"<button id=\"pwrBtn\" onclick=\"shutdownAsk()\" title=\"Shut Down\"><span class=\"pwr-dot\"></span>关机</button>\n"
 "<button id=\"themeBtn\" onclick=\"toggleTheme()\" title=\"Toggle theme\">&#9788;</button>\n"
 "<span class=\"clock\" id=\"clock\"></span>\n"
 "</span>\n"
@@ -320,6 +331,22 @@ static const char WEB_PAGE[] =
 
 "</div>\n"
 
+"<div id=\"shutdown-modal\" class=\"modal-bg\" style=\"display:none\">\n"
+"<div class=\"modal\">\n"
+"<h3>关机</h3>\n"
+"<p style=\"font-size:13px;color:var(--fg2);margin-bottom:16px;line-height:1.5\">确定要关闭 UPFS Desktop 吗？<br>所有终端与文件会话将断开。</p>\n"
+"<div class=\"btns\">\n"
+"<button class=\"btn\" onclick=\"shutdownCancel()\">取消</button>\n"
+"<button class=\"btn primary\" style=\"background:var(--red);border-color:var(--red)\" onclick=\"shutdownDo()\">关机</button>\n"
+"</div></div></div>\n"
+
+"<div id=\"shutdown-screen\" class=\"shutdown-screen\" onclick=\"location.reload()\" title=\"Click to restart\">\n"
+"<div class=\"boot-card\">\n"
+"<div class=\"boot-logo\">UPFS Desktop</div>\n"
+"<div class=\"shutdown-msg\">已关机</div>\n"
+"<div class=\"shutdown-hint\">点击屏幕重新启动</div>\n"
+"</div></div>\n"
+
 /* ======== Dock ======== */
 "<div id=\"dock\">\n"
 "<div class=\"dock-icon\" onclick=\"openWin('finder')\" title=\"Finder\">\n"
@@ -342,7 +369,7 @@ static const char WEB_PAGE[] =
 /* ---- Globals ---- */
 "var terms=[],curTerm=0,MAX_TERMS=8;\n"
 "var apiWs=null,apiOk=false,apiCallbacks={},apiReqId=0;\n"
-"var selPath='/',topZ=10;\n"
+"var selPath='/',topZ=10,sysHalted=false,dashTimer=null;\n"
 
 /* ============================================================ */
 /* ---- Theme ---- */
@@ -363,6 +390,26 @@ static const char WEB_PAGE[] =
 "if(!b)return;\n"
 "b.classList.add('show');\n"
 "setTimeout(function(){b.classList.add('hide')},3400)}\n"
+
+"function shutdownAsk(){\n"
+"if(sysHalted)return;\n"
+"document.getElementById('shutdown-modal').style.display='flex'}\n"
+"function shutdownCancel(){\n"
+"document.getElementById('shutdown-modal').style.display='none'}\n"
+"function shutdownDo(){\n"
+"if(sysHalted)return;\n"
+"sysHalted=true;\n"
+"document.getElementById('shutdown-modal').style.display='none';\n"
+"if(dashTimer){clearInterval(dashTimer);dashTimer=null}\n"
+"terms.forEach(function(t){if(t.ws&&t.ws.readyState===1)t.ws.close()});\n"
+"if(apiWs&&apiWs.readyState===1)apiWs.close();\n"
+"apiOk=false;apiCallbacks={};updStatus();\n"
+"document.getElementById('stxt').textContent='Offline';\n"
+"document.getElementById('menubar').style.display='none';\n"
+"document.getElementById('desktop').style.display='none';\n"
+"document.getElementById('dock').style.display='none';\n"
+"document.getElementById('ctxmenu').style.display='none';\n"
+"document.getElementById('shutdown-screen').classList.add('show')}\n"
 
 /* ---- Clock ---- */
 "function tickClock(){\n"
@@ -547,7 +594,7 @@ static const char WEB_PAGE[] =
 "apiWs.onopen=function(){apiOk=true;updStatus();refreshTree();refreshDash()};\n"
 "apiWs.onmessage=function(e){\n"
 "try{var d=JSON.parse(e.data);if(d._cb){var fn=apiCallbacks[d._cb];if(fn){delete apiCallbacks[d._cb];fn(d)}}}catch(ex){}};\n"
-"apiWs.onclose=function(){apiOk=false;updStatus();apiCallbacks={};setTimeout(apiConnect,2000)};\n"
+"apiWs.onclose=function(){apiOk=false;updStatus();apiCallbacks={};if(!sysHalted)setTimeout(apiConnect,2000)};\n"
 "apiWs.onerror=function(){}}\n"
 
 "function apiSend(obj,cb){\n"
@@ -772,7 +819,7 @@ static const char WEB_PAGE[] =
 "newTerm();\n"
 "apiConnect();\n"
 "updDock();\n"
-"setInterval(refreshDash,3000);\n"
+"dashTimer=setInterval(refreshDash,3000);\n"
 
 /* position monitor window to right side */
 "(function(){\n"

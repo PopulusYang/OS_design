@@ -413,15 +413,14 @@ int serve_main(int term_port) {
                 else {
                 c->rlen+=n;c->rbuf[c->rlen]='\0';
                 char *end=strstr(c->rbuf,"\r\n\r\n");
-                if(!end){fprintf(stderr,"[http] waiting for header end (have %d bytes)\n",c->rlen);continue;}
+                if(!end) continue;
 
                 
                 char *s1=strchr(c->rbuf,' ');
                 char *s2=s1?strchr(s1+1,' '):NULL;
-                if(!s1||!s2){fprintf(stderr,"[http] bad request line\n");conn_close(i);continue;}
+                if(!s1||!s2){conn_close(i);continue;}
                 int plen=(int)(s2-s1-1);
                 char *path=s1+1;
-                fprintf(stderr,"[http] path=%.*s\n",plen,path);
 
                 
                 char *wsk=NULL;
@@ -436,8 +435,6 @@ int serve_main(int term_port) {
                         nxt=eol+2;
                     }
                 }
-                fprintf(stderr,"[http] wsk=%s\n",wsk?wsk:"(null)");
-
                 if(wsk&&plen>=4&&strncmp(path,"/ws/",4)==0){
                     
                     uint8_t hash[20];char akey[64],ext[256],comb[256];
@@ -447,11 +444,9 @@ int serve_main(int term_port) {
                     snprintf(ext,sizeof(ext),"Upgrade: websocket\r\nSec-WebSocket-Accept: %s\r\n",akey);
                     http_send(fd,101,NULL,NULL,0,ext);
                     c->type=T_WS;c->rlen=0;
-                    fprintf(stderr,"[ws] slot=%d upgraded, akey=%s\n",i,akey);
                     g_pfds[i].revents=0;  
                     
                     int tfd=term_spawn();
-                    fprintf(stderr,"[ws] slot=%d term_spawn -> tfd=%d pid=%d\n",i,tfd,g_conn[i].term_pid);
                     if(tfd>=0) c->term_fd=tfd;
                 }else if(wsk&&plen>=4&&strncmp(path,"/api",4)==0){
                     uint8_t hash[20];char akey[64],ext[256],comb[256];
@@ -461,10 +456,8 @@ int serve_main(int term_port) {
                     snprintf(ext,sizeof(ext),"Upgrade: websocket\r\nSec-WebSocket-Accept: %s\r\n",akey);
                     http_send(fd,101,NULL,NULL,0,ext);
                     c->type=T_API;c->rlen=0;
-                    fprintf(stderr,"[api] slot=%d upgraded\n",i);
                     g_pfds[i].revents=0;
                     int tfd=api_spawn();
-                    fprintf(stderr,"[api] slot=%d api_spawn -> tfd=%d\n",i,tfd);
                     if(tfd>=0) c->term_fd=tfd;
                 }else if((plen==1&&path[0]=='/')||(plen>=10&&strncmp(path,"/index.html",11)==0)){
                     http_send(fd,200,"text/html; charset=utf-8",WEB_PAGE,(int)strlen(WEB_PAGE),NULL);
@@ -479,9 +472,6 @@ int serve_main(int term_port) {
 
             
             if((c->type==T_WS||c->type==T_API)&&(g_pfds[i].revents&POLLIN)){
-                /* drain all available frames: browser may send multiple frames
-                   that arrive in one read() call; ws_recv buffers the overflow.
-                   Keep calling it until the buffer is empty or socket is dry. */
                 int loop_guard = 0;
                 while (loop_guard < 64) {
                     uint8_t payload[BUF_SIZE];
@@ -495,7 +485,6 @@ int serve_main(int term_port) {
                     }
                     plen = ws_recv(c, payload, BUF_SIZE - 1);
                     if (plen < 0) {
-                        fprintf(stderr, "[ws] slot=%d recv err, closing\n", i);
                         conn_close(i);
                         break;
                     }
@@ -538,7 +527,6 @@ int serve_main(int term_port) {
 
             char buf[4096];int n=(int)read(c->term_fd,buf,sizeof(buf));
             if(n<=0){
-                fprintf(stderr,"[srv] slot=%d term_fd closed (n=%d, errno=%d)\n",i,n,errno);
                 close(c->term_fd);c->term_fd=-1;continue;
             }
 
