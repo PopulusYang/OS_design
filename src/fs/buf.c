@@ -228,6 +228,7 @@ void bcache_invalidate(void)
 {
     if (!g_buf_inited)
         return;
+    bflush_all();
     for (int i = 0; i < BC_NBUF; i++) {
         Buf *bp = &g_bufs[i];
         if (bp->b_refcnt > 0 || (bp->b_flags & B_BUSY))

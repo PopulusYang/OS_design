@@ -85,11 +85,11 @@ static const char WEB_PAGE[] =
 "#termbox{flex:1;position:relative;overflow:hidden}\n"
 ".term{position:absolute;top:0;left:0;right:0;bottom:0;padding:8px 10px;overflow-y:auto;\n"
 "white-space:pre-wrap;word-break:break-all;font-size:13px;line-height:1.45;\n"
-"display:none;background:var(--bg);color:var(--fg);font-family:var(--mono)}\n"
+"display:none;background:var(--bg);color:var(--fg);font-family:var(--mono);user-select:text;-webkit-user-select:text}\n"
 ".term.on{display:block}\n"
 "#inputbar{display:flex;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}\n"
 "#prompt{color:var(--green);padding:6px 0 6px 10px;font:13px var(--mono)}\n"
-"#cmdinput{flex:1;background:none;border:none;color:var(--fg);font:13px var(--mono);outline:none;padding:6px 8px 6px 4px;caret-color:var(--accent)}\n"
+"#cmdinput{flex:1;background:none;border:none;color:var(--fg);font:13px var(--mono);outline:none;padding:6px 8px 6px 4px;caret-color:var(--accent);user-select:text;-webkit-user-select:text}\n"
 
 /* ---- Window: Finder ---- */
 ".finder-head{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;\n"
@@ -121,6 +121,22 @@ static const char WEB_PAGE[] =
 ".proctbl td{padding:3px 4px;color:var(--fg)}\n"
 ".memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:1px}\n"
 ".memcell{width:100%;aspect-ratio:1;border-radius:1px}\n"
+
+/* ---- Window: TextEdit ---- */
+".edit-toolbar{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}\n"
+".edit-toolbar .epath{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;\n"
+"font:12px var(--mono);color:var(--fg);outline:none;min-width:0;user-select:text;-webkit-user-select:text}\n"
+".edit-toolbar .epath:focus{border-color:var(--accent)}\n"
+".edit-toolbar .ebtn{padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--bg);\n"
+"color:var(--fg);cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}\n"
+".edit-toolbar .ebtn:hover{background:var(--bg3)}\n"
+".edit-toolbar .ebtn.save{background:var(--accent);color:#fff;border-color:var(--accent)}\n"
+".edit-toolbar .ebtn.save:hover{opacity:.85}\n"
+"#editor{flex:1;width:100%;background:var(--bg);color:var(--fg);border:none;resize:none;outline:none;\n"
+"font:13px/1.5 var(--mono);padding:8px 10px;tab-size:4;-moz-tab-size:4;user-select:text;-webkit-user-select:text}\n"
+".edit-status{display:flex;align-items:center;justify-content:space-between;padding:2px 10px;\n"
+"border-top:1px solid var(--border);background:var(--bg2);font-size:11px;color:var(--fg2);flex-shrink:0}\n"
+".edit-status .dirty{color:var(--yellow);font-weight:700}\n"
 
 /* ---- Dock ---- */
 "#dock{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;\n"
@@ -182,6 +198,7 @@ static const char WEB_PAGE[] =
 "<span class=\"mitem\" onclick=\"openWin('terminal')\">Terminal</span>\n"
 "<span class=\"mitem\" onclick=\"openWin('finder')\">Finder</span>\n"
 "<span class=\"mitem\" onclick=\"openWin('monitor')\">Monitor</span>\n"
+"<span class=\"mitem\" onclick=\"openWin('editor')\">TextEdit</span>\n"
 "<span class=\"spacer\"></span>\n"
 "<span class=\"right\">\n"
 "<span><span class=\"dot off\" id=\"sdot\"></span><span id=\"stxt\">Connecting</span></span>\n"
@@ -248,6 +265,28 @@ static const char WEB_PAGE[] =
 "</div>\n"
 "</div>\n"
 
+/* ---- Window: TextEdit ---- */
+"<div class=\"window hidden\" id=\"win-editor\" style=\"width:640px;height:480px;left:180px;top:80px;z-index:7\">\n"
+"<div class=\"wbar\" onmousedown=\"dragStart(event,'win-editor')\">\n"
+"<div class=\"lights\">\n"
+"<span class=\"lc\" onclick=\"closeWin('editor')\">&times;</span>\n"
+"<span class=\"lm\" onclick=\"minimizeWin('editor')\">&minus;</span>\n"
+"<span class=\"lg\" onclick=\"maximizeWin('editor')\">&plus;</span>\n"
+"</div>\n"
+"<div class=\"wtitle\" id=\"editor-title\">TextEdit</div>\n"
+"</div>\n"
+"<div class=\"wbody\">\n"
+"<div class=\"edit-toolbar\">\n"
+"<input class=\"epath\" id=\"edit-path\" placeholder=\"/path/to/file\" spellcheck=\"false\">\n"
+"<button class=\"ebtn\" onclick=\"editorOpen()\">Open</button>\n"
+"<button class=\"ebtn save\" onclick=\"editorSave()\">Save</button>\n"
+"<button class=\"ebtn\" onclick=\"editorNew()\">New</button>\n"
+"</div>\n"
+"<textarea id=\"editor\" spellcheck=\"false\"></textarea>\n"
+"<div class=\"edit-status\"><span id=\"edit-dirty\"></span><span id=\"edit-info\">Ready</span></div>\n"
+"</div>\n"
+"</div>\n"
+
 "</div>\n"
 
 /* ======== Dock ======== */
@@ -258,6 +297,8 @@ static const char WEB_PAGE[] =
 "<span style=\"font-family:var(--mono);font-size:22px;font-weight:700\">&gt;_</span><div class=\"ddot\" id=\"dd-terminal\"></div></div>\n"
 "<div class=\"dock-icon\" onclick=\"openWin('monitor')\" title=\"Activity Monitor\">\n"
 "<span>&#128202;</span><div class=\"ddot\" id=\"dd-monitor\"></div></div>\n"
+"<div class=\"dock-icon\" onclick=\"openWin('editor')\" title=\"TextEdit\">\n"
+"<span>&#128221;</span><div class=\"ddot\" id=\"dd-editor\"></div></div>\n"
 "</div>\n"
 
 /* ======== Context Menu ======== */
@@ -344,7 +385,7 @@ static const char WEB_PAGE[] =
 "document.getElementById('mb-app').textContent=t}\n"
 
 "function updDock(){\n"
-"['terminal','finder','monitor'].forEach(function(id){\n"
+"['terminal','finder','monitor','editor'].forEach(function(id){\n"
 "var w=winEl(id);var dd=document.getElementById('dd-'+id);\n"
 "if(dd)dd.classList.toggle('active',w&&!w.classList.contains('hidden'))})}\n"
 
@@ -544,6 +585,7 @@ static const char WEB_PAGE[] =
 "if(e.type==='d'){\n"
 "if(wasSel&&n.classList.contains('expanded'))collapseDir(n);\n"
 "else if(!n.classList.contains('expanded'))expandDir(n,fp,depth)}};\n"
+"if(e.type!=='d')n.ondblclick=function(){editorOpen(fp)};\n"
 "n.oncontextmenu=function(ev){ev.preventDefault();ev.stopPropagation();showCtx(ev,fp,e.type)};\n"
 "parent.appendChild(n)})}\n"
 
@@ -566,6 +608,7 @@ static const char WEB_PAGE[] =
 "add('New file here...',function(){var n=prompt('File name:');if(n)apiSend({cmd:'create',path:path+'/'+n},function(){refreshTree()})});\n"
 "add('New directory...',function(){var n=prompt('Dir name:');if(n)apiSend({cmd:'mkdir',path:path+'/'+n},function(){refreshTree()})});\n"
 "}else{\n"
+"add('Edit in TextEdit',function(){editorOpen(path)});\n"
 "add('View content',function(){apiSend({cmd:'cat',path:path},function(d){if(d.data!=null)alert(d.data);else alert('Error: '+(d.error||'unknown'))})});\n"
 "add('Stat',function(){apiSend({cmd:'stat',path:path},function(d){var s='';for(var k in d)if(k!=='_cb')s+=k+': '+d[k]+'\\n';alert(s)})});\n"
 "}\n"
@@ -583,7 +626,7 @@ static const char WEB_PAGE[] =
 "function add(label,fn){var d=document.createElement('div');d.className='item';d.textContent=label;\n"
 "d.onclick=function(){m.style.display='none';fn()};m.appendChild(d)}\n"
 "function sep(){var d=document.createElement('div');d.className='sep';m.appendChild(d)}\n"
-"var apps=[['Terminal','terminal'],['Finder','finder'],['Activity Monitor','monitor']];\n"
+"var apps=[['Terminal','terminal'],['Finder','finder'],['Activity Monitor','monitor'],['TextEdit','editor']];\n"
 "apps.forEach(function(a){\n"
 "var w=winEl(a[1]);var vis=w&&!w.classList.contains('hidden')&&!w.classList.contains('minimized');\n"
 "add((vis?'Close ':'Open ')+a[0],function(){vis?closeWin(a[1]):openWin(a[1])})});\n"
@@ -631,6 +674,57 @@ static const char WEB_PAGE[] =
 "c.title='Page '+(i*step)+(used?' (used)':' (free)');g.appendChild(c)}})}\n"
 
 "function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}\n"
+
+/* ============================================================ */
+/* ---- TextEdit ---- */
+/* ============================================================ */
+"var edDirty=false,edFile='';\n"
+
+"function editorOpen(path){\n"
+"var p=path||document.getElementById('edit-path').value.trim();\n"
+"if(!p){alert('Enter a file path first');return}\n"
+"document.getElementById('edit-info').textContent='Opening...';\n"
+"apiSend({cmd:'cat',path:p},function(d){\n"
+"if(!d.ok){document.getElementById('edit-info').textContent='Open failed: '+(d.error||'unknown');return}\n"
+"document.getElementById('editor').value=d.data||'';\n"
+"document.getElementById('edit-path').value=p;\n"
+"edFile=p;edDirty=false;edUpdStatus();\n"
+"document.getElementById('editor-title').textContent='TextEdit \\u2014 '+p.split('/').pop();\n"
+"openWin('editor')})}\n"
+
+"function editorSave(){\n"
+"var p=document.getElementById('edit-path').value.trim();\n"
+"if(!p){alert('Enter a file path first');return}\n"
+"var data=document.getElementById('editor').value;\n"
+"document.getElementById('edit-info').textContent='Saving...';\n"
+"apiSend({cmd:'write',path:p,data:data},function(d){\n"
+"if(!d.ok){document.getElementById('edit-info').textContent='Save failed: '+(d.error||'unknown');return}\n"
+"edFile=p;edDirty=false;edUpdStatus();\n"
+"document.getElementById('edit-info').textContent='Saved \\u2713';\n"
+"document.getElementById('editor-title').textContent='TextEdit \\u2014 '+p.split('/').pop();\n"
+"refreshTree()})}\n"
+
+"function editorNew(){\n"
+"document.getElementById('editor').value='';\n"
+"document.getElementById('edit-path').value='';\n"
+"edFile='';edDirty=false;edUpdStatus();\n"
+"document.getElementById('editor-title').textContent='TextEdit — Untitled'}\n"
+
+"function edUpdStatus(){\n"
+"document.getElementById('edit-dirty').textContent=edDirty?'Modified':'';\n"
+"var v=document.getElementById('editor').value;\n"
+"var lines=v?v.split('\\n').length:0;\n"
+"var chars=v?v.length:0;\n"
+"document.getElementById('edit-info').textContent=lines+' lines, '+chars+' chars'}\n"
+
+"document.getElementById('editor').addEventListener('input',function(){edDirty=true;edUpdStatus()});\n"
+
+"document.getElementById('editor').addEventListener('keydown',function(e){\n"
+"if(e.key==='Tab'){e.preventDefault();\n"
+"var s=this.selectionStart,en=this.selectionEnd;\n"
+"this.value=this.value.substring(0,s)+'    '+this.value.substring(en);\n"
+"this.selectionStart=this.selectionEnd=s+4}\n"
+"if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();editorSave()}});\n"
 
 /* ============================================================ */
 /* ---- Init ---- */
