@@ -1693,7 +1693,7 @@ int upfs_session(int in_fd, int out_fd)
         }
 
         int argc = parse_command_line(line, argv, MAX_ARGS);
-        if (g_mounted) bcache_invalidate();
+        if (g_mounted) (void)fs_reload_super();
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
