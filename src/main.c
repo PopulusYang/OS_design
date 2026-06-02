@@ -1640,11 +1640,17 @@ static int dispatch_command(int argc, char **argv)
 
 extern int dup2(int oldfd, int newfd);
 
+/*
+@brief 主会话函数，处理输入输出重定向和命令循环
+@param in_fd 输入文件描述符，通常为0（标准输入）
+@param out_fd 输出文件描述符，通常为1（标准输出）
+@return 0表示正常退出，非0表示发生错误
+*/
 int upfs_session(int in_fd, int out_fd)
 {
-    vfs_upfs_register();
+    vfs_upfs_register(); //注册UPFS文件系统各个函数
 
-    if (g_kernel == NULL) kernel_local_init();
+    if (g_kernel == NULL) kernel_local_init(); //内核初始化，设置全局内核对象指针
 
     if (dup2(out_fd, 1) < 0) return 1;   
     if (dup2(out_fd, 2) < 0) return 1;   
@@ -1717,7 +1723,7 @@ int main(int argc, char *argv[])
 {
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
         int port = 4096;
-        if (argc >= 3) port = atoi(argv[2]);
+        if (argc >= 3) port = atoi(argv[2]);  //检测第二参数作为转发端口，否则默认
         return serve_main(port);
     }
     return upfs_session(0, 1);  

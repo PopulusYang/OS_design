@@ -10,7 +10,7 @@ KernelShared *g_kernel = NULL;
 
 
 static KernelShared *ks_local_create(void) {
-    KernelShared *k = calloc(1, sizeof(KernelShared));
+    KernelShared *k = calloc(1, sizeof(KernelShared));  //分配并清零内核对象
     if (!k) return NULL;
     k->total_pages = (int)MEM_TOTAL_PAGES;
     k->free_pages = k->total_pages - (int)MEM_KERNEL_PAGES;
@@ -58,14 +58,16 @@ void kernel_shared_destroy(KernelShared *k) {
     munmap(k, sizeof(KernelShared));
 }
 
+//本地内核对象创建和销毁函数，供主进程使用，不涉及共享内存
 int kernel_local_init(void) {
-    if (g_kernel) return 0;
+    if (g_kernel) return 0; //已经初始化过了
     g_kernel = ks_local_create();
     return g_kernel ? 0 : -1;
 }
 
+//本地内核对象销毁函数，供主进程使用，不涉及共享内存
 void kernel_local_shutdown(void) {
-    if (!g_kernel) return;
+    if (!g_kernel) return; //没有内核对象需要销毁
     pthread_mutex_destroy(&g_kernel->lock);
     free(g_kernel);
     g_kernel = NULL;

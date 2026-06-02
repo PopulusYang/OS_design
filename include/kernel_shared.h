@@ -16,9 +16,10 @@ extern "C" {
 
 #define SCHED_QUEUE_SIZE  (PROC_MAX_COUNT + 1)
 
+//内核共享数据结构，驻留在共享内存中，供所有进程访问
 typedef struct KernelShared {
     
-    uint8_t  phys_mem[MEM_TOTAL_SIZE];
+    uint8_t  phys_mem[MEM_TOTAL_SIZE];  //物理内存模拟 128MB
     uint8_t  page_bitmap[(MEM_TOTAL_PAGES + 7) / 8];
     int      total_pages;
     int      free_pages;

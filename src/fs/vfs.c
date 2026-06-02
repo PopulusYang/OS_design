@@ -7,12 +7,12 @@
 #include "fs/buf.h"
 #include "fs/journal.h"
 
-static struct file_system_type *g_mounted_fs;
+static struct file_system_type *g_mounted_fs; //当前挂载的文件系统
 
-static struct inode_operations g_upfs_iops;
-static struct file_operations  g_upfs_fops;
-static struct super_operations g_upfs_sops;
-static struct file_system_type g_upfs_fstype;
+static struct inode_operations g_upfs_iops; //UPFS的i节点操作函数集合
+static struct file_operations  g_upfs_fops; //UPFS的文件操作函数集合
+static struct super_operations g_upfs_sops; //UPFS的超级块操作函数集合
+static struct file_system_type g_upfs_fstype; //UPFS的文件系统类型结构体实例
 
 static int upfs_mount_wrap(const char *path)
 {
@@ -217,35 +217,37 @@ int vfs_listdir(const char *path)
     return g_mounted_fs->iops->listdir(path);
 }
 
+//初始化文件系统
 void vfs_upfs_register(void)
 {
-    g_upfs_iops.create  = upfs_create;
-    g_upfs_iops.mkdir   = upfs_mkdir;
-    g_upfs_iops.lookup  = namei;
-    g_upfs_iops.unlink  = upfs_unlink;
-    g_upfs_iops.link    = upfs_link;
-    g_upfs_iops.chmod   = upfs_chmod;
-    g_upfs_iops.stat    = upfs_stat;
-    g_upfs_iops.access  = upfs_access;
-    g_upfs_iops.chdir   = chdir;
-    g_upfs_iops.listdir = dir_list;
+    //初始化UPFS的操作函数集合
+    g_upfs_iops.create  = upfs_create; //创建文件
+    g_upfs_iops.mkdir   = upfs_mkdir; //创建目录
+    g_upfs_iops.lookup  = namei; //路径解析和i节点查找
+    g_upfs_iops.unlink  = upfs_unlink; //删除文件或目录
+    g_upfs_iops.link    = upfs_link; //创建硬链接
+    g_upfs_iops.chmod   = upfs_chmod; //修改权限
+    g_upfs_iops.stat    = upfs_stat; //获取文件或目录的状态信息
+    g_upfs_iops.access  = upfs_access; //检查访问权限
+    g_upfs_iops.chdir   = chdir; //改变当前工作目录
+    g_upfs_iops.listdir = dir_list; //列出目录内容
 
-    g_upfs_fops.open   = upfs_open;
-    g_upfs_fops.read   = upfs_read;
-    g_upfs_fops.write  = upfs_write;
-    g_upfs_fops.close  = upfs_close;
-    g_upfs_fops.lseek  = upfs_lseek;
-    g_upfs_fops.copy   = upfs_copy;
+    g_upfs_fops.open   = upfs_open; //打开文件
+    g_upfs_fops.read   = upfs_read; //读取文件内容
+    g_upfs_fops.write  = upfs_write; //写入文件内容
+    g_upfs_fops.close  = upfs_close; //关闭文件
+    g_upfs_fops.lseek  = upfs_lseek; //调整文件读写位置
+    g_upfs_fops.copy   = upfs_copy; //复制文件
 
-    g_upfs_sops.mount  = upfs_mount_wrap;
-    g_upfs_sops.umount = upfs_umount_wrap;
-    g_upfs_sops.format = upfs_format_wrap;
-    g_upfs_sops.sync   = upfs_sync_wrap;
+    g_upfs_sops.mount  = upfs_mount_wrap; //挂载文件系统
+    g_upfs_sops.umount = upfs_umount_wrap; //卸载文件系统
+    g_upfs_sops.format = upfs_format_wrap; //格式化磁盘
+    g_upfs_sops.sync   = upfs_sync_wrap; //同步数据到磁盘
 
-    g_upfs_fstype.name = "upfs";
-    g_upfs_fstype.iops = &g_upfs_iops;
-    g_upfs_fstype.fops = &g_upfs_fops;
-    g_upfs_fstype.sops = &g_upfs_sops;
+    g_upfs_fstype.name = "upfs"; //文件系统名称
+    g_upfs_fstype.iops = &g_upfs_iops; //关联i节点操作函数集合
+    g_upfs_fstype.fops = &g_upfs_fops; //关联文件操作函数集合
+    g_upfs_fstype.sops = &g_upfs_sops; //关联超级块操作函数集合
 
     vfs_register_filesystem(&g_upfs_fstype);
 }

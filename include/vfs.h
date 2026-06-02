@@ -11,6 +11,7 @@ extern "C" {
 struct MemINode;
 
 struct inode_operations {
+    //文件和目录的公共操作
     int (*create)(const char *path, uint16_t mode);
     int (*mkdir)(const char *path, uint16_t mode);
     struct MemINode *(*lookup)(const char *path);
@@ -25,6 +26,7 @@ struct inode_operations {
 };
 
 struct file_operations {
+    //文件的操作
     int (*open)(const char *path, uint16_t mode);
     int (*read)(int fd, void *buf, int count);
     int (*write)(int fd, const void *buf, int count);
@@ -34,6 +36,7 @@ struct file_operations {
 };
 
 struct super_operations {
+    //超级块的操作
     int (*mount)(const char *disk_path);
     int (*umount)(void);
     int (*format)(const char *disk_path);
@@ -41,6 +44,7 @@ struct super_operations {
 };
 
 struct file_system_type {
+    //文件系统类型
     const char              *name;
     struct inode_operations *iops;
     struct file_operations  *fops;
