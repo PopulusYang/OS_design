@@ -23,7 +23,7 @@
 /* ── minimal JSON parser ─────────────────────────────────────────── */
 
 #define JMAX_FIELDS 8
-#define JMAX_VLEN   32768
+#define JMAX_VLEN   65536
 
 typedef struct {
     int  count;
@@ -236,8 +236,29 @@ static void cmd_stat(const char *path)
 
 /* ── cmd: cat ────────────────────────────────────────────────────── */
 
+static int api_file_is_binary(const char *path)
+{
+    int fd = vfs_open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    unsigned char hdr[16];
+    int n = vfs_read(fd, (char *)hdr, (int)sizeof(hdr));
+    vfs_close(fd);
+    if (n >= 4 && hdr[0] == 'U' && hdr[1] == 'P' && hdr[2] == 'X' && hdr[3] == '\0')
+        return 1;
+    for (int i = 0; i < n; i++) {
+        if (hdr[i] == '\0')
+            return 1;
+    }
+    return 0;
+}
+
 static void cmd_cat(const char *path)
 {
+    if (api_file_is_binary(path)) {
+        api_err("binary file (cannot open)");
+        return;
+    }
+
     int fd = vfs_open(path, O_RDONLY);
     if (fd < 0) { api_err("open failed"); return; }
 
@@ -300,40 +321,79 @@ static void cmd_rm(const char *path)
 
 /* ── cmd: write ──────────────────────────────────────────────────── */
 
+static int api_truncate_path(const char *path)
+{
+    MemINode *ip;
+
+    ip = namei(path);
+    if (ip == NULL)
+        return -1;
+    if (!(ip->m_dinode.d_mode & IFREG)) {
+        iput(ip);
+        return -1;
+    }
+    if (inode_wrlock(ip) != 0) {
+        iput(ip);
+        return -1;
+    }
+    extent_clear(ip);
+    inode_unlock(ip);
+    iput(ip);
+    return 0;
+}
+
 static void cmd_write(const char *path, const char *data)
 {
-    if (!data) { api_err("missing data"); return; }
-
+    int fd;
+    int len;
+    int written;
     uint16_t mode, nlink, uid, gid, ino;
     uint32_t old_size;
-    int exists = (vfs_stat(path, &mode, &old_size, &nlink, &uid, &gid, &ino) == 0);
 
-    if (exists)
-        vfs_delete(path);
+    if (!data)
+        data = "";
 
-    if (vfs_create(path, IFREG | 0644) < 0) {
-        api_err("create failed"); return;
+    len = (int)strlen(data);
+
+    if (vfs_stat(path, &mode, &old_size, &nlink, &uid, &gid, &ino) == 0) {
+        if (api_truncate_path(path) != 0) {
+            api_err("truncate failed");
+            return;
+        }
+    } else {
+        if (vfs_create(path, IFREG | 0644) < 0) {
+            api_err("create failed");
+            return;
+        }
     }
 
-    int len = (int)strlen(data);
-    if (len == 0) { api_ok(); return; }
+    if (len == 0) {
+        if (vfs_sync_all() != 0) {
+            api_err("sync failed");
+            return;
+        }
+        api_ok();
+        return;
+    }
 
-    int fd = vfs_open(path, O_WRONLY);
+    fd = vfs_open(path, O_WRONLY);
     if (fd < 0) {
-        api_err("open failed"); return;
+        api_err("open failed");
+        return;
     }
 
-    int written = vfs_write(fd, data, len);
+    written = vfs_write(fd, data, len);
     vfs_close(fd);
-
-    bflush_all();
-    fs_sync_superblock();
-    bg_sync();
 
     if (written < len) {
         char msg[128];
         snprintf(msg, sizeof(msg), "short write: wrote %d of %d bytes", written, len);
         api_err(msg);
+        return;
+    }
+
+    if (vfs_sync_all() != 0) {
+        api_err("sync failed");
         return;
     }
     api_ok();

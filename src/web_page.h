@@ -530,11 +530,13 @@ static const char WEB_PAGE[] =
 "tb.querySelector('span').onclick=(function(k){return function(){selTerm(k)}})(j);\n"
 "tb.querySelector('.tx').onclick=(function(k){return function(e){e.stopPropagation();closeTerm(k)}})(j)});\n"
 "if(curTerm>=terms.length)curTerm=terms.length-1;selTerm(curTerm)}\n"
+"function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}\n"
 
 "document.getElementById('cmdinput').onkeydown=function(e){\n"
 "if(e.key==='Enter'){\n"
 "var v=this.value;this.value='';\n"
 "var t=terms[curTerm];\n"
+"if(t&&t.el){t.el.innerHTML+='<span style=\"color:var(--green)\">$ </span>'+escHtml(v)+'\\n';t.el.scrollTop=t.el.scrollHeight}\n"
 "if(t&&t.ok)t.ws.send(v+'\\n')}};\n"
 
 /* ============================================================ */
