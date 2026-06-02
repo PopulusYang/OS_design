@@ -211,9 +211,8 @@ int fs_sync_superblock(void)
     if (bg_sync() != 0) {
         return -1;
     }
-    if (!g_super_dirty) {
-        return 0;
-    }
+    /* 多进程 serve 模式：superblock 必须每次 sync 都落盘，否则 s_inode_next 等
+     * 计数器对其他进程不可见，会导致 inode 号重复分配并覆盖已有文件。 */
     if (journal_write_metadata(SUPERBLOCK_BLOCKNO, &g_super) != 0) {
         return -1;
     }
@@ -244,12 +243,16 @@ int fs_sync_disk(void)
         }
     }
 
-    
+    /* inode 写入经过 journal/write_block 产生新的脏 block cache，需要再次 flush */
+    bflush_all();
+
     if (fs_sync_superblock() != 0) {
         rc = -1;
     }
 
-    
+    /* superblock sync 也可能产生脏缓存 */
+    bflush_all();
+
     if (disk_sync() != 0) {
         rc = -1;
     }

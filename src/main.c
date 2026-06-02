@@ -8,6 +8,7 @@
 #include "fs/allocator.h"
 #include "fs/bg.h"
 #include "fs/dir_sys.h"
+#include "fs/extent.h"
 #include "fs/file_sys.h"
 #include "user/user_mgmt.h"
 #include "user/env.h"
@@ -683,10 +684,31 @@ static int require_mounted(void)
     return 0;
 }
 
+static int file_is_binary(const char *path)
+{
+    int fd = vfs_open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    unsigned char hdr[16];
+    int n = vfs_read(fd, (char *)hdr, (int)sizeof(hdr));
+    vfs_close(fd);
+    if (n >= 4 && hdr[0] == 'U' && hdr[1] == 'P' && hdr[2] == 'X' && hdr[3] == '\0')
+        return 1;
+    for (int i = 0; i < n; i++) {
+        if (hdr[i] == '\0')
+            return 1;
+    }
+    return 0;
+}
+
 static int cmd_cat(const char *path)
 {
     if (require_mounted()) return -1;
     if (path == NULL) { ui_err("Usage: cat <path>"); return -1; }
+
+    if (file_is_binary(path)) {
+        ui_err("Binary file (not displayed). Use 'stat' to inspect.");
+        return -1;
+    }
 
     int fd = vfs_open(path, O_RDONLY);
     if (fd < 0) { ui_err("Cannot open file"); return -1; }
@@ -701,18 +723,128 @@ static int cmd_cat(const char *path)
     return 0;
 }
 
+static void normalize_vfs_path(const char *in, char *out, size_t out_sz)
+{
+    char base[1024];
+    char tmp[1024];
+    char *tokens[256];
+    int top = 0;
+    char *save = NULL;
+    char *tok;
+
+    if (out == NULL || out_sz == 0)
+        return;
+    out[0] = '\0';
+    if (in == NULL || in[0] == '\0')
+        return;
+
+    if (in[0] == '/') {
+        snprintf(base, sizeof(base), "%s", in);
+    } else if (strcmp(g_cwd, "/") == 0) {
+        snprintf(base, sizeof(base), "/%s", in);
+    } else {
+        snprintf(base, sizeof(base), "%s/%s", g_cwd, in);
+    }
+
+    snprintf(tmp, sizeof(tmp), "%s", base);
+    tok = strtok_r(tmp, "/", &save);
+    while (tok != NULL) {
+        if (strcmp(tok, ".") == 0 || tok[0] == '\0') {
+            /* skip */
+        } else if (strcmp(tok, "..") == 0) {
+            if (top > 0) top--;
+        } else if (top < (int)(sizeof(tokens) / sizeof(tokens[0]))) {
+            tokens[top++] = tok;
+        }
+        tok = strtok_r(NULL, "/", &save);
+    }
+
+    if (top == 0) {
+        snprintf(out, out_sz, "/");
+        return;
+    }
+
+    out[0] = '\0';
+    for (int i = 0; i < top; i++) {
+        size_t cur = strlen(out);
+        size_t left = out_sz > cur ? out_sz - cur : 0;
+        if (left <= 1)
+            break;
+        strncat(out, "/", left - 1);
+        cur = strlen(out);
+        left = out_sz > cur ? out_sz - cur : 0;
+        if (left <= 1)
+            break;
+        strncat(out, tokens[i], left - 1);
+    }
+}
+
+static int paths_same(const char *a, const char *b)
+{
+    char na[1024], nb[1024];
+    if (a == NULL || b == NULL)
+        return 0;
+    normalize_vfs_path(a, na, sizeof(na));
+    normalize_vfs_path(b, nb, sizeof(nb));
+    return (na[0] != '\0' && nb[0] != '\0' && strcmp(na, nb) == 0);
+}
+
+/* 覆盖写入：清空旧内容后写入，避免 delete+create 误伤同名路径或破坏目录项 */
+static int vfs_write_bytes(const char *path, const void *data, int len)
+{
+    MemINode *ip;
+    int fd;
+    int written;
+    uint16_t mode, nlink, uid, gid, ino;
+    uint32_t size;
+
+    if (path == NULL || path[0] == '\0')
+        return -1;
+    if (data == NULL)
+        data = "";
+    if (len < 0)
+        len = 0;
+
+    if (vfs_stat(path, &mode, &size, &nlink, &uid, &gid, &ino) == 0) {
+        ip = namei(path);
+        if (ip == NULL)
+            return -1;
+        if (!(ip->m_dinode.d_mode & IFREG)) {
+            iput(ip);
+            return -1;
+        }
+        if (inode_wrlock(ip) != 0) {
+            iput(ip);
+            return -1;
+        }
+        extent_clear(ip);
+        inode_unlock(ip);
+        iput(ip);
+    } else {
+        if (vfs_create(path, 0644) != 0)
+            return -1;
+    }
+
+    if (len == 0)
+        return vfs_sync_all() == 0 ? 0 : -1;
+
+    fd = vfs_open(path, O_WRONLY);
+    if (fd < 0)
+        return -1;
+    written = vfs_write(fd, data, len);
+    vfs_close(fd);
+    if (written != len)
+        return -1;
+    return vfs_sync_all() == 0 ? 0 : -1;
+}
+
 static int cmd_write_existing(const char *path, const char *data)
 {
-    int fd = vfs_open(path, O_WRONLY);
-    if (fd < 0) {
-        if (vfs_create(path, 0644) != 0) { ui_err("Cannot create or open file"); return -1; }
-        fd = vfs_open(path, O_WRONLY);
-        if (fd < 0) { ui_err("Open failed"); return -1; }
-    }
     int len = (int)strlen(data);
-    int n = vfs_write(fd, data, len);
-    vfs_close(fd);
-    if (n != len) { ui_err("Write failed"); return -1; }
+    if (vfs_write_bytes(path, data, len) != 0) {
+        ui_err("Write failed");
+        return -1;
+    }
     ui_ok("Write successful");
     return 0;
 }
@@ -1255,6 +1387,10 @@ static int dispatch_command(int argc, char **argv)
         }
         if (argc < 2) { ui_err("Usage: asm <source.s> [output.upx]"); return -1; }
         const char *out_name = argc > 2 ? argv[2] : "a.upx";
+        if (paths_same(argv[1], out_name)) {
+            ui_err("Output path must differ from source path");
+            return -1;
+        }
         
         char tmp_src[256], tmp_out[256];
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_asm_src_%d", getpid());
@@ -1285,13 +1421,12 @@ static int dispatch_command(int argc, char **argv)
                     char *buf = malloc((size_t)sz);
                     if (buf) {
                         fread(buf, 1, (size_t)sz, f);
-                        vfs_delete(out_name);
-                        if (vfs_create(out_name, 0644) != 0) {
-                            vfs_delete(out_name);
-                            vfs_create(out_name, 0644);
+                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0) {
+                            free(buf);
+                            unlink(tmp_src); unlink(tmp_out);
+                            ui_err("Failed to write output to VFS");
+                            return -1;
                         }
-                        int fd = vfs_open(out_name, O_WRONLY);
-                        if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
                         free(buf);
                     }
                 }
@@ -1369,7 +1504,10 @@ static int dispatch_command(int argc, char **argv)
             }
         }
         const char *out_name = argc > 2 ? argv[2] : "a.upx";
-        // VFS → 宿主机桥接：导出源文件→编译→汇编→导入输出
+        if (paths_same(argv[1], out_name)) {
+            ui_err("Output path must differ from source path");
+            return -1;
+        }
         char tmp_src[256], tmp_asm[256], tmp_out[256];
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_cc_src_%d.c", getpid());
         snprintf(tmp_asm, sizeof(tmp_asm), "/tmp/upfs_cc_asm_%d.s", getpid());
@@ -1431,28 +1569,14 @@ static int dispatch_command(int argc, char **argv)
                 if (sz > 0) {
                     char *buf = malloc((size_t)sz);
                     if (buf) {
-                        int wn;
                         fread(buf, 1, (size_t)sz, f);
-                        vfs_delete(out_name);
-                        if (vfs_create(out_name, 0644) != 0) {
-                            vfs_delete(out_name);
-                            vfs_create(out_name, 0644);
-                        }
-                        int fd = vfs_open(out_name, O_WRONLY);
-                        if (fd < 0) {
+                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0) {
                             free(buf);
                             unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
-                            ui_err("Cannot open output file on VFS");
+                            ui_err("Failed to write output to VFS");
                             return -1;
                         }
-                        wn = vfs_write(fd, buf, (int)sz);
-                        vfs_close(fd);
                         free(buf);
-                        if (wn != (int)sz) {
-                            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
-                            ui_err("Failed to write output to VFS (short write)");
-                            return -1;
-                        }
                     }
                 }
                 fclose(f);
@@ -1474,15 +1598,8 @@ static int dispatch_command(int argc, char **argv)
                     if (abuf) {
                         size_t nread = fread(abuf, 1, (size_t)sz, af);
                         if (nread > 0) {
-                            vfs_delete(asm_vfs);
-                            vfs_create(asm_vfs, 0644);
-                            int fd = vfs_open(asm_vfs, O_WRONLY);
-                            if (fd >= 0) {
-                                vfs_write(fd, abuf, (int)nread);
-                                vfs_close(fd);
-                                vfs_sync_all();
+                            if (vfs_write_bytes(asm_vfs, abuf, (int)nread) == 0)
                                 printf("  asm saved: %s (%zu bytes)\n", asm_vfs, nread);
-                            }
                         }
                         free(abuf);
                     }

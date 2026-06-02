@@ -312,7 +312,7 @@ static int loc_insert(const InodeLoc *loc)
 
     for (i = 0; i < (int)count; i++) {
         if (ents[i].il_ino == loc->il_ino)
-            return 0;
+            return -1;
     }
 
     if (count >= (uint16_t)IMAP_LOC_MAX) {
@@ -554,9 +554,21 @@ static int imap_pop_free(uint32_t *ino_out)
     return 0;
 }
 
+static uint32_t inomap_next_free_ino(void)
+{
+    InodeLoc dummy;
+
+    for (;;) {
+        uint32_t ino = g_imap.next_ino++;
+        if (loc_lookup(ino, &dummy) != 0)
+            return ino;
+    }
+}
+
 int inomap_ialloc_for(uint32_t parent_ino)
 {
     InodeLoc loc;
+    InodeLoc probe;
     uint16_t chunk;
     uint8_t  slot;
     uint16_t mask;
@@ -568,14 +580,13 @@ int inomap_ialloc_for(uint32_t parent_ino)
         return -1;
 
     if (imap_pop_free(&ino) == 0) {
-        InodeLoc rloc;
-        if (loc_lookup(ino, &rloc) == 0) {
-            uint16_t rmask;
-            if (chk_get(rloc.il_chunk, &rmask) == 0) {
-                rmask &= (uint16_t)~(1U << rloc.il_slot);
-                chk_set(rloc.il_chunk, rmask);
-            }
-        }
+        if (loc_lookup(ino, &probe) != 0)
+            return -1;
+        if (chk_get(probe.il_chunk, &mask) != 0)
+            return -1;
+        mask &= (uint16_t)~(1U << probe.il_slot);
+        if (chk_set(probe.il_chunk, mask) != 0)
+            return -1;
         memset(&din, 0, sizeof(din));
         if (inomap_write_disk_inode(ino, &din) != 0)
             return -1;
@@ -601,7 +612,7 @@ int inomap_ialloc_for(uint32_t parent_ino)
             return -1;
     }
 
-    ino = g_imap.next_ino++;
+    ino = inomap_next_free_ino();
     loc.il_ino = ino;
     loc.il_chunk = chunk;
     loc.il_slot = slot;
