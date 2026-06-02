@@ -45,7 +45,7 @@ void shared_set_disk(const char *path) {
 #define HTML_PORT     8080
 #define TERM_PORT     4096
 #define MAX_CONN      64
-#define BUF_SIZE      8192
+#define BUF_SIZE      65536
 #define WS_GUID       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 

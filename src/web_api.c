@@ -23,7 +23,7 @@
 /* ── minimal JSON parser ─────────────────────────────────────────── */
 
 #define JMAX_FIELDS 8
-#define JMAX_VLEN   512
+#define JMAX_VLEN   32768
 
 typedef struct {
     int  count;
@@ -242,7 +242,6 @@ static void cmd_cat(const char *path)
     if (fd < 0) { api_err("open failed"); return; }
 
     api_start_response(); fputs(",\"ok\":true,\"data\":\"", stdout);
-    putchar('"');
 
     char buf[BLOCK_SIZE];
     int n;
@@ -297,6 +296,47 @@ static void cmd_rm(const char *path)
         api_err("rm failed");
     else
         api_ok();
+}
+
+/* ── cmd: write ──────────────────────────────────────────────────── */
+
+static void cmd_write(const char *path, const char *data)
+{
+    if (!data) { api_err("missing data"); return; }
+
+    uint16_t mode, nlink, uid, gid, ino;
+    uint32_t old_size;
+    int exists = (vfs_stat(path, &mode, &old_size, &nlink, &uid, &gid, &ino) == 0);
+
+    if (exists)
+        vfs_delete(path);
+
+    if (vfs_create(path, IFREG | 0644) < 0) {
+        api_err("create failed"); return;
+    }
+
+    int len = (int)strlen(data);
+    if (len == 0) { api_ok(); return; }
+
+    int fd = vfs_open(path, O_WRONLY);
+    if (fd < 0) {
+        api_err("open failed"); return;
+    }
+
+    int written = vfs_write(fd, data, len);
+    vfs_close(fd);
+
+    bflush_all();
+    fs_sync_superblock();
+    bg_sync();
+
+    if (written < len) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "short write: wrote %d of %d bytes", written, len);
+        api_err(msg);
+        return;
+    }
+    api_ok();
 }
 
 /* ── cmd: debug super ────────────────────────────────────────────── */
@@ -556,6 +596,9 @@ static void dispatch(const JsonObj *j)
     } else if (strcmp(cmd, "rm") == 0) {
         if (!path) { api_err("missing path"); return; }
         cmd_rm(path);
+    } else if (strcmp(cmd, "write") == 0) {
+        if (!path) { api_err("missing path"); return; }
+        cmd_write(path, json_get(j, "data"));
     } else if (strcmp(cmd, "debug") == 0) {
         if (!type) { api_err("missing type"); return; }
         if (strcmp(type, "super") == 0)        cmd_debug_super();
@@ -590,7 +633,7 @@ int upfs_api_session(int in_fd, int out_fd)
     g_api_user.u_cdir = ROOT_INODE_NO;
     dir_bind_user(&g_api_user);
 
-    char line[4096];
+    char line[65536];
     while (fgets(line, (int)sizeof(line), stdin)) {
         int len = (int)strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))

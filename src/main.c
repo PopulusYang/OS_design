@@ -3,6 +3,7 @@
 #include "vfs_core.h"
 #include "vfs.h"
 #include "fs/disk_io.h"
+#include "fs/buf.h"
 #include "fs/format.h"
 #include "fs/allocator.h"
 #include "fs/bg.h"
@@ -1698,6 +1699,7 @@ int upfs_session(int in_fd, int out_fd)
         }
 
         int argc = parse_command_line(line, argv, MAX_ARGS);
+        if (g_mounted) (void)fs_reload_super();
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
