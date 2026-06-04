@@ -147,15 +147,15 @@ asm <source.s> [output.upx]
 
 **匿名管道**：`SYSCALL 22` = `pipe(fds[2])`；Shell 支持 `cmd1 | cmd2 | ...`（最多 8 段）。
 
-**信号**：`KILL(23)` 发送信号；`GETSIG(33)` 读取 SIGUSR1。见 `involve_src/ipcsig.asm`。
+**信号**：`KILL(23)` 发送信号；`GETSIG(33)` 读取 SIGUSR1。见 `involve_src/ipcsig.c`。
 
-**信号量**：`SEMGET` + `SEMOP`（P=-1，V=+1）。见 `involve_src/ipcsem.asm`。
+**信号量**：`SEMGET` + `SEMOP`（P=-1，V=+1）。见 `involve_src/ipcsem.c`。
 
-**消息队列**：`MSGGET` + `MSGSND` + `MSGRCV`。见 `involve_src/ipcmsg.asm`。
+**消息队列**：`MSGGET` + `MSGSND` + `MSGRCV`。见 `involve_src/ipcmsg.c`。
 
-**共享内存**：`SHMGET` + `SHMAT` + `SHMDT`，多进程映射同一物理页。见 `involve_src/ipcshm.asm`。
+**共享内存**：`SHMGET` + `SHMAT` + `SHMDT`，多进程映射同一物理页。见 `involve_src/ipcshm.c`。
 
-**命名 FIFO**：Shell `mkfifo /path` 或 `MKFIFO(32)`；`OPEN` 路径即可读写。见 `involve_src/ipcfifo.asm`。
+**命名 FIFO**：Shell `mkfifo /path` 或 `MKFIFO(32)`；`OPEN` 路径即可读写。见 `involve_src/ipcfifo.c`。
 
 Shell 管道示例：`run /pw.upx | run /pr.upx`（先 `asm /src/pw.asm` 等）。
 

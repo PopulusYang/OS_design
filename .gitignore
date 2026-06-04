@@ -7,7 +7,6 @@
 # UPFS 构建产物
 out/
 *.o
-upfs
 upfs_asan
 *.dSYM/
 
