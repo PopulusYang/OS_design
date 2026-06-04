@@ -20,17 +20,18 @@ static char g_disk_path[512]; // 磁盘文件的完整路径
 
 static int g_disk_dirty = 0; // 脏数据标志整型变量
 
+// 检查磁盘块的合法性
 static int disk_check_block(int block_no, const void *buf)
 {
-    if (g_disk_mem == NULL)
+    if (g_disk_mem == NULL)// 磁盘是否初始化
     {
         return -1;
     }
-    if (buf == NULL)
+    if (buf == NULL) // 缓冲区指针是否有效
     {
         return -1;
     }
-    if (block_no < 0 || block_no >= TOTAL_DISK_BLOCKS)
+    if (block_no < 0 || block_no >= TOTAL_DISK_BLOCKS) // 块号是否合法
     {
         return -1;
     }
@@ -131,19 +132,21 @@ int disk_load(const char *disk_path)
     return 0;
 }
 
+// 确保目录存在，不存在则创建目录
 static void ensure_parent_dir(const char *file_path)
 {
     char buf[512];
 
     strncpy(buf, file_path, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    buf[sizeof(buf) - 1] = '\0'; // 将父目录拷贝到buf,添加字符串结束标识
 
-    char *slash = strrchr(buf, '/');
+    char *slash = strrchr(buf, '/'); //查找最后一个‘/’
     if (slash == NULL)
         return;
-    *slash = '\0';
+    *slash = '\0'; //剔除文件名只保留目录
 
     char *p = buf;
+    // 创建目录，确保副目录存在
     if (*p == '/')
         p++;
     while (*p)
@@ -159,22 +162,23 @@ static void ensure_parent_dir(const char *file_path)
     mkdir(buf, 0755);
 }
 
+// 将内存中的虚拟磁盘持久化到镜像
 int disk_save(const char *disk_path)
 {
     size_t total_size = (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
 
     if (g_disk_mem == NULL)
         return -1;
-    if (disk_path == NULL || disk_path[0] == '\0')
+    if (disk_path == NULL || disk_path[0] == '\0') // 路径不可为空
         return -1;
 
-    if (g_disk_fd >= 0)
+    if (g_disk_fd >= 0) // 直接同步mmap
     {
-        ensure_parent_dir(disk_path);
-        if (msync(g_disk_mem, g_disk_size, MS_SYNC) != 0)
+        ensure_parent_dir(disk_path); // 确保目录存在
+        if (msync(g_disk_mem, g_disk_size, MS_SYNC) != 0) // 同步mmap和磁盘文件
             return -1;
     }
-    else
+    else // 正常输入输出流
     {
         FILE *fp;
         ensure_parent_dir(disk_path);
@@ -196,10 +200,11 @@ int disk_save(const char *disk_path)
 
     strncpy(g_disk_path, disk_path, sizeof(g_disk_path) - 1);
     g_disk_path[sizeof(g_disk_path) - 1] = '\0';
-    g_disk_dirty = 0;
+    g_disk_dirty = 0; // 同步成功，标记为干净
     return 0;
 }
 
+// 同步
 int disk_sync(void)
 {
     if (g_disk_mem == NULL)
@@ -214,11 +219,12 @@ int disk_sync(void)
     return disk_save(g_disk_path);
 }
 
+// 取消镜像挂载，释放资源 
 void disk_shutdown(void)
 {
-    if (g_disk_mem != NULL)
+    if (g_disk_mem != NULL) // 已加载则同步mmap并且关闭（malloc直接释放内存）
     {
-        if (g_disk_fd >= 0)
+        if (g_disk_fd >= 0) 
         {
             msync(g_disk_mem, g_disk_size, MS_SYNC);
             munmap(g_disk_mem, g_disk_size);
@@ -236,40 +242,43 @@ void disk_shutdown(void)
     g_disk_path[0] = '\0';
 }
 
+// 读磁盘块
 int disk_read_block(int block_no, void *buf)
 {
-    size_t offset;
+    size_t offset; // 偏移量
 
-    if (disk_check_block(block_no, buf) != 0)
+    if (disk_check_block(block_no, buf) != 0) // 检查合法性
     {
         return -1;
     }
 
-    offset = (size_t)block_no * (size_t)BLOCK_SIZE;
-    memcpy(buf, g_disk_mem + offset, (size_t)BLOCK_SIZE);
+    offset = (size_t)block_no * (size_t)BLOCK_SIZE; // 偏移量=块号*块大小
+    memcpy(buf, g_disk_mem + offset, (size_t)BLOCK_SIZE); // 将磁盘块读入缓冲区
     return 0;
 }
 
+// 写磁盘块，原理与读取相似
 int disk_write_block(int block_no, const void *buf)
 {
     size_t offset;
 
-    if (disk_check_block(block_no, buf) != 0)
+    if (disk_check_block(block_no, buf) != 0) // 检查合法
     {
         return -1;
     }
 
-    offset = (size_t)block_no * (size_t)BLOCK_SIZE;
-    memcpy(g_disk_mem + offset, buf, (size_t)BLOCK_SIZE);
-    g_disk_dirty = 1;
+    offset = (size_t)block_no * (size_t)BLOCK_SIZE; // 计算偏移量
+    memcpy(g_disk_mem + offset, buf, (size_t)BLOCK_SIZE); // 将缓冲区内容写入磁盘块（在内存中）
+    g_disk_dirty = 1; // 标记为脏数据
     return 0;
 }
 
+// 返回mmap映射指针
 void *disk_memory(void)
 {
     return g_disk_mem;
 }
-
+// 返回磁盘大小
 size_t disk_memory_size(void)
 {
     return (size_t)TOTAL_DISK_BLOCKS * (size_t)BLOCK_SIZE;
