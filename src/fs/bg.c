@@ -8,23 +8,26 @@
 #include <stdio.h>
 #include <string.h>
 
+// 块组锚点魔数 BGAN
 #define BG_ANCHOR_MAGIC     0x4247414EU
 
+// 磁盘数据结构
 typedef struct BgAnchorDisk {
-    uint32_t ba_magic;
-    uint32_t ba_block_free;
-    uint16_t ba_free_stack_count;
-    uint16_t ba_free_chain;
-    uint16_t ba_free_stack[MAX_FREE_BLOCKS];
-    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2];
+    uint32_t ba_magic; //魔数，通常是0x4247414EU
+    uint32_t ba_block_free;// 空闲块总数
+    uint16_t ba_free_stack_count; // 当前空闲块中有效块的数量
+    uint16_t ba_free_chain; // 空闲链的起始指针
+    uint16_t ba_free_stack[MAX_FREE_BLOCKS]; //空闲块栈
+    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2]; //填充字节，确保结构体大小等于块大小
 } BgAnchorDisk;
 
+// 块组运行时数据结构
 typedef struct BgRuntime {
-    BlockGroupDesc desc;
-    uint32_t       block_free;
-    uint16_t       free_stack_count;
-    uint16_t       free_chain;
-    uint16_t       free_stack[MAX_FREE_BLOCKS];
+    BlockGroupDesc desc; //块组描述符（元数据）
+    uint32_t       block_free; // 空闲块数量
+    uint16_t       free_stack_count; // 空闲块栈高度
+    uint16_t       free_chain; // 空闲块链表头
+    uint16_t       free_stack[MAX_FREE_BLOCKS]; //空闲块栈
 } BgRuntime;
 
 static BgRuntime      g_bg[BG_COUNT];
