@@ -20,8 +20,6 @@ cmake --build build
 ./build/bin/OS_design --serve      # TCP multi-terminal server (:8080 HTTP, :4096 raw TCP)
 ./build/bin/OS_design --serve 9999 # custom TCP port
 
-# Makefile (alternative)
-make && ./upfs
 ```
 
 ### TCP Server Mode (`--serve`)
