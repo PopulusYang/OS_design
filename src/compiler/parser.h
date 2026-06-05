@@ -1,5 +1,7 @@
-// parser.h —— C 递归下降语法分析器接口
-
+/*
+ * parser.h
+ * 递归下降语法分析器：Token 流转为 AST。
+ */
 #ifndef COMPILER_PARSER_H
 #define COMPILER_PARSER_H
 
@@ -11,23 +13,18 @@ extern "C" {
 
 typedef struct {
     Lexer  *lexer;
-    Token   cur;        // 当前 token
-    Compiler *comp;     // 编译器上下文（符号表）
-    char    *filename;  // 用于错误报告
+    Token   cur;
+    Compiler *comp;
+    char    *filename;
 } Parser;
 
-// 初始化语法分析器
 int  parser_init(Parser *p, Lexer *lexer, Compiler *comp);
 void parser_close(Parser *p);
-
-// 解析整个翻译单元，返回 AST 根节点（AST_BLOCK）
 ASTNode *parser_parse(Parser *p);
-
-// 错误报告
 void parser_error(Parser *p, const char *msg);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // COMPILER_PARSER_H
+#endif

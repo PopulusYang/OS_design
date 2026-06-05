@@ -1,3 +1,7 @@
+/*
+ * web_page.h
+ * 内嵌 Web 桌面单页 UI，以字符串常量 WEB_PAGE 提供。
+ */
 #ifndef WEB_PAGE_H
 #define WEB_PAGE_H
 
@@ -11,7 +15,7 @@ static const char WEB_PAGE[] =
 "<style>\n"
 "*{margin:0;padding:0;box-sizing:border-box}\n"
 
-/* ---- Theme variables ---- */
+
 ":root,[data-theme=\"light\"]{\n"
 "--bg:#f0f0f0;--bg2:#e8e8e8;--bg3:#ddd;--bg4:#ccc;\n"
 "--fg:#222;--fg2:#666;--accent:#0071e3;--green:#34c759;--red:#ff3b30;--yellow:#ffcc00;\n"
@@ -33,7 +37,7 @@ static const char WEB_PAGE[] =
 
 "html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;color:var(--fg);user-select:none}\n"
 
-/* ---- Menu Bar ---- */
+
 "#menubar{height:28px;display:flex;align-items:center;padding:0 12px;\n"
 "background:var(--wbar);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);\n"
 "border-bottom:1px solid var(--border);position:relative;z-index:9999;\n"
@@ -54,10 +58,10 @@ static const char WEB_PAGE[] =
 "#pwrBtn .pwr-dot{width:8px;height:8px;border-radius:50%;background:#ff5f57;flex-shrink:0}\n"
 "#pwrBtn:hover .pwr-dot{background:var(--red)}\n"
 
-/* ---- Desktop ---- */
+
 "#desktop{position:absolute;top:28px;left:0;right:0;bottom:0;background:var(--wallpaper);overflow:hidden}\n"
 
-/* ---- Window ---- */
+
 ".window{position:absolute;background:var(--wbg);border-radius:10px;box-shadow:var(--shadow);\n"
 "display:flex;flex-direction:column;min-width:320px;min-height:200px;overflow:hidden;\n"
 "backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);\n"
@@ -78,7 +82,7 @@ static const char WEB_PAGE[] =
 "font-size:13px;font-weight:600;color:var(--fg);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}\n"
 ".wbody{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}\n"
 
-/* ---- Window: Terminal ---- */
+
 "#termtabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;padding:4px 6px;gap:4px}\n"
 ".ttab{padding:3px 10px;cursor:pointer;color:var(--fg2);font-size:12px;white-space:nowrap;display:flex;align-items:center;border-radius:5px;font-family:var(--mono)}\n"
 ".ttab.on{background:var(--bg);color:var(--fg);font-weight:600}\n"
@@ -96,7 +100,7 @@ static const char WEB_PAGE[] =
 "#prompt{color:var(--green);padding:6px 0 6px 10px;font:13px var(--mono)}\n"
 "#cmdinput{flex:1;background:none;border:none;color:var(--fg);font:13px var(--mono);outline:none;padding:6px 8px 6px 4px;caret-color:var(--accent);user-select:text;-webkit-user-select:text}\n"
 
-/* ---- Window: Finder ---- */
+
 ".finder-head{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;\n"
 "border-bottom:1px solid var(--border);font-size:11px;color:var(--fg2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;background:var(--bg2)}\n"
 ".finder-head button{background:none;border:none;color:var(--fg2);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px}\n"
@@ -112,7 +116,7 @@ static const char WEB_PAGE[] =
 ".fnode .fname{overflow:hidden;text-overflow:ellipsis}\n"
 ".fnode .fsize{margin-left:auto;padding-left:8px;opacity:.7;font-size:11px}\n"
 
-/* ---- Window: Monitor ---- */
+
 ".dcard{margin:10px;padding:12px;background:var(--bg3);border-radius:10px;border:1px solid var(--border)}\n"
 ".dcard h3{font-size:10px;color:var(--fg2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}\n"
 ".dcard .val{font-size:18px;font-weight:700;color:var(--fg)}\n"
@@ -127,7 +131,7 @@ static const char WEB_PAGE[] =
 ".memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:1px}\n"
 ".memcell{width:100%;aspect-ratio:1;border-radius:1px}\n"
 
-/* ---- Window: TextEdit ---- */
+
 ".edit-toolbar{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}\n"
 ".edit-toolbar .epath{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;\n"
 "font:12px var(--mono);color:var(--fg);outline:none;min-width:0;user-select:text;-webkit-user-select:text}\n"
@@ -143,7 +147,7 @@ static const char WEB_PAGE[] =
 "border-top:1px solid var(--border);background:var(--bg2);font-size:11px;color:var(--fg2);flex-shrink:0}\n"
 ".edit-status .dirty{color:var(--yellow);font-weight:700}\n"
 
-/* ---- Dock ---- */
+
 "#dock{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;align-items:flex-end;\n"
 "padding:4px 8px;gap:2px;border-radius:18px;z-index:9998;\n"
 "background:var(--dock-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);\n"
@@ -165,7 +169,7 @@ static const char WEB_PAGE[] =
 ".app-editor{background:linear-gradient(180deg,#ffffff,#e7ecf4);color:#394b6a;font-size:18px;border:1px solid rgba(0,0,0,.12)}\n"
 ".dock-sep{width:1px;height:36px;background:var(--border);margin:0 6px;align-self:center}\n"
 
-/* ---- Context menu ---- */
+
 "#ctxmenu{position:fixed;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);\n"
 "border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:180px;z-index:99999;display:none;\n"
 "box-shadow:0 6px 20px rgba(0,0,0,.2)}\n"
@@ -173,7 +177,7 @@ static const char WEB_PAGE[] =
 "#ctxmenu .item:hover{background:var(--accent);color:#fff}\n"
 "#ctxmenu .sep{height:1px;background:var(--border);margin:3px 0}\n"
 
-/* ---- Modal ---- */
+
 ".modal-bg{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100000;\n"
 "display:flex;align-items:center;justify-content:center}\n"
 ".modal{background:var(--wbg);backdrop-filter:blur(20px);border:1px solid var(--border);\n"
@@ -187,7 +191,7 @@ static const char WEB_PAGE[] =
 "color:var(--fg);cursor:pointer;font-size:12px}\n"
 ".modal .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}\n"
 
-/* ---- Scrollbar ---- */
+
 "::-webkit-scrollbar{width:6px;height:6px}\n"
 "::-webkit-scrollbar-track{background:transparent}\n"
 "::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}\n"
@@ -217,7 +221,7 @@ static const char WEB_PAGE[] =
 
 "</style>\n"
 
-/* ---- Early theme init ---- */
+
 "<script>(function(){var t=localStorage.getItem('upfs-theme');\n"
 "if(t!=='dark'&&t!=='light'){try{t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'}catch(e){t='light'}}\n"
 "document.documentElement.setAttribute('data-theme',t)})()</script>\n"
@@ -232,7 +236,7 @@ static const char WEB_PAGE[] =
 "</div>\n"
 "</div>\n"
 
-/* ======== Menu Bar ======== */
+
 "<div id=\"menubar\">\n"
 "<span class=\"logo\">UPFS</span>\n"
 "<span class=\"appname\" id=\"mb-app\">Desktop</span>\n"
@@ -249,10 +253,10 @@ static const char WEB_PAGE[] =
 "</span>\n"
 "</div>\n"
 
-/* ======== Desktop ======== */
+
 "<div id=\"desktop\">\n"
 
-/* ---- Window: Terminal ---- */
+
 "<div class=\"window\" id=\"win-terminal\" style=\"width:780px;height:480px;left:120px;top:40px;z-index:10\">\n"
 "<div class=\"wbar\" onmousedown=\"dragStart(event,'win-terminal')\">\n"
 "<div class=\"lights\">\n"
@@ -269,7 +273,7 @@ static const char WEB_PAGE[] =
 "</div>\n"
 "</div>\n"
 
-/* ---- Window: Finder ---- */
+
 "<div class=\"window hidden\" id=\"win-finder\" style=\"width:380px;height:460px;left:60px;top:60px;z-index:9\">\n"
 "<div class=\"wbar\" onmousedown=\"dragStart(event,'win-finder')\">\n"
 "<div class=\"lights\">\n"
@@ -289,7 +293,7 @@ static const char WEB_PAGE[] =
 "</div>\n"
 "</div>\n"
 
-/* ---- Window: Monitor ---- */
+
 "<div class=\"window hidden\" id=\"win-monitor\" style=\"width:360px;height:520px;right:40px;top:60px;z-index:8\">\n"
 "<div class=\"wbar\" onmousedown=\"dragStart(event,'win-monitor')\">\n"
 "<div class=\"lights\">\n"
@@ -307,7 +311,7 @@ static const char WEB_PAGE[] =
 "</div>\n"
 "</div>\n"
 
-/* ---- Window: TextEdit ---- */
+
 "<div class=\"window hidden\" id=\"win-editor\" style=\"width:640px;height:480px;left:180px;top:80px;z-index:7\">\n"
 "<div class=\"wbar\" onmousedown=\"dragStart(event,'win-editor')\">\n"
 "<div class=\"lights\">\n"
@@ -347,7 +351,7 @@ static const char WEB_PAGE[] =
 "<div class=\"shutdown-hint\">点击屏幕重新启动</div>\n"
 "</div></div>\n"
 
-/* ======== Dock ======== */
+
 "<div id=\"dock\">\n"
 "<div class=\"dock-icon\" onclick=\"openWin('finder')\" title=\"Finder\">\n"
 "<span class=\"app-ico app-finder\">F</span><div class=\"ddot\" id=\"dd-finder\"></div></div>\n"
@@ -359,21 +363,21 @@ static const char WEB_PAGE[] =
 "<span class=\"app-ico app-editor\">T</span><div class=\"ddot\" id=\"dd-editor\"></div></div>\n"
 "</div>\n"
 
-/* ======== Context Menu ======== */
+
 "<div id=\"ctxmenu\"></div>\n"
 
-/* ======== JavaScript ======== */
+
 "<script>\n"
 "'use strict';\n"
 
-/* ---- Globals ---- */
+
 "var terms=[],curTerm=0,MAX_TERMS=8;\n"
 "var apiWs=null,apiOk=false,apiCallbacks={},apiReqId=0;\n"
 "var selPath='/',topZ=10,sysHalted=false,dashTimer=null;\n"
 
-/* ============================================================ */
-/* ---- Theme ---- */
-/* ============================================================ */
+
+
+
 "function applyTheme(t){\n"
 "document.documentElement.setAttribute('data-theme',t);\n"
 "try{localStorage.setItem('upfs-theme',t)}catch(e){}\n"
@@ -411,16 +415,16 @@ static const char WEB_PAGE[] =
 "document.getElementById('ctxmenu').style.display='none';\n"
 "document.getElementById('shutdown-screen').classList.add('show')}\n"
 
-/* ---- Clock ---- */
+
 "function tickClock(){\n"
 "var d=new Date(),h=d.getHours(),m=d.getMinutes();\n"
 "document.getElementById('clock').textContent=\n"
 "(h<10?'0':'')+h+':'+(m<10?'0':'')+m}\n"
 "setInterval(tickClock,10000);tickClock();\n"
 
-/* ============================================================ */
-/* ---- Window Manager ---- */
-/* ============================================================ */
+
+
+
 "function winEl(id){return document.getElementById('win-'+id)}\n"
 
 "function openWin(id){\n"
@@ -472,7 +476,7 @@ static const char WEB_PAGE[] =
 "var w=winEl(id);var dd=document.getElementById('dd-'+id);\n"
 "if(dd)dd.classList.toggle('active',w&&!w.classList.contains('hidden'))})}\n"
 
-/* ---- Drag ---- */
+
 "var dragWin=null,dragOx=0,dragOy=0;\n"
 "function dragStart(e,wid){\n"
 "if(e.target.closest('.lights'))return;\n"
@@ -487,14 +491,14 @@ static const char WEB_PAGE[] =
 "dragWin.removeAttribute('data-max')});\n"
 "document.addEventListener('mouseup',function(){dragWin=null});\n"
 
-/* ---- Click to focus ---- */
+
 "document.addEventListener('mousedown',function(e){\n"
 "var w=e.target.closest('.window');if(!w)return;\n"
 "var id=w.id.replace('win-','');focusWin(id)});\n"
 
-/* ============================================================ */
-/* ---- ANSI Parser ---- */
-/* ============================================================ */
+
+
+
 "function H(s){\n"
 "var o='',i=0,fg=null,bg=null,bd=false,dm=false,sp=false;\n"
 "function sc(){var a=[];\n"
@@ -532,9 +536,9 @@ static const char WEB_PAGE[] =
 "if(sp)o+='</span>';return o}\n"
 "H.last='';\n"
 
-/* ============================================================ */
-/* ---- WebSocket Terminal ---- */
-/* ============================================================ */
+
+
+
 "function newTerm(){\n"
 "if(terms.length>=MAX_TERMS)return;\n"
 "var idx=terms.length;\n"
@@ -586,9 +590,9 @@ static const char WEB_PAGE[] =
 "if(t&&t.el){t.el.innerHTML+='<span style=\"color:var(--green)\">$ </span>'+escHtml(v)+'\\n';t.el.scrollTop=t.el.scrollHeight}\n"
 "if(t&&t.ok)t.ws.send(v+'\\n')}};\n"
 
-/* ============================================================ */
-/* ---- API WebSocket ---- */
-/* ============================================================ */
+
+
+
 "function apiConnect(){\n"
 "apiWs=new WebSocket('ws://'+location.host+'/api');\n"
 "apiWs.onopen=function(){apiOk=true;updStatus();refreshTree();refreshDash()};\n"
@@ -605,16 +609,16 @@ static const char WEB_PAGE[] =
 "apiCallbacks[id]=cb||function(){};\n"
 "apiWs.send(JSON.stringify(obj))}\n"
 
-/* ---- Status ---- */
+
 "function updStatus(){\n"
 "var ok=apiOk;var dot=document.getElementById('sdot');\n"
 "var txt=document.getElementById('stxt');\n"
 "dot.className='dot '+(ok?'on':'off');\n"
 "txt.textContent=ok?'Connected':'Disconnected'}\n"
 
-/* ============================================================ */
-/* ---- File Browser (Finder) ---- */
-/* ============================================================ */
+
+
+
 "function promptPath(msg){var p=prompt(msg);return p||''}\n"
 
 "function refreshTree(){\n"
@@ -680,7 +684,7 @@ static const char WEB_PAGE[] =
 "if(n<1048576)return (n/1024).toFixed(1)+'K';\n"
 "return (n/1048576).toFixed(1)+'M'}\n"
 
-/* ---- Context Menu ---- */
+
 "function showCtx(ev,path,type){\n"
 "var m=document.getElementById('ctxmenu');m.innerHTML='';\n"
 "function add(label,fn){var d=document.createElement('div');d.className='item';d.textContent=label;\n"
@@ -703,7 +707,7 @@ static const char WEB_PAGE[] =
 
 "document.addEventListener('click',function(){document.getElementById('ctxmenu').style.display='none'});\n"
 
-/* ---- Desktop right-click menu ---- */
+
 "document.getElementById('desktop').addEventListener('contextmenu',function(ev){\n"
 "if(ev.target.closest('.window'))return;\n"
 "ev.preventDefault();\n"
@@ -719,9 +723,9 @@ static const char WEB_PAGE[] =
 "add('Toggle Theme',toggleTheme);\n"
 "m.style.left=ev.clientX+'px';m.style.top=ev.clientY+'px';m.style.display='block'});\n"
 
-/* ============================================================ */
-/* ---- Dashboard (Monitor) ---- */
-/* ============================================================ */
+
+
+
 "function refreshDash(){\n"
 "apiSend({cmd:'debug',type:'super'},function(d){\n"
 "if(!d.ok&&d.error){document.getElementById('d-fs').textContent='Not mounted';return}\n"
@@ -760,9 +764,9 @@ static const char WEB_PAGE[] =
 
 "function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}\n"
 
-/* ============================================================ */
-/* ---- TextEdit ---- */
-/* ============================================================ */
+
+
+
 "var edDirty=false,edFile='';\n"
 
 "function editorOpen(path){\n"
@@ -811,9 +815,9 @@ static const char WEB_PAGE[] =
 "this.selectionStart=this.selectionEnd=s+4}\n"
 "if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();editorSave()}});\n"
 
-/* ============================================================ */
-/* ---- Init ---- */
-/* ============================================================ */
+
+
+
 "initTheme();\n"
 "startBootScreen();\n"
 "newTerm();\n"
@@ -821,7 +825,7 @@ static const char WEB_PAGE[] =
 "updDock();\n"
 "dashTimer=setInterval(refreshDash,3000);\n"
 
-/* position monitor window to right side */
+
 "(function(){\n"
 "var mw=document.getElementById('win-monitor');\n"
 "if(mw){var dw=document.getElementById('desktop').offsetWidth;\n"
@@ -832,4 +836,4 @@ static const char WEB_PAGE[] =
 "</body>\n"
 "</html>\n";
 
-#endif /* WEB_PAGE_H */
+#endif 

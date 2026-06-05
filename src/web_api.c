@@ -1,3 +1,7 @@
+/*
+ * web_api.c
+ * Web UI 的 JSON API 子进程，处理文件浏览与调试请求。
+ */
 #include "serve.h"
 #include "vfs.h"
 #include "fs/allocator.h"
@@ -20,7 +24,7 @@
 #include <unistd.h>
 #include <stdint.h>
 
-/* ── minimal JSON parser ─────────────────────────────────────────── */
+
 
 #define JMAX_FIELDS 8
 #define JMAX_VLEN   65536
@@ -31,6 +35,7 @@ typedef struct {
     char vals[JMAX_FIELDS][JMAX_VLEN];
 } JsonObj;
 
+// 解析简单 JSON 对象到键值数组
 static int json_parse(const char *s, JsonObj *j)
 {
     j->count = 0;
@@ -59,7 +64,7 @@ static int json_parse(const char *s, JsonObj *j)
 
         int v = 0;
         if (*s == '"') {
-            /* string value */
+            
             s++;
             while (*s && v < JMAX_VLEN - 1) {
                 if (*s == '\\' && *(s + 1)) {
@@ -81,7 +86,7 @@ static int json_parse(const char *s, JsonObj *j)
             }
             if (*s == '"') s++;
         } else if (*s == '-' || (*s >= '0' && *s <= '9')) {
-            /* number / boolean / null → store as-is */
+            
             while (*s && v < JMAX_VLEN - 1 &&
                    (*s == '-' || (*s >= '0' && *s <= '9') ||
                     (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z'))) {
@@ -96,6 +101,7 @@ static int json_parse(const char *s, JsonObj *j)
     return 0;
 }
 
+// 从解析结果中按 key 取值
 static const char *json_get(const JsonObj *j, const char *key)
 {
     for (int i = 0; i < j->count; i++)
@@ -104,8 +110,9 @@ static const char *json_get(const JsonObj *j, const char *key)
     return NULL;
 }
 
-/* ── JSON string escaping ────────────────────────────────────────── */
 
+
+// 输出转义后的 JSON 字符串
 static void json_print_str(const char *s, int len)
 {
     putchar('"');
@@ -128,10 +135,11 @@ static void json_print_str(const char *s, int len)
     putchar('"');
 }
 
-/* ── response helpers ────────────────────────────────────────────── */
+
 
 static int g_req_cb = -1;
 
+// 输出 JSON 响应开头
 static void api_start_response(void)
 {
     if (g_req_cb >= 0)
@@ -140,8 +148,11 @@ static void api_start_response(void)
         fputs("{\"_cb\":1", stdout);
 }
 
+// 输出成功 JSON 响应结尾
 static void api_ok(void)  { api_start_response(); puts(",\"ok\":true}"); }
+// 挂载共享磁盘并初始化内核与用户库
 static int  api_mount_fs(void);
+// 输出带错误信息的 JSON 响应
 static void api_err(const char *msg)
 {
     api_start_response();
@@ -150,8 +161,9 @@ static void api_err(const char *msg)
     puts("}");
 }
 
-/* ── state name helper ───────────────────────────────────────────── */
 
+
+// 把进程状态枚举转为字符串
 static const char *proc_state_str(int s)
 {
     switch (s) {
@@ -164,8 +176,9 @@ static const char *proc_state_str(int s)
     }
 }
 
-/* ── cmd: ls ─────────────────────────────────────────────────────── */
 
+
+// 列出目录并以 JSON 返回条目
 static void cmd_ls(const char *path)
 {
     MemINode *dir_ip = namei(path);
@@ -217,8 +230,9 @@ static void cmd_ls(const char *path)
     puts("]}");
 }
 
-/* ── cmd: stat ───────────────────────────────────────────────────── */
 
+
+// 获取文件元数据并以 JSON 返回
 static void cmd_stat(const char *path)
 {
     uint16_t mode, nlink, uid, gid, ino;
@@ -234,8 +248,9 @@ static void cmd_stat(const char *path)
            (unsigned)nlink, (unsigned)uid, (unsigned)gid);
 }
 
-/* ── cmd: cat ────────────────────────────────────────────────────── */
 
+
+// 根据扩展名与内容判断是否为二进制
 static int api_file_is_binary(const char *path)
 {
     int fd = vfs_open(path, O_RDONLY);
@@ -252,6 +267,7 @@ static int api_file_is_binary(const char *path)
     return 0;
 }
 
+// Shell 的 cat 命令：输出文件内容
 static void cmd_cat(const char *path)
 {
     if (api_file_is_binary(path)) {
@@ -289,8 +305,9 @@ static void cmd_cat(const char *path)
     vfs_close(fd);
 }
 
-/* ── cmd: mkdir ──────────────────────────────────────────────────── */
 
+
+// 创建目录并返回 JSON 结果
 static void cmd_mkdir(const char *path)
 {
     if (vfs_mkdir(path, IFDIR | 0755) < 0)
@@ -299,8 +316,9 @@ static void cmd_mkdir(const char *path)
         api_ok();
 }
 
-/* ── cmd: create ─────────────────────────────────────────────────── */
 
+
+// 创建空文件并返回 JSON 结果
 static void cmd_create(const char *path)
 {
     if (vfs_create(path, IFREG | 0644) < 0)
@@ -309,8 +327,9 @@ static void cmd_create(const char *path)
         api_ok();
 }
 
-/* ── cmd: rm ─────────────────────────────────────────────────────── */
 
+
+// 删除文件并返回 JSON 结果
 static void cmd_rm(const char *path)
 {
     if (vfs_delete(path) < 0)
@@ -319,8 +338,9 @@ static void cmd_rm(const char *path)
         api_ok();
 }
 
-/* ── cmd: write ──────────────────────────────────────────────────── */
 
+
+// 把文件截断为零长度
 static int api_truncate_path(const char *path)
 {
     MemINode *ip;
@@ -342,6 +362,7 @@ static int api_truncate_path(const char *path)
     return 0;
 }
 
+// 写入或覆盖文件内容
 static void cmd_write(const char *path, const char *data)
 {
     int fd;
@@ -399,8 +420,9 @@ static void cmd_write(const char *path, const char *data)
     api_ok();
 }
 
-/* ── cmd: debug super ────────────────────────────────────────────── */
 
+
+// 返回超级块调试信息 JSON
 static void cmd_debug_super(void)
 {
     const SuperBlock *sb;
@@ -435,8 +457,9 @@ static void cmd_debug_super(void)
     puts("]}");
 }
 
-/* ── cmd: debug process ──────────────────────────────────────────── */
 
+
+// 返回进程表调试信息 JSON
 static void cmd_debug_process(void)
 {
     int count = 0;
@@ -460,8 +483,9 @@ static void cmd_debug_process(void)
     puts("]}");
 }
 
-/* ── cmd: debug memory ───────────────────────────────────────────── */
 
+
+// 返回内存使用调试信息 JSON
 static void cmd_debug_memory(void)
 {
     int free_pages;
@@ -480,7 +504,7 @@ static void cmd_debug_memory(void)
            "\"page_size\":%u,",
            total, used, (unsigned)MEM_KERNEL_PAGES, (unsigned)MEM_PAGE_SIZE);
 
-    /* Downsampled bitmap string: 1 char per step pages */
+    
     printf("\"bitmap\":\"");
     if (bm && total > 0) {
         int step = total > 1024 ? total / 1024 : 1;
@@ -493,8 +517,9 @@ static void cmd_debug_memory(void)
     puts("\"}");
 }
 
-/* ── cmd: debug all ─────────────────────────────────────────────── */
 
+
+// 返回文件系统与内核综合调试 JSON
 static void cmd_debug_all(void)
 {
     const SuperBlock *sb = fs_get_superblock();
@@ -507,7 +532,7 @@ static void cmd_debug_all(void)
 
     api_start_response(); fputs(",\"ok\":true", stdout);
 
-    /* super */
+    
     if (sb) {
         uint32_t inodes_used = sb->s_inode_total - sb->s_inode_free_count;
         printf(",\"inodes_total\":%u,\"inodes_used\":%u,"
@@ -524,7 +549,7 @@ static void cmd_debug_all(void)
         printf("]");
     }
 
-    /* process */
+    
     printf(",\"procs\":[");
     int first = 1;
     for (int i = 0; i < count; i++) {
@@ -538,7 +563,7 @@ static void cmd_debug_all(void)
     }
     printf("]");
 
-    /* memory */
+    
     printf(",\"total_pages\":%d,\"used_pages\":%d,\"kernel_pages\":%u,\"page_size\":%u",
            total_pg, used_pg, (unsigned)MEM_KERNEL_PAGES, (unsigned)MEM_PAGE_SIZE);
     printf(",\"bitmap\":\"");
@@ -552,10 +577,11 @@ static void cmd_debug_all(void)
     puts("\"}");
 }
 
-/* ── dispatch ────────────────────────────────────────────────────── */
+
 
 static int g_mounted = 0;
 
+// 检查当前用户对路径是否有读权限
 static int path_readable(const char *path)
 {
     FILE *fp;
@@ -569,6 +595,7 @@ static int path_readable(const char *path)
     return 1;
 }
 
+// 挂载共享磁盘并初始化内核与用户库
 static int api_mount_fs(void)
 {
     const char *candidates[8];
@@ -619,6 +646,7 @@ static int api_mount_fs(void)
     return -1;
 }
 
+// 按 JSON 请求中的 cmd 字段分发处理
 static void dispatch(const JsonObj *j)
 {
     const char *cmd  = json_get(j, "cmd");
@@ -665,16 +693,18 @@ static void dispatch(const JsonObj *j)
         else if (strcmp(type, "process") == 0)  cmd_debug_process();
         else if (strcmp(type, "memory") == 0)   cmd_debug_memory();
         else if (strcmp(type, "all") == 0)      cmd_debug_all();
+        // 输出带错误信息的 JSON 响应
         else api_err("unknown debug type");
     } else {
         api_err("unknown cmd");
     }
 }
 
-/* ── entry point ─────────────────────────────────────────────────── */
+
 
 extern KernelShared *g_kernel;
 
+// API 子进程主循环：读 JSON 请求并写响应
 int upfs_api_session(int in_fd, int out_fd)
 {
     dup2(in_fd, 0);

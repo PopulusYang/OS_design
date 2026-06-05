@@ -1,19 +1,12 @@
-// lexer.c —— C 词法分析器实现
-//
-// 将 C 源码分解为 Token 流。支持：
-//   - 关键字：int, void, if, else, while, for, do, return, break, continue, struct, sizeof
-//   - 运算符：+ - * / % == != < > <= >= && || ! & | ^ ~ << >> = += -= *= /=
-//   - 分隔符：( ) { } [ ] , ; .
-//   - 字面量：十进制/十六进制整数，字符常量 'x'，字符串 "..."
-//   - 注释：// 行注释 和 /* ... */ 块注释
-
+/*
+ * lexer.c
+ * 扫描 C 源码，识别关键字、运算符、字面量和注释，输出 Token。
+ */
 #include "compiler/lexer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
-// ---------- 关键字表 ----------
 
 static const struct {
     const char *name;
@@ -40,8 +33,6 @@ static TokenType lookup_keyword(const char *s) {
     return TOK_IDENT;
 }
 
-// ---------- 内部辅助 ----------
-
 static int lexer_getch(Lexer *lex) {
     if (lex->peek_valid) {
         lex->peek_valid = false;
@@ -61,8 +52,6 @@ static void lexer_error(Lexer *lex, const char *msg) {
     fprintf(stderr, "\033[1;31mlexer error\033[0m at %s:%d: %s\n",
             lex->filename ? lex->filename : "<stdin>", lex->line, msg);
 }
-
-// ---------- 公共接口 ----------
 
 int lexer_init(Lexer *lex, const char *filename) {
     memset(lex, 0, sizeof(*lex));
@@ -90,7 +79,6 @@ Token *lexer_next(Lexer *lex) {
     t->line = lex->line;
 
     int c;
-    // 跳过空白
     while (1) {
         c = lexer_getch(lex);
         if (c == EOF) { t->type = TOK_EOF; return t; }
@@ -98,17 +86,14 @@ Token *lexer_next(Lexer *lex) {
         break;
     }
 
-    // 注释处理
     if (c == '/') {
         int c2 = lexer_getch(lex);
         if (c2 == '/') {
-            // 行注释
             while (1) {
                 c = lexer_getch(lex);
                 if (c == EOF || c == '\n') { lexer_ungetch(lex, c); return lexer_next(lex); }
             }
         } else if (c2 == '*') {
-            // 块注释
             int prev = 0;
             while (1) {
                 c = lexer_getch(lex);
@@ -124,7 +109,6 @@ Token *lexer_next(Lexer *lex) {
         }
     }
 
-    // 标识符 / 关键字
     if (isalpha(c) || c == '_') {
         int i = 0;
         t->strval[i++] = (char)c;
@@ -142,13 +126,11 @@ Token *lexer_next(Lexer *lex) {
         return t;
     }
 
-    // 数字
     if (isdigit(c)) {
         int val = 0;
         if (c == '0') {
             int c2 = lexer_getch(lex);
             if (c2 == 'x' || c2 == 'X') {
-                // 十六进制
                 while (1) {
                     c2 = lexer_getch(lex);
                     int digit = 0;
@@ -163,7 +145,6 @@ Token *lexer_next(Lexer *lex) {
                 lexer_ungetch(lex, c2);
             }
         }
-        // 十进制
         val = c - '0';
         while (1) {
             c = lexer_getch(lex);
@@ -174,7 +155,6 @@ Token *lexer_next(Lexer *lex) {
         return t;
     }
 
-    // 字符常量 'x'
     if (c == '\'') {
         int ch = lexer_getch(lex);
         if (ch == '\\') {
@@ -194,7 +174,6 @@ Token *lexer_next(Lexer *lex) {
         return t;
     }
 
-    // 字符串常量 "..."
     if (c == '"') {
         int i = 0;
         while (1) {
@@ -219,18 +198,17 @@ Token *lexer_next(Lexer *lex) {
         return t;
     }
 
-    // 单字符 / 双字符运算符
     switch (c) {
         case '+': {
             int c2 = lexer_getch(lex);
             if (c2 == '=') { t->type = TOK_PLUS_ASSIGN; }
-            else if (c2 == '+') { /* skip ++ for now */ t->type = TOK_PLUS; lexer_ungetch(lex, '+'); }
+            else if (c2 == '+') { t->type = TOK_PLUS; lexer_ungetch(lex, '+'); }
             else { lexer_ungetch(lex, c2); t->type = TOK_PLUS; }
             return t;
         }
         case '-': {
             int c2 = lexer_getch(lex);
-            if (c2 == '>') { /* arrow operator -> not supported */ }
+            if (c2 == '>') { }
             if (c2 == '=') { t->type = TOK_MINUS_ASSIGN; }
             else { lexer_ungetch(lex, c2); t->type = TOK_MINUS; }
             return t;

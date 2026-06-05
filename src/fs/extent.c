@@ -1,4 +1,7 @@
-
+/*
+ * extent.c
+ * 文件块映射：内联 Extent、单叶节点或 B+ 树，分配时合并相邻区段。
+ */
 #include "fs/extent.h"
 #include "fs/allocator.h"
 #include "fs/buf.h"
@@ -19,6 +22,7 @@ typedef struct ExtIndexEntry {
     uint16_t ie_pad;
 } ExtIndexEntry;
 
+// 判断逻辑块号是否落在某条 Extent 范围内
 static int extent_in_range(const Extent *e, uint32_t lblk)
 {
     if (e->e_len == 0)
@@ -26,11 +30,13 @@ static int extent_in_range(const Extent *e, uint32_t lblk)
     return lblk >= e->e_lblk && lblk < e->e_lblk + (uint32_t)e->e_len;
 }
 
+// 根据 Extent 和逻辑块号计算物理块号
 static uint16_t extent_phys_at(const Extent *e, uint32_t lblk)
 {
     return (uint16_t)(e->e_pblk + (lblk - e->e_lblk));
 }
 
+// 从 Extent 叶节点块读取映射数组
 static int leaf_read(int blk, uint16_t *count_out, Extent *ents, int max_ents)
 {
     char buf[BLOCK_SIZE];
@@ -54,6 +60,7 @@ static int leaf_read(int blk, uint16_t *count_out, Extent *ents, int max_ents)
     return 0;
 }
 
+// 把 Extent 映射数组写入叶节点块
 static int leaf_write(int blk, uint16_t count, const Extent *ents)
 {
     char buf[BLOCK_SIZE];
@@ -69,7 +76,6 @@ static int leaf_write(int blk, uint16_t count, const Extent *ents)
     }
     if (count > 0)
         memcpy(buf + EXT_HDR_SIZE, ents, (size_t)count * sizeof(Extent));
-    /* Extent B+ tree blocks are file metadata; use direct write (see dir_sys). */
     return write_block(blk, buf);
 }
 
@@ -121,6 +127,7 @@ static int index_write(int blk, uint16_t count, uint16_t level,
     return journal_write_dir_block(blk, buf);
 }
 
+// 沿 B+ 树找到覆盖逻辑块号的叶节点
 static int find_leaf_for_lblk(const DiskINode *d, uint32_t lblk, int *leaf_out)
 {
     ExtIndexEntry idx[EXT_MAX_INDEX];
@@ -151,6 +158,7 @@ static int find_leaf_for_lblk(const DiskINode *d, uint32_t lblk, int *leaf_out)
     return 0;
 }
 
+// 在叶节点中查找逻辑块对应的物理块
 static int leaf_lookup_blk(int leaf_blk, uint32_t lblk, uint16_t *phys_out)
 {
     Extent ents[EXT_MAX_LEAF];
@@ -171,6 +179,7 @@ static int leaf_lookup_blk(int leaf_blk, uint32_t lblk, uint16_t *phys_out)
     return -1;
 }
 
+// 查磁盘 inode 中逻辑块到物理块的映射
 int extent_lookup(const DiskINode *d, uint32_t lblk, uint16_t *phys_out)
 {
     int leaf;
@@ -194,6 +203,7 @@ int extent_lookup(const DiskINode *d, uint32_t lblk, uint16_t *phys_out)
     return leaf_lookup_blk(leaf, lblk, phys_out);
 }
 
+// 合并 Extent 数组中逻辑和物理均相邻的项
 static void try_merge_adjacent(Extent *ents, int *count)
 {
     int changed = 1;
@@ -217,6 +227,7 @@ static void try_merge_adjacent(Extent *ents, int *count)
     }
 }
 
+// 为 Extent B+ 树分配一个元数据块
 static int alloc_metadata_block(MemINode *ip, uint16_t *out_blk)
 {
     int blk;
@@ -234,6 +245,7 @@ static int alloc_metadata_block(MemINode *ip, uint16_t *out_blk)
     return 0;
 }
 
+// 向叶节点插入一条 Extent 并尝试合并
 static int insert_into_leaf_blk(MemINode *ip, int leaf_blk, const Extent *new_e)
 {
     Extent ents[EXT_MAX_LEAF];
@@ -279,6 +291,7 @@ static int insert_into_leaf_blk(MemINode *ip, int leaf_blk, const Extent *new_e)
     return 0;
 }
 
+// 向 inode 的 Extent 结构插入新映射，必要时建树
 static int insert_extent(MemINode *ip, const Extent *new_e)
 {
     DiskINode *d = &ip->m_dinode;
@@ -330,6 +343,7 @@ static int insert_extent(MemINode *ip, const Extent *new_e)
     return insert_into_leaf_blk(ip, leaf, new_e);
 }
 
+// 释放单个 Extent 叶节点占用的数据块
 static void free_leaf_blocks(int leaf_blk)
 {
     Extent ents[EXT_MAX_LEAF];
@@ -347,6 +361,7 @@ static void free_leaf_blocks(int leaf_blk)
     bfree(leaf_blk);
 }
 
+// 递归释放 Extent B+ 树占用的全部块
 static void free_tree(int blk, uint16_t level)
 {
     ExtIndexEntry idx[EXT_MAX_INDEX];
@@ -370,6 +385,7 @@ static void free_tree(int blk, uint16_t level)
     bfree(blk);
 }
 
+// 清空文件的 Extent 映射并释放树块
 void extent_clear(MemINode *ip)
 {
     if (ip == NULL)
@@ -390,6 +406,7 @@ void extent_clear(MemINode *ip)
     ip->m_flags |= MINODE_DIRTY;
 }
 
+// 把 inode 设为仅含一条内联 Extent
 int extent_set_single(MemINode *ip, uint32_t lblk, uint16_t pblk, uint16_t len)
 {
     if (ip == NULL || len == 0)
@@ -408,6 +425,7 @@ int extent_set_single(MemINode *ip, uint32_t lblk, uint16_t pblk, uint16_t len)
     return 0;
 }
 
+// 顺序写入时尝试延长末尾 Extent 而非新建
 static int extent_try_extend_run(MemINode *ip, uint32_t lblk, uint16_t pblk)
 {
     DiskINode *d;
@@ -433,6 +451,7 @@ static int extent_try_extend_run(MemINode *ip, uint32_t lblk, uint16_t pblk)
     return 0;
 }
 
+// 查或建逻辑块映射，create 为真时分配新物理块
 int extent_bmap(MemINode *ip, uint32_t lblk, int create, uint16_t *phys_out)
 {
     Extent new_e;

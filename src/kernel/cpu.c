@@ -1,3 +1,7 @@
+/*
+ * cpu.c
+ * 虚拟机取指译码执行，以及虚拟地址到物理地址的转换。
+ */
 #include "kernel/cpu.h"
 #include "kernel/process.h"
 #include "kernel/memory.h"
@@ -12,6 +16,7 @@
 #define CPU_TO_PCB(ctx) \
     ((PCB *)((char *)(ctx) - offsetof(PCB, p_cpu)))
 
+// 初始化 CPU 上下文：入口 PC、栈顶与时间片计数
 void cpu_init(CPUContext *ctx, uint32_t entry_pc, uint32_t stack_top)
 {
     memset(ctx, 0, sizeof(*ctx));
@@ -21,6 +26,7 @@ void cpu_init(CPUContext *ctx, uint32_t entry_pc, uint32_t stack_top)
     ctx->sycall_halt = 0;
 }
 
+// 把进程虚拟地址换算成物理字节地址
 int cpu_virt_to_phys(const CPUContext *ctx, uint32_t virt_addr, uint32_t *out_phys)
 {
     if (ctx == NULL || out_phys == NULL) return -1;
@@ -34,6 +40,7 @@ int cpu_virt_to_phys(const CPUContext *ctx, uint32_t virt_addr, uint32_t *out_ph
     return 0;
 }
 
+// 从虚拟地址读 32 位整数
 uint32_t cpu_read32(const CPUContext *ctx, uint32_t virt_addr)
 {
     uint32_t phys;
@@ -41,6 +48,7 @@ uint32_t cpu_read32(const CPUContext *ctx, uint32_t virt_addr)
     return mem_read32(phys);
 }
 
+// 向虚拟地址写 32 位整数
 void cpu_write32(CPUContext *ctx, uint32_t virt_addr, uint32_t val)
 {
     uint32_t phys;
@@ -48,6 +56,7 @@ void cpu_write32(CPUContext *ctx, uint32_t virt_addr, uint32_t val)
     mem_write32(phys, val);
 }
 
+// 从虚拟地址读 8 位字节
 uint8_t cpu_read8(const CPUContext *ctx, uint32_t virt_addr)
 {
     uint32_t phys;
@@ -55,6 +64,7 @@ uint8_t cpu_read8(const CPUContext *ctx, uint32_t virt_addr)
     return mem_read8(phys);
 }
 
+// 向虚拟地址写 8 位字节
 void cpu_write8(CPUContext *ctx, uint32_t virt_addr, uint8_t val)
 {
     uint32_t phys;
@@ -62,6 +72,7 @@ void cpu_write8(CPUContext *ctx, uint32_t virt_addr, uint8_t val)
     mem_write8(phys, val);
 }
 
+// 为虚拟页分配物理页并写入页表
 int cpu_map_page(CPUContext *ctx, uint32_t virt_addr)
 {
     if (ctx == NULL) return -1;
@@ -75,6 +86,7 @@ int cpu_map_page(CPUContext *ctx, uint32_t virt_addr)
     return 0;
 }
 
+// 执行一条指令，遇系统调用或时间片耗尽时返回 1
 int cpu_step(CPUContext *ctx)
 {
     if (ctx == NULL) return 1;

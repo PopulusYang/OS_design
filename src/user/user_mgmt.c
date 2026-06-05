@@ -1,10 +1,7 @@
-
-
-
-
-
-
-
+/*
+ * user_mgmt.c
+ * 口令加盐哈希与用户增删改查。
+ */
 #include "user/user_mgmt.h"
 #include "vfs.h"
 #include "fs/dir_sys.h"
@@ -15,22 +12,17 @@
 #include <string.h>
 #include <time.h>
 
-
-
 static UserAccount g_users[MAX_USERS];
 static int         g_user_count = 0;
 static int         g_user_inited = 0;
 
-
 #define PASSWD_PATH     "/etc/passwd"
-
 
 #define PASSWD_LINE_MAX 256
 
-
-
 static const char HEX_CHARS[] = "0123456789abcdef";
 
+// 把字节数组编码为十六进制字符串
 static void bytes_to_hex(const uint8_t *bytes, int len, char *hex_out)
 {
     int i;
@@ -42,6 +34,7 @@ static void bytes_to_hex(const uint8_t *bytes, int len, char *hex_out)
     hex_out[len * 2] = '\0';
 }
 
+// 把十六进制字符串解码为字节数组
 static int hex_to_bytes(const char *hex, uint8_t *bytes_out, int len)
 {
     int i;
@@ -70,12 +63,10 @@ static int hex_to_bytes(const char *hex, uint8_t *bytes_out, int len)
     return 0;
 }
 
-
-
-
 #define HASH_STATE_WORDS    8
 #define HASH_ROUNDS         10000
 
+// 对口令与盐做多轮混合得到哈希状态
 static void hash_state_mix(uint32_t *s, const uint8_t *data, int data_len)
 {
     int i;
@@ -99,6 +90,7 @@ static void hash_state_mix(uint32_t *s, const uint8_t *data, int data_len)
     }
 }
 
+// 用盐对口令做 10000 轮哈希，输出十六进制摘要
 void user_hash_password(const char *password, const char *salt_hex, char *hex_out)
 {
     uint32_t state[HASH_STATE_WORDS];
@@ -112,21 +104,21 @@ void user_hash_password(const char *password, const char *salt_hex, char *hex_ou
         return;
     }
 
-    
+
     hex_to_bytes(salt_hex, salt_bytes, USER_SALT_LEN);
 
-    
+
     for (i = 0; i < HASH_STATE_WORDS; i++) {
         state[i] = ((uint32_t)salt_bytes[(i * 4) % USER_SALT_LEN] << 24)
                  | ((uint32_t)salt_bytes[(i * 4 + 1) % USER_SALT_LEN] << 16)
                  | ((uint32_t)salt_bytes[(i * 4 + 2) % USER_SALT_LEN] << 8)
                  | ((uint32_t)salt_bytes[(i * 4 + 3) % USER_SALT_LEN]);
     }
-    
+
     state[0] ^= 0x6A09E667U;
     state[4] ^= 0xBB67AE85U;
 
-    
+
     pass_len = (int)strlen(password);
     combined_len = USER_SALT_LEN + pass_len;
     if (combined_len > (int)sizeof(combined)) {
@@ -137,7 +129,7 @@ void user_hash_password(const char *password, const char *salt_hex, char *hex_ou
 
     hash_state_mix(state, combined, combined_len);
 
-    
+
     {
         uint8_t hash_bytes[USER_HASH_LEN];
         for (i = 0; i < HASH_STATE_WORDS; i++) {
@@ -150,6 +142,7 @@ void user_hash_password(const char *password, const char *salt_hex, char *hex_ou
     }
 }
 
+// 生成随机盐，优先读 /dev/urandom
 void user_gen_salt(char *hex_out)
 {
     uint8_t salt[USER_SALT_LEN];
@@ -160,7 +153,7 @@ void user_gen_salt(char *hex_out)
         return;
     }
 
-    
+
     fp = fopen("/dev/urandom", "rb");
     if (fp != NULL) {
         size_t n = fread(salt, 1, sizeof(salt), fp);
@@ -171,7 +164,7 @@ void user_gen_salt(char *hex_out)
         }
     }
 
-    
+
     {
         static uint64_t counter = 0;
         uint64_t t = (uint64_t)time(NULL);
@@ -187,8 +180,7 @@ void user_gen_salt(char *hex_out)
     bytes_to_hex(salt, USER_SALT_LEN, hex_out);
 }
 
-
-
+// 检查 /etc/passwd 文件是否存在
 static int passwd_exists(void)
 {
     int fd = vfs_open(PASSWD_PATH, O_RDONLY);
@@ -199,10 +191,11 @@ static int passwd_exists(void)
     return 1;
 }
 
+// 从 /etc/passwd 解析用户记录到内存表
 int user_db_load(void)
 {
     int  fd;
-    char buf[4096];  
+    char buf[4096];
     int  total;
     int  line_start;
     int  pos;
@@ -239,7 +232,7 @@ int user_db_load(void)
             break;
         }
 
-        
+
         {
             UserAccount *ua = &g_users[g_user_count];
             char         line[PASSWD_LINE_MAX];
@@ -301,6 +294,7 @@ int user_db_load(void)
     return g_user_count;
 }
 
+// 把内存用户表序列化写入 /etc/passwd
 int user_db_save(void)
 {
     char line[PASSWD_LINE_MAX];
@@ -308,7 +302,7 @@ int user_db_save(void)
     int  i;
     int  n;
 
-    
+
     {
         MemINode *etc_ip = namei("/etc");
         if (etc_ip == NULL) {
@@ -318,7 +312,7 @@ int user_db_save(void)
         }
     }
 
-    
+
     if (passwd_exists()) {
         vfs_delete(PASSWD_PATH);
     }
@@ -353,18 +347,17 @@ int user_db_save(void)
     return 0;
 }
 
-
-
+// 确保 passwd 文件存在并加载用户库
 int user_init(void)
 {
     if (g_user_inited) {
         return 0;
     }
 
-    
+
     if (!passwd_exists()) {
-        
-        
+
+
         if (vfs_create(PASSWD_PATH, 0644) != 0) {
             vfs_mkdir("/etc", 0755);
             vfs_create(PASSWD_PATH, 0644);
@@ -374,6 +367,7 @@ int user_init(void)
     return user_db_load() >= 0 ? 0 : -1;
 }
 
+// 新建用户：分配 uid、哈希口令、建主目录
 int user_add(const char *username, const char *password)
 {
     char        salt_hex[USER_SALT_HEX_LEN];
@@ -394,12 +388,12 @@ int user_add(const char *username, const char *password)
         return -1;
     }
 
-    
+
     if (strcmp(username, "root") == 0) {
         uid = 0;
     } else {
         uid = USER_UID_BASE;
-        
+
         {
             int found;
             uint16_t try_uid;
@@ -431,7 +425,7 @@ int user_add(const char *username, const char *password)
     strncpy(ua->ua_passwd_hash, hash_hex, sizeof(ua->ua_passwd_hash) - 1);
     strncpy(ua->ua_salt, salt_hex, sizeof(ua->ua_salt) - 1);
 
-    
+
     {
         int n = snprintf(ua->ua_home, sizeof(ua->ua_home), "/home/%s", username);
         if (n < 0 || n >= (int)sizeof(ua->ua_home)) {
@@ -439,11 +433,11 @@ int user_add(const char *username, const char *password)
         }
     }
 
-    
+
     if (strcmp(username, "root") == 0) {
-        
+
         strncpy(ua->ua_home, "/root", sizeof(ua->ua_home) - 1);
-        
+
     } else {
         if (user_create_home(username, uid, uid) != 0) {
             return -1;
@@ -456,6 +450,7 @@ int user_add(const char *username, const char *password)
     return 0;
 }
 
+// 校验用户名与口令，成功返回 uid
 int user_verify(const char *username, const char *password)
 {
     const UserAccount *ua;
@@ -473,6 +468,7 @@ int user_verify(const char *username, const char *password)
     return -1;
 }
 
+// 按用户名查找账户记录
 const UserAccount *user_find(const char *username)
 {
     int i;
@@ -488,6 +484,7 @@ const UserAccount *user_find(const char *username)
     return NULL;
 }
 
+// 按 uid 查找账户记录
 const UserAccount *user_find_by_uid(uint16_t uid)
 {
     int i;
@@ -500,11 +497,13 @@ const UserAccount *user_find_by_uid(uint16_t uid)
     return NULL;
 }
 
+// 返回当前用户数量
 int user_count(void)
 {
     return g_user_count;
 }
 
+// 按下标取账户记录
 const UserAccount *user_get(int index)
 {
     if (index < 0 || index >= g_user_count) {
@@ -513,6 +512,7 @@ const UserAccount *user_get(int index)
     return &g_users[index];
 }
 
+// 从表中删除用户并保存 passwd
 int user_delete(const char *username)
 {
     int idx;
@@ -533,7 +533,7 @@ int user_delete(const char *username)
         return -1;
     }
 
-    
+
     for (i = idx; i < g_user_count - 1; i++) {
         g_users[i] = g_users[i + 1];
     }
@@ -543,6 +543,7 @@ int user_delete(const char *username)
     return user_db_save();
 }
 
+// 为用户生成新盐并更新口令哈希
 int user_passwd(const char *username, const char *new_password)
 {
     UserAccount *ua;
@@ -552,7 +553,7 @@ int user_passwd(const char *username, const char *new_password)
     if (username == NULL || new_password == NULL) {
         return -1;
     }
-    
+
     {
         int i;
         ua = NULL;
@@ -576,6 +577,7 @@ int user_passwd(const char *username, const char *new_password)
     return user_db_save();
 }
 
+// 创建 /bin、/home、/root、/etc 目录
 int user_create_posix_dirs(uint16_t owner_uid, uint16_t owner_gid)
 {
     (void)owner_uid;
@@ -588,6 +590,7 @@ int user_create_posix_dirs(uint16_t owner_uid, uint16_t owner_gid)
     return 0;
 }
 
+// 在 /home 下为用户创建主目录
 int user_create_home(const char *username, uint16_t uid, uint16_t gid)
 {
     char path[128];

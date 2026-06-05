@@ -1,5 +1,9 @@
+/*
+ * assembler.c
+ * 词法分析、标签解析、指令编码与 UPX 文件写出。
+ */
 #include "assembler.h"
-#include "kernel/cpu.h"       
+#include "kernel/cpu.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,27 +13,24 @@
 #include <ctype.h>
 #include <errno.h>
 
-
-
 #define MAX_LINES    4096
 #define MAX_LABELS   512
 #define MAX_LINE_LEN 512
 #define MAX_TOKENS   8
-#define MAX_CODE     (64 * 1024)   
-#define MAX_DATA     (64 * 1024)   
-
+#define MAX_CODE     (64 * 1024)
+#define MAX_DATA     (64 * 1024)
 
 enum Pat {
-    P_NONE,       
-    P_R_R_R,      
-    P_R_I,        
-    P_R_R,        
-    P_LD,         
-    P_ST,         
-    P_CMP,        
-    P_PUSH,       
-    P_JUMP,       
-    P_SYSCALL,    
+    P_NONE,
+    P_R_R_R,
+    P_R_I,
+    P_R_R,
+    P_LD,
+    P_ST,
+    P_CMP,
+    P_PUSH,
+    P_JUMP,
+    P_SYSCALL,
 };
 
 typedef struct {
@@ -37,7 +38,6 @@ typedef struct {
     uint8_t     opcode;
     int         pattern;
 } InsnDef;
-
 
 static const InsnDef INSNS[] = {
     {"HALT",    OP_HALT,    P_NONE},
@@ -64,37 +64,32 @@ static const InsnDef INSNS[] = {
     {"LUI",     OP_LUI,     P_R_I},
 };
 
-
 typedef struct {
     char name[64];
-    int  addr;      
-    int  section;   
+    int  addr;
+    int  section;
 } Label;
 
-
 typedef struct {
-    
+
     char  *lines[MAX_LINES];
     int    nlines;
 
-    
+
     Label labels[MAX_LABELS];
     int   nlabels;
 
-    
-    int text_size;   
-    int data_size;   
-    int bss_size;    
-    int stack_size;  
-    int entry_idx;   
 
-    
+    int text_size;
+    int data_size;
+    int bss_size;
+    int stack_size;
+    int entry_idx;
+
+
     uint8_t code[MAX_CODE];
     uint8_t data[MAX_DATA];
 } Asm;
-
-
-
 
 #ifdef __GNUC__
 __attribute__((format(printf, 3, 4)))
@@ -106,11 +101,11 @@ static void asm_error_v(int lineno, const char *line,
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     if (line && *line) {
-        
+
         char trimmed[120];
         strncpy(trimmed, line, sizeof(trimmed) - 1);
         trimmed[sizeof(trimmed) - 1] = '\0';
-        
+
         char *p = trimmed;
         while (*p == ' ' || *p == '\t') p++;
         fprintf(stderr, "\n  \033[2m> %s\033[0m", *p ? p : trimmed);
@@ -118,7 +113,7 @@ static void asm_error_v(int lineno, const char *line,
     fprintf(stderr, "\n");
 }
 
-
+// 读入源文件全部行并去掉注释
 static int read_all_lines(Asm *a, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) { fprintf(stderr, "asm: cannot open '%s': %s\n", path, strerror(errno)); return -1; }
@@ -129,7 +124,7 @@ static int read_all_lines(Asm *a, const char *path) {
         size_t len = strlen(buf);
         if (len > 0 && buf[len-1] == '\n') buf[--len] = '\0';
         if (len > 0 && buf[len-1] == '\r') buf[--len] = '\0';
-        
+
         char *cmt = strchr(buf, ';');
         if (!cmt) cmt = strstr(buf, "//");
         if (cmt) *cmt = '\0';
@@ -140,24 +135,23 @@ static int read_all_lines(Asm *a, const char *path) {
     return 0;
 }
 
-
-
+// 把一行拆成逗号分隔的记号
 static int tokenize(char *line, char *tokens[], int max_tok) {
     int n = 0;
     char *p = line;
     while (*p && n < max_tok) {
         while (*p == ' ' || *p == '\t' || *p == ',' || *p == '\r'
-               || *p == '[' || *p == ']' || *p == '+') p++;  
+               || *p == '[' || *p == ']' || *p == '+') p++;
         if (!*p) break;
         tokens[n++] = p;
         if (*p == '"') {
-            
-            p++; 
+
+            p++;
             while (*p && *p != '"') {
-                if (*p == '\\' && *(p+1)) p++; 
+                if (*p == '\\' && *(p+1)) p++;
                 p++;
             }
-            if (*p == '"') p++; 
+            if (*p == '"') p++;
         } else {
             while (*p && *p != ' ' && *p != '\t' && *p != ',' && *p != '\r'
                    && *p != '[' && *p != ']' && *p != '+') p++;
@@ -167,19 +161,19 @@ static int tokenize(char *line, char *tokens[], int max_tok) {
     return n;
 }
 
-
+// 若记号以冒号结尾则返回标签名
 static char *label_name(char *tok) {
     size_t len = strlen(tok);
     if (len > 1 && tok[len-1] == ':') { tok[len-1] = '\0'; return tok; }
     return NULL;
 }
 
-
+// 解析寄存器名 R0-R15 或 SP
 static int parse_reg(const char *s) {
     if (!s || !*s) return -1;
     if (strcasecmp(s, "SP") == 0) return 15;
     if (toupper(s[0]) == 'R') {
-        
+
         char *end;
         long v = strtol(s + 1, &end, 10);
         if (*end == '\0' && v >= 0 && v <= 15) return (int)v;
@@ -187,7 +181,7 @@ static int parse_reg(const char *s) {
     return -1;
 }
 
-
+// 解析立即数：十进制、十六进制、二进制或字符
 static int parse_imm(const char *s, int *out) {
     if (!s || !*s) return -1;
     if (s[0] == '\'' && s[1] && s[2] == '\'') { *out = (int)(unsigned char)s[1]; return 0; }
@@ -202,7 +196,7 @@ static int parse_imm(const char *s, int *out) {
     return 0;
 }
 
-
+// 判断字符串是否为可引用的符号名
 static int is_symbol(const char *s) {
     if (!s || !*s) return 0;
     if (isdigit(s[0]) || s[0] == '-' || s[0] == '\'' || s[0] == '0') return 0;
@@ -210,21 +204,21 @@ static int is_symbol(const char *s) {
     return 1;
 }
 
-
+// 按名查找标签对应的指令下标
 static int find_label(Asm *a, const char *name) {
     for (int i = 0; i < a->nlabels; i++)
         if (strcmp(a->labels[i].name, name) == 0) return a->labels[i].addr;
     return -1;
 }
 
-
+// 按名查找标签对应的字节地址
 static int find_label_abs(Asm *a, const char *name) {
     for (int i = 0; i < a->nlabels; i++) {
         if (strcmp(a->labels[i].name, name) == 0) {
             if (a->labels[i].section == 0)
-                return a->labels[i].addr * 4;  
+                return a->labels[i].addr * 4;
             else {
-                
+
                 int tp = (a->text_size + 4095) / 4096;
                 if (tp == 0) tp = 1;
                 return tp * 4096 + a->labels[i].addr;
@@ -234,20 +228,21 @@ static int find_label_abs(Asm *a, const char *name) {
     return -1;
 }
 
-
+// 按助记符查找指令定义
 static const InsnDef *find_insn(const char *name) {
     for (size_t i = 0; i < sizeof(INSNS)/sizeof(INSNS[0]); i++)
         if (strcasecmp(INSNS[i].name, name) == 0) return &INSNS[i];
     return NULL;
 }
 
-
+// 把操作码与寄存器、立即数编码为 32 位指令
 static uint32_t encode(uint8_t op, uint8_t rd, uint8_t rs1, uint8_t rs2, int16_t imm12) {
     return ((uint32_t)op << 24) | ((uint32_t)(rd & 0xF) << 20)
          | ((uint32_t)(rs1 & 0xF) << 16) | ((uint32_t)(rs2 & 0xF) << 12)
          | (uint32_t)(imm12 & 0xFFF);
 }
 
+// 向输出缓冲区写入小端 32 位整数
 static void emit32(uint8_t *buf, int *pos, uint32_t v) {
     buf[(*pos)++] = (uint8_t)(v);
     buf[(*pos)++] = (uint8_t)(v >> 8);
@@ -255,22 +250,21 @@ static void emit32(uint8_t *buf, int *pos, uint32_t v) {
     buf[(*pos)++] = (uint8_t)(v >> 24);
 }
 
-
-
+// 第一遍扫描：统计段大小并记录标签地址
 static int pass1(Asm *a) {
-    int section = 0;     
-    int text_insns = 0;  
+    int section = 0;
+    int text_insns = 0;
     int lineno = 0;
 
     a->data_size = 0;
     a->bss_size  = 0;
-    a->stack_size = 4096;  
+    a->stack_size = 4096;
     a->entry_idx = -1;
 
     for (int i = 0; i < a->nlines; i++) {
         lineno = i + 1;
         char *line = a->lines[i];
-        
+
         char *p = line;
         while (*p == ' ' || *p == '\t') p++;
         if (!*p) continue;
@@ -282,7 +276,7 @@ static int pass1(Asm *a) {
         int nt = tokenize(tmp_line, tokens, MAX_TOKENS);
         if (nt == 0) continue;
 
-        
+
         char *lbl = label_name(tokens[0]);
         if (lbl) {
             if (a->nlabels >= MAX_LABELS) { asm_error_v(lineno, line, "too many labels (max %d)", MAX_LABELS); return -1; }
@@ -290,30 +284,30 @@ static int pass1(Asm *a) {
             a->labels[a->nlabels].section = section;
             a->labels[a->nlabels].addr = (section == 0) ? text_insns : a->data_size;
             a->nlabels++;
-            
+
             if (nt == 1) continue;
             tokens[0] = tokens[1];
             for (int j = 1; j < nt; j++) tokens[j-1] = tokens[j];
             nt--;
         }
 
-        
+
         const char *dir = tokens[0];
 
         if (dir[0] == '.') {
-            
+
             if (strcmp(dir, ".text") == 0) { section = 0; }
             else if (strcmp(dir, ".data") == 0) { section = 1; }
             else if (strcmp(dir, ".bss") == 0) { section = 2; }
             else if (strcmp(dir, ".entry") == 0) {
-                
+
                 if (nt < 2) { asm_error_v(lineno, line, "missing argument, .entry requires a label name"); return -1; }
             }
             else if (strcmp(dir, ".word") == 0) {
                 if (nt < 2) { asm_error_v(lineno, line, ".word requires a numeric value"); return -1; }
                 int v;
                 if (parse_imm(tokens[1], &v) < 0) {
-                    
+
                 }
                 a->data_size += 4;
             }
@@ -321,7 +315,7 @@ static int pass1(Asm *a) {
                 if (nt < 2) { asm_error_v(lineno, line, ".space requires a byte count"); return -1; }
                 int sz = atoi(tokens[1]);
                 if (section == 2) a->bss_size += sz;
-                else a->data_size += sz;   
+                else a->data_size += sz;
             }
             else if (strcmp(dir, ".stack") == 0) {
                 if (nt < 2) { asm_error_v(lineno, line, ".stack requires a byte count"); return -1; }
@@ -333,7 +327,7 @@ static int pass1(Asm *a) {
                     s++;
                     char *end = strchr(s, '"');
                     if (end) *end = '\0';
-                    
+
                     int real = 0;
                     for (char *c = s; *c; c++) {
                         if (*c == '\\' && *(c+1)) { c++; real++; }
@@ -348,7 +342,7 @@ static int pass1(Asm *a) {
                 asm_error_v(lineno, line, "unknown directive '%s'", dir); return -1;
             }
         } else {
-            
+
             if (section != 0) {
                 asm_error_v(lineno, line, "instruction must be in .text section"); return -1;
             }
@@ -366,19 +360,18 @@ static int pass1(Asm *a) {
     return 0;
 }
 
-
-
+// 第二遍扫描：生成代码段与数据段机器码
 static int pass2(Asm *a) {
     int section = 0;
-    int text_pos = 0;  
-    int data_pos = 0;  
-    int ip = 0;        
+    int text_pos = 0;
+    int data_pos = 0;
+    int ip = 0;
     int lineno = 0;
     char entry_label[64] = "";
 
     for (int i = 0; i < a->nlines; i++) {
         lineno = i + 1;
-        char *line = a->lines[i];      
+        char *line = a->lines[i];
         char *p = line;
         while (*p == ' ' || *p == '\t') p++;
         if (!*p) continue;
@@ -390,7 +383,7 @@ static int pass2(Asm *a) {
         int nt = tokenize(tline, tokens, MAX_TOKENS);
         if (nt == 0) continue;
 
-        
+
         char *lbl = label_name(tokens[0]);
         if (lbl) {
             if (nt == 1) continue;
@@ -410,7 +403,7 @@ static int pass2(Asm *a) {
             }
             else if (strcmp(dir, ".word") == 0) {
                 int v = 0;
-                if (parse_imm(tokens[1], &v) < 0) v = 0;  
+                if (parse_imm(tokens[1], &v) < 0) v = 0;
                 emit32(a->data, &data_pos, (uint32_t)v);
             }
             else if (strcmp(dir, ".space") == 0) {
@@ -454,7 +447,7 @@ static int pass2(Asm *a) {
                 break;
 
             case P_R_I:
-                
+
                 rd = (uint8_t)parse_reg(tokens[1]);
                 if (rd == (uint8_t)-1) { asm_error_v(lineno, line, "invalid register"); return -1; }
                 if (is_symbol(tokens[2])) {
@@ -472,11 +465,11 @@ static int pass2(Asm *a) {
                 break;
 
             case P_R_R:
-                
+
                 rd = (uint8_t)parse_reg(tokens[1]);
                 if (rd == (uint8_t)-1) { asm_error_v(lineno, line, "invalid register"); return -1; }
                 if (ins->opcode == OP_POP) {
-                    
+
                 } else {
                     rs1 = (uint8_t)parse_reg(tokens[2]);
                     if (rs1 == (uint8_t)-1) { asm_error_v(lineno, line, "invalid register"); return -1; }
@@ -491,11 +484,11 @@ static int pass2(Asm *a) {
                 break;
 
             case P_LD:
-                
+
                 rd = (uint8_t)parse_reg(tokens[1]);
                 if (rd == (uint8_t)-1) { asm_error_v(lineno, line, "invalid register"); return -1; }
                 if (parse_reg(tokens[2]) >= 0) {
-                    
+
                     rs1 = (uint8_t)parse_reg(tokens[2]);
                     if (is_symbol(tokens[3])) {
                         int addr = find_label_abs(a, tokens[3]);
@@ -507,7 +500,7 @@ static int pass2(Asm *a) {
                         imm12 = (int16_t)v;
                     }
                 } else if (is_symbol(tokens[2])) {
-                    
+
                     int addr = find_label_abs(a, tokens[2]);
                     if (addr < 0) { asm_error_v(lineno, line, "undefined label '%s'", tokens[2]); return -1; }
                     rs1 = 0; imm12 = (int16_t)addr;
@@ -517,11 +510,11 @@ static int pass2(Asm *a) {
                 break;
 
             case P_ST:
-                
+
                 rs2 = (uint8_t)parse_reg(tokens[1]);
                 if (rs2 == (uint8_t)-1) { asm_error_v(lineno, line, "invalid register"); return -1; }
                 if (parse_reg(tokens[2]) >= 0) {
-                    
+
                     rs1 = (uint8_t)parse_reg(tokens[2]);
                     if (is_symbol(tokens[3])) {
                         int addr = find_label_abs(a, tokens[3]);
@@ -533,7 +526,7 @@ static int pass2(Asm *a) {
                         imm12 = (int16_t)v;
                     }
                 } else if (is_symbol(tokens[2])) {
-                    
+
                     int addr = find_label_abs(a, tokens[2]);
                     if (addr < 0) { asm_error_v(lineno, line, "undefined label '%s'", tokens[2]); return -1; }
                     rs1 = 0; imm12 = (int16_t)addr;
@@ -554,8 +547,8 @@ static int pass2(Asm *a) {
                 break;
 
             case P_JUMP: {
-                
-                
+
+
                 int target;
                 if (is_symbol(tokens[1])) {
                     target = find_label(a, tokens[1]);
@@ -586,24 +579,23 @@ static int pass2(Asm *a) {
         }
     }
 
-    
+
     if (entry_label[0]) {
         a->entry_idx = find_label(a, entry_label);
         if (a->entry_idx < 0) { fprintf(stderr, "asm: entry label '%s' not found\n", entry_label); return -1; }
     } else {
-        a->entry_idx = 0;  
+        a->entry_idx = 0;
     }
 
     return 0;
 }
 
-
-
+// 按 UPX 格式写出文件头与各段内容
 static int write_upx(Asm *a, const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) { fprintf(stderr, "asm: cannot create '%s': %s\n", path, strerror(errno)); return -1; }
 
-    
+
     fwrite("UPX\0", 1, 4, f);
     uint32_t entry = (uint32_t)a->entry_idx;
     uint32_t text_sz = (uint32_t)a->text_size;
@@ -615,7 +607,7 @@ static int write_upx(Asm *a, const char *path) {
     fwrite(&data_sz, 4, 1, f);
     fwrite(&bss_sz,  4, 1, f);
     fwrite(&stk_sz,  4, 1, f);
-    
+
     fwrite(a->code, 1, (size_t)a->text_size, f);
     fwrite(a->data, 1, (size_t)a->data_size, f);
 
@@ -623,8 +615,7 @@ static int write_upx(Asm *a, const char *path) {
     return 0;
 }
 
-
-
+// 汇编源文件并写出 UPX 可执行文件
 int assemble_file(const char *source_path, const char *output_path) {
     Asm a;
     memset(&a, 0, sizeof(a));
@@ -634,7 +625,7 @@ int assemble_file(const char *source_path, const char *output_path) {
     if (pass2(&a) < 0) goto cleanup;
     if (write_upx(&a, output_path) < 0) goto cleanup;
 
-    
+
     printf("  text: %d bytes (%d insns) | data: %d | bss: %d | stack: %d\n",
            a.text_size, a.text_size / 4, a.data_size, a.bss_size, a.stack_size);
     printf("  entry: instruction %d\n", a.entry_idx);

@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UPFS 操作系统课程设计 — 汇报演示</title>
+<style>
+:root{
+  --icy:#BCF4F5;--cel:#B4EBCA;--tea1:#D9F2B4;--tea2:#D3FAC7;--cherry:#FFB7C3;
+  --dk:#333;--em:#00796B;--code-bg:#1e1e2e;--code-tx:#cdd6f4;
+  --accent:#0097A7;--accent2:#43A047;--accent3:#EF6C00;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:var(--dk);overflow:hidden;background:#000;}
+.deck{width:100vw;height:100vh;display:flex;overflow:hidden;}
+.deck::-webkit-scrollbar{display:none;}
+.s{flex:0 0 100vw;height:100vh;position:relative;display:flex;flex-direction:column;padding:20px 36px 28px;overflow:hidden;}
+.s-inner{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;}
+.s-inner::-webkit-scrollbar{width:4px;}
+.s-inner::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:2px;}
+
+/* backgrounds */
+.bg-w{background:#fff;} .bg-icy{background:var(--icy);} .bg-cel{background:var(--cel);}
+.bg-t1{background:var(--tea1);} .bg-t2{background:var(--tea2);} .bg-ch{background:var(--cherry);}
+.bg-dark{background:#1a1a2e;color:#eee;}
+.bg-grad1{background:linear-gradient(135deg,var(--icy),var(--cel));}
+.bg-grad2{background:linear-gradient(135deg,var(--tea2),var(--tea1));}
+.bg-grad3{background:linear-gradient(135deg,#fff,var(--icy));}
+
+/* page number */
+.pn{position:absolute;bottom:14px;right:24px;font-size:.85em;color:#999;}
+.pn-light{color:rgba(255,255,255,.5);}
+
+/* title slide */
+.title-center{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;}
+.title-center h1{font-size:3.2em;font-weight:800;letter-spacing:2px;margin-bottom:12px;}
+.title-center h2{font-size:1.5em;font-weight:400;color:#555;margin-bottom:40px;}
+.title-center .tag{display:inline-block;background:var(--em);color:#fff;padding:6px 22px;border-radius:20px;font-size:.95em;}
+
+/* section title slide */
+.sec-title{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;}
+.sec-title .num{font-size:5em;font-weight:900;opacity:.12;position:absolute;top:40px;left:60px;}
+.sec-title h2{font-size:2.6em;font-weight:700;margin-bottom:10px;}
+.sec-title p{font-size:1.05em;max-width:700px;line-height:1.5;color:#555;}
+
+/* headings */
+h2.slide-h{font-size:1.5em;color:var(--em);border-bottom:3px solid var(--em);padding-bottom:4px;margin-bottom:10px;}
+h3.sub-h{font-size:1.05em;color:var(--accent);margin:8px 0 4px;padding-left:8px;border-left:4px solid var(--accent);}
+
+/* text */
+p,.li-t{font-size:.9em;line-height:1.55;}
+ul{list-style:disc;margin-left:16px;}
+li{margin-bottom:2px;}
+.hl{background:var(--cel);padding:0 4px;border-radius:3px;font-weight:600;}
+.em-num{color:var(--em);font-weight:700;}
+strong{color:var(--em);}
+
+/* tables */
+table{width:100%;border-collapse:collapse;margin:4px 0;font-size:.82em;}
+th,td{border:1px solid rgba(0,0,0,.1);padding:4px 8px;text-align:left;}
+th{background:var(--cel);color:var(--em);font-weight:600;white-space:nowrap;}
+tr:nth-child(even){background:rgba(0,0,0,.025);}
+.tbl-sm td,.tbl-sm th{padding:4px 8px;font-size:.78em;}
+
+/* grid layouts */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.g23{display:grid;grid-template-columns:2fr 3fr;gap:12px;}
+.g32{display:grid;grid-template-columns:3fr 2fr;gap:12px;}
+.g-full{display:grid;grid-template-columns:1fr;gap:8px;}
+
+/* card */
+.card{background:rgba(255,255,255,.85);border-radius:8px;padding:10px 12px;box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.card h4{font-size:.9em;color:var(--em);margin-bottom:4px;}
+.card-dark{background:rgba(0,0,0,.04);}
+
+/* code panel: left code + right explanation */
+.code-panel{display:grid;grid-template-columns:1fr 1fr;gap:0;border-radius:8px;overflow:hidden;margin:4px 0;max-height:82vh;}
+.code-panel pre{margin:0;padding:10px;font-size:.7em;line-height:1.5;overflow:auto;background:var(--code-bg);color:var(--code-tx);font-family:'Cascadia Code','Fira Code','Consolas',monospace;border:none;border-radius:0;}
+.code-panel .code-explain{padding:10px 14px;background:#f7f9fc;font-size:.78em;line-height:1.5;overflow-y:auto;}
+.code-panel .code-explain h4{color:var(--em);margin-bottom:6px;font-size:.95em;}
+.code-panel .code-explain .step{display:flex;align-items:flex-start;margin-bottom:5px;}
+.code-panel .code-explain .step-n{background:var(--em);color:#fff;min-width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.72em;font-weight:700;margin-right:8px;margin-top:2px;}
+.code-panel .code-explain .step-t{flex:1;}
+
+/* SVG diagrams */
+svg text{font-family:'Segoe UI','PingFang SC',sans-serif;}
+.svg-wrap{display:flex;justify-content:center;margin:8px 0;}
+
+/* pseudocode table */
+.pseudo-tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:.8em;}
+.pseudo-tbl th{background:var(--em);color:#fff;padding:6px 10px;text-align:left;}
+.pseudo-tbl td{padding:5px 10px;border:1px solid rgba(0,0,0,.08);}
+.pseudo-tbl td:first-child{text-align:center;width:40px;font-weight:700;color:var(--em);}
+
+/* feature grid */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin:4px 0;}
+.feat-item{background:rgba(255,255,255,.9);border-radius:6px;padding:7px 10px;border-left:4px solid var(--em);font-size:.8em;line-height:1.4;}
+.feat-item b{color:var(--em);}
+
+/* badge */
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600;margin-left:6px;}
+.badge-green{background:#C8E6C9;color:#2E7D32;}
+.badge-blue{background:#BBDEFB;color:#1565C0;}
+.badge-orange{background:#FFE0B2;color:#E65100;}
+
+/* progress bar */
+#progress{position:fixed;top:0;left:0;height:3px;background:var(--em);z-index:999;transition:width .3s;}
+
+/* keyboard hint */
+.kbd-hint{position:fixed;bottom:14px;left:24px;font-size:.72em;color:#aaa;z-index:99;}
+</style>
+</head>
+<body>
+<div id="progress" style="width:0%"></div>
+<div class="kbd-hint">← → 翻页</div>
+<div class="deck" id="deck">
+
+<!-- ==================== SLIDE 1: TITLE ==================== -->
+<div class="s bg-grad1">
+<div class="title-center">
+<h1>UPFS 操作系统课程设计</h1>
+<h2>项目实现与汇报</h2>
+<div style="margin-top:20px;">
+<span class="tag">C17</span>&nbsp;
+<span class="tag">POSIX</span>&nbsp;
+<span class="tag">文件系统</span>&nbsp;
+<span class="tag">内核模拟</span>&nbsp;
+<span class="tag">Web 桌面</span>
+</div>
+</div>
+<div class="pn">1</div>
+</div>
+
+<!-- ==================== SLIDE 2: 项目概述 1 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">项目概述</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">项目简介</h3>
+<ul>
+<li><strong>UPFS</strong> — 面向操作系统课程设计的综合性模拟系统</li>
+<li>采用纯 <span class="hl">C 语言（C17）</span> 实现，<strong>无任何外部依赖</strong></li>
+<li>仅需标准 C 库与 POSIX 线程库即可编译运行</li>
+<li>在用户态完整模拟 UNIX 风格的操作系统内核</li>
+</ul>
+<h3 class="sub-h">核心能力</h3>
+<ul>
+<li>完整的文件系统（格式化 → 挂载 → 读写 → 日志恢复）</li>
+<li>128 MB 物理内存 + 页式虚存管理</li>
+<li>32 位 RISC 虚拟机 + 时间片轮转调度</li>
+<li>6 种进程间通信机制</li>
+<li>多用户账户与 UNIX 权限模型</li>
+<li>内置汇编器、C 编译器、vim 编辑器</li>
+<li>浏览器图形桌面环境</li>
+</ul>
+</div>
+<div>
+<h3 class="sub-h">关键数据一览</h3>
+<div class="g-full">
+<div class="card"><h4>磁盘容量</h4>546 块 × 512 B = <strong>273 KB</strong>，8 块组，504 数据块</div>
+<div class="card"><h4>内存规模</h4><strong>128 MB</strong> 物理内存 = 32768 页 × 4 KB</div>
+<div class="card"><h4>进程规模</h4>最多 <strong>64</strong> 个并发进程，16 MB 虚拟地址空间/进程</div>
+<div class="card"><h4>指令集</h4><strong>22 条</strong>指令，32 位定长编码，16 个通用寄存器</div>
+<div class="card"><h4>IPC</h4>管道 16 + FIFO 8 + 信号量 16 + 消息队列 8 + 共享内存 8</div>
+<div class="card"><h4>Shell</h4><strong>35+</strong> 条命令，支持管道串联（2~8 级）</div>
+</div>
+</div>
+</div>
+</div>
+<div class="pn">2</div>
+</div>
+
+<!-- ==================== SLIDE 3: 五层架构 ==================== -->
+<div class="s bg-t2">
+<h2 class="slide-h">系统五层架构</h2>
+<div class="s-inner">
+<div class="svg-wrap">
+<svg width="860" height="440" viewBox="0 0 860 440">
+<defs><filter id="sh"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity=".1"/></filter></defs>
+<!-- Layer 5: Network -->
+<rect x="80" y="10" width="700" height="60" rx="10" fill="#E3F2FD" stroke="#1565C0" stroke-width="1.5" filter="url(#sh)"/>
+<text x="430" y="35" text-anchor="middle" font-size="15" font-weight="700" fill="#1565C0">网络服务层</text>
+<text x="430" y="53" text-anchor="middle" font-size="11" fill="#555">HTTP/WebSocket/TCP 服务器 · Web 桌面 · JSON API · 多终端并发</text>
+<!-- Layer 4: Toolchain -->
+<rect x="80" y="85" width="700" height="60" rx="10" fill="#FFF3E0" stroke="#E65100" stroke-width="1.5" filter="url(#sh)"/>
+<text x="430" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#E65100">工具链层</text>
+<text x="430" y="128" text-anchor="middle" font-size="11" fill="#555">两遍汇编器 · C 编译器（词法→语法→AST→代码生成） · vim 编辑器 · UPX 加载器</text>
+<!-- Layer 3: User -->
+<rect x="80" y="160" width="700" height="60" rx="10" fill="#FCE4EC" stroke="#C62828" stroke-width="1.5" filter="url(#sh)"/>
+<text x="430" y="185" text-anchor="middle" font-size="15" font-weight="700" fill="#C62828">用户管理层</text>
+<text x="430" y="203" text-anchor="middle" font-size="11" fill="#555">10 用户账户 · 加盐迭代哈希 · UNIX 权限模型 · 环境变量（系统/用户两级）</text>
+<!-- Layer 2: Kernel -->
+<rect x="80" y="235" width="700" height="75" rx="10" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1.5" filter="url(#sh)"/>
+<text x="430" y="258" text-anchor="middle" font-size="15" font-weight="700" fill="#2E7D32">操作系统内核层</text>
+<text x="165" y="278" text-anchor="middle" font-size="10" fill="#555">128MB 内存</text>
+<text x="290" y="278" text-anchor="middle" font-size="10" fill="#555">RISC 虚拟机</text>
+<text x="410" y="278" text-anchor="middle" font-size="10" fill="#555">进程管理</text>
+<text x="530" y="278" text-anchor="middle" font-size="10" fill="#555">RR 调度器</text>
+<text x="650" y="278" text-anchor="middle" font-size="10" fill="#555">30+ 系统调用</text>
+<text x="430" y="298" text-anchor="middle" font-size="10" fill="#555">管道 · 信号量 · 消息队列 · 共享内存 · 命名管道 · 信号</text>
+<!-- Layer 1: FS -->
+<rect x="80" y="325" width="700" height="75" rx="10" fill="#E0F7FA" stroke="#00695C" stroke-width="1.5" filter="url(#sh)"/>
+<text x="430" y="348" text-anchor="middle" font-size="15" font-weight="700" fill="#00695C">虚拟磁盘与文件系统层</text>
+<text x="140" y="370" text-anchor="middle" font-size="10" fill="#555">块设备 I/O</text>
+<text x="250" y="370" text-anchor="middle" font-size="10" fill="#555">块组管理</text>
+<text x="350" y="370" text-anchor="middle" font-size="10" fill="#555">动态 inode</text>
+<text x="450" y="370" text-anchor="middle" font-size="10" fill="#555">Extent 映射</text>
+<text x="550" y="370" text-anchor="middle" font-size="10" fill="#555">块缓存</text>
+<text x="650" y="370" text-anchor="middle" font-size="10" fill="#555">日志恢复</text>
+<text x="740" y="370" text-anchor="middle" font-size="10" fill="#555">VFS</text>
+<text x="430" y="390" text-anchor="middle" font-size="10" fill="#555">目录操作 · 文件读写 · 路径解析 · 两级打开文件表 · 权限检查</text>
+<!-- Arrows -->
+<line x1="430" y1="70" x2="430" y2="85" stroke="#999" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="430" y1="145" x2="430" y2="160" stroke="#999" stroke-width="1"/>
+<line x1="430" y1="220" x2="430" y2="235" stroke="#999" stroke-width="1"/>
+<line x1="430" y1="310" x2="430" y2="325" stroke="#999" stroke-width="1"/>
+<!-- Shell label -->
+<rect x="80" y="412" width="700" height="24" rx="6" fill="#eee" stroke="#999" stroke-width=".5"/>
+<text x="430" y="428" text-anchor="middle" font-size="11" fill="#666">交互式 Shell — 35+ 命令 | format mount ls cd cat write mkdir run asm cc vim ps kill ...</text>
+</svg>
+</div>
+<p style="text-align:center;font-size:.85em;color:#555;margin-top:4px;">各层通过 VFS 和系统调用接口解耦。</p>
+</div>
+<div class="pn">3</div>
+</div>
+
+<!-- ==================== SLIDE 4: 运行环境 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">运行环境</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">编译环境</h3>
+<table>
+<tr><th>项目</th><th>要求</th></tr>
+<tr><td>操作系统</td><td>Linux / macOS（POSIX 兼容）</td></tr>
+<tr><td>编译器</td><td>GCC 或 Clang（C17 标准）</td></tr>
+<tr><td>构建系统</td><td>CMake ≥ 3.10</td></tr>
+<tr><td>依赖</td><td>标准 C 库 + pthreads（无第三方库）</td></tr>
+</table>
+<div class="card" style="margin-top:12px;background:var(--code-bg);color:var(--code-tx);font-family:monospace;font-size:.85em;padding:12px;">
+cmake -B build -S . -DCMAKE_C_FLAGS="-D_GNU_SOURCE"<br>
+cmake --build build
+</div>
+</div>
+<div>
+<h3 class="sub-h">两种运行模式</h3>
+<div class="card" style="margin-bottom:10px;border-left:4px solid var(--accent);">
+<h4>交互式 Shell 模式</h4>
+<code style="background:var(--code-bg);color:var(--code-tx);padding:4px 8px;border-radius:4px;font-size:.85em;">./build/bin/OS_design</code>
+<p style="margin-top:6px;">进入命令行界面，直接执行文件操作、运行程序、管理用户。</p>
+</div>
+<div class="card" style="border-left:4px solid var(--accent3);">
+<h4>网络服务模式</h4>
+<code style="background:var(--code-bg);color:var(--code-tx);padding:4px 8px;border-radius:4px;font-size:.85em;">./build/bin/OS_design --serve</code>
+<p style="margin-top:6px;">以守护进程运行，提供：</p>
+<ul style="font-size:.88em;">
+<li><strong>HTTP</strong>（端口 8080）→ 浏览器桌面环境</li>
+<li><strong>WebSocket</strong>（/ws/N）→ 独立终端会话</li>
+<li><strong>JSON API</strong>（/api）→ 文件管理/监控接口</li>
+<li><strong>TCP 终端</strong>（端口 4096）→ 传统客户端</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="pn">4</div>
+</div>
+
+<!-- ==================== SLIDE 5: Section - 磁盘与文件系统 ==================== -->
+<div class="s bg-icy">
+<div class="sec-title">
+<div class="num">03</div>
+<h2>磁盘与文件系统结构</h2>
+<p>磁盘布局、块组管理、inode 映射、Extent 索引、块缓存与日志。</p>
+</div>
+<div class="pn">5</div>
+</div>
+
+<!-- ==================== SLIDE 6: 磁盘布局 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">磁盘总体布局</h2>
+<div class="s-inner">
+<p>虚拟磁盘由 <strong>546 个物理块</strong>构成，每块 <strong>512 字节</strong>，总容量 <strong>273 KB</strong>。</p>
+<div class="svg-wrap">
+<svg width="820" height="110" viewBox="0 0 820 110">
+<rect x="0" y="20" width="30" height="50" rx="4" fill="#FFCDD2" stroke="#C62828" stroke-width="1"/>
+<text x="15" y="50" text-anchor="middle" font-size="8" fill="#C62828">引导</text>
+<text x="15" y="85" text-anchor="middle" font-size="7" fill="#888">块 0</text>
+<rect x="35" y="20" width="30" height="50" rx="4" fill="#BBDEFB" stroke="#1565C0" stroke-width="1"/>
+<text x="50" y="50" text-anchor="middle" font-size="8" fill="#1565C0">超级</text>
+<text x="50" y="85" text-anchor="middle" font-size="7" fill="#888">块 1</text>
+<rect x="70" y="20" width="580" height="50" rx="4" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/>
+<text x="360" y="42" text-anchor="middle" font-size="13" font-weight="600" fill="#2E7D32">块组区（8 个块组 × 64 块 = 512 块）</text>
+<text x="360" y="58" text-anchor="middle" font-size="10" fill="#555">每组: 1 锚块 + 63 数据块 → 共 504 数据块 = 252 KB</text>
+<text x="360" y="85" text-anchor="middle" font-size="7" fill="#888">块 2 ~ 513</text>
+<!-- block group divisions -->
+<line x1="142" y1="20" x2="142" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="214" y1="20" x2="214" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="286" y1="20" x2="286" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="358" y1="20" x2="358" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="430" y1="20" x2="430" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="502" y1="20" x2="502" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<line x1="578" y1="20" x2="578" y2="70" stroke="#2E7D32" stroke-width=".5" stroke-dasharray="2"/>
+<rect x="655" y="20" width="160" height="50" rx="4" fill="#FFF9C4" stroke="#F9A825" stroke-width="1"/>
+<text x="735" y="42" text-anchor="middle" font-size="11" font-weight="600" fill="#F57F17">日志区</text>
+<text x="735" y="58" text-anchor="middle" font-size="10" fill="#555">32 块 = 16 KB</text>
+<text x="735" y="85" text-anchor="middle" font-size="7" fill="#888">块 514 ~ 545</text>
+</svg>
+</div>
+<table>
+<tr><th>区域</th><th>起始块号</th><th>块数</th><th>大小</th><th>用途</th></tr>
+<tr><td>引导块</td><td>0</td><td>1</td><td>512 B</td><td>启动标识和关键块号</td></tr>
+<tr><td>超级块</td><td>1</td><td>1</td><td>512 B</td><td>文件系统全局元数据</td></tr>
+<tr><td>块组区</td><td>2 ~ 513</td><td>512</td><td>256 KB</td><td>8 个块组，存放全部文件和目录数据</td></tr>
+<tr><td>日志区</td><td>514 ~ 545</td><td>32</td><td>16 KB</td><td>元数据事务日志，保障崩溃一致性</td></tr>
+</table>
+<h3 class="sub-h">块组与成组链接法</h3>
+<div class="g2">
+<div>
+<div class="svg-wrap">
+<svg width="360" height="140" viewBox="0 0 360 140">
+<rect x="0" y="10" width="50" height="110" rx="5" fill="#FFE0B2" stroke="#E65100" stroke-width="1.5"/>
+<text x="25" y="55" text-anchor="middle" font-size="10" font-weight="600" fill="#E65100">锚块</text>
+<text x="25" y="72" text-anchor="middle" font-size="8" fill="#555">空闲栈</text>
+<text x="25" y="84" text-anchor="middle" font-size="8" fill="#555">(50项)</text>
+<text x="25" y="100" text-anchor="middle" font-size="8" fill="#555">链表头</text>
+<rect x="60" y="10" width="290" height="110" rx="5" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1"/>
+<text x="205" y="45" text-anchor="middle" font-size="12" fill="#2E7D32">63 个数据块</text>
+<text x="205" y="65" text-anchor="middle" font-size="10" fill="#555">用于文件数据 / 目录 / inode 块 / B+ 树节点</text>
+<!-- small blocks -->
+<g transform="translate(70,80)">
+<rect x="0" y="0" width="18" height="18" rx="2" fill="#A5D6A7"/><rect x="22" y="0" width="18" height="18" rx="2" fill="#A5D6A7"/><rect x="44" y="0" width="18" height="18" rx="2" fill="#A5D6A7"/><rect x="66" y="0" width="18" height="18" rx="2" fill="#C8E6C9"/><rect x="88" y="0" width="18" height="18" rx="2" fill="#C8E6C9"/><rect x="110" y="0" width="18" height="18" rx="2" fill="#E8F5E9"/><text x="140" y="13" font-size="9" fill="#888">...</text><rect x="160" y="0" width="18" height="18" rx="2" fill="#E8F5E9"/><rect x="182" y="0" width="18" height="18" rx="2" fill="#E8F5E9"/><rect x="204" y="0" width="18" height="18" rx="2" fill="#E8F5E9"/>
+</g>
+</svg>
+</div>
+</div>
+<div>
+<p><strong>成组链接法</strong>空闲块管理：</p>
+<ul>
+<li>锚块维护容量 <strong>50</strong> 的空闲块号栈</li>
+<li>分配 → 栈顶弹出（O(1)）</li>
+<li>栈空 → 从链表加载下一组</li>
+<li>回收 → 压入栈顶</li>
+<li>栈满 → 写入寄存块，形成链表</li>
+<li><span class="hl">创新：按 inode 所在块组就近分配</span></li>
+</ul>
+</div>
+</div>
+</div>
+<div class="pn">6</div>
+</div>
+
+<!-- ==================== SLIDE 7: inode + Extent + 缓存 + 日志 ==================== -->
+<div class="s bg-t1">
+<h2 class="slide-h">inode · Extent · 缓存 · 日志</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">动态 inode 管理（类 XFS）</h3>
+<ul>
+<li>不预留 inode 区，按需从数据块分配 <strong>inode 块</strong></li>
+<li>每块 16 个 inode（32 B/个），最多 <strong>8064</strong> 个 inode</li>
+<li><strong>位置树</strong>：inode号 → (块号, 槽位) — 对数时间定位</li>
+<li><strong>空闲树</strong>：块号 → 16 位空闲位图 — 快速找空槽</li>
+<li>另有 <strong>128 项回收栈</strong>作为快速路径</li>
+</ul>
+<h3 class="sub-h">文件数据映射（Extent）</h3>
+<ul>
+<li>每条 Extent 仅 <strong>8 字节</strong>：逻辑块号 + 物理块号 + 连续长度</li>
+<li><strong>三级策略</strong>：内联(inode 内) → 单叶(62 条) → B+ 树</li>
+<li><span class="hl">自动合并相邻区段</span> — 顺序写入仅需极少记录</li>
+</ul>
+</div>
+<div>
+<h3 class="sub-h">块缓存（LRU + Hash）</h3>
+<div class="card">
+<p><strong>1024</strong> 个缓存槽 = <strong>512 KB</strong></p>
+<p>读取 → 先查哈希表，命中直接返回</p>
+<p>写入 → 延迟写（标记脏位，统一刷盘）</p>
+</div>
+<h3 class="sub-h">元数据日志（WAL）</h3>
+<div class="card">
+<p>日志区 32 块：1 块日志头 + 31 块数据槽</p>
+<p>修改元数据 → 先写日志 → 标记提交 → 回写原位</p>
+<p>崩溃恢复 → 挂载时检测未完成事务 → 自动重放</p>
+<p style="color:var(--em);font-weight:600;margin-top:4px;">保证文件系统的崩溃一致性</p>
+</div>
+</div>
+</div>
+<h3 class="sub-h">目录 · 打开文件表 · VFS</h3>
+<div class="g3">
+<div class="card">
+<h4>目录项（16 B）</h4>
+<p>inode 号(2B) + 文件名(14B)</p>
+<p>每块 <strong>32</strong> 个目录项</p>
+<p>支持 . / .. / ~ / 绝对/相对路径</p>
+</div>
+<div class="card">
+<h4>两级打开文件表</h4>
+<p>用户表：每用户 <strong>20</strong> 项（独立读写位置）</p>
+<p>系统表：全局 <strong>40</strong> 项（引用计数）</p>
+<p>inode 缓存：<strong>2048</strong> 项，128 桶哈希 + 读写锁</p>
+</div>
+<div class="card">
+<h4>VFS 抽象层</h4>
+<p>可插拔设计，注册三张操作表：</p>
+<p>inode 操作 / 文件操作 / 超级块操作</p>
+<p>Shell 和系统调用统一通过 VFS 访问</p>
+</div>
+</div>
+</div>
+<div class="pn">7</div>
+</div>
+
+<!-- ==================== SLIDE 8: Section - 数据结构 ==================== -->
+<div class="s bg-ch">
+<div class="sec-title">
+<div class="num">04</div>
+<h2>核心数据结构</h2>
+<p>磁盘结构体与运行时结构体的字段、大小与用途。</p>
+</div>
+<div class="pn">8</div>
+</div>
+
+<!-- ==================== SLIDE 9: 超级块 + DiskINode ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">超级块 · 磁盘 inode</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">超级块（512 字节）</h3>
+<table class="tbl-sm">
+<tr><th>字段</th><th>大小</th><th>说明</th></tr>
+<tr><td>魔数</td><td>4 B</td><td>"UPFS" 标识</td></tr>
+<tr><td>已用/空闲 inode</td><td>各 4 B</td><td>分配统计</td></tr>
+<tr><td>下一 inode 号</td><td>4 B</td><td>分配起始搜索编号</td></tr>
+<tr><td>总块数/空闲块</td><td>各 4 B</td><td>504 总 / 动态统计</td></tr>
+<tr><td>B+ 树根(位置+空闲)</td><td>各 2+2 B</td><td>根块号 + 层级</td></tr>
+<tr><td>空闲 inode 栈</td><td>128 B</td><td>32 个回收的 inode 号</td></tr>
+<tr><td>块组描述表</td><td>64 B</td><td>8 组 × 8 B 描述符</td></tr>
+<tr><td>填充</td><td>—</td><td>补齐至 512 B</td></tr>
+</table>
+</div>
+<div>
+<h3 class="sub-h">磁盘索引节点（32 字节 × 16/块）</h3>
+<table class="tbl-sm">
+<tr><th>字段</th><th>大小</th><th>说明</th></tr>
+<tr><td>类型与权限</td><td>2 B</td><td>目录/文件 + 9 位 rwx</td></tr>
+<tr><td>硬链接计数</td><td>2 B</td><td>降为 0 释放</td></tr>
+<tr><td>文件长度</td><td>4 B</td><td>有效字节数</td></tr>
+<tr><td>UID / GID</td><td>各 2 B</td><td>所有者/组</td></tr>
+<tr><td>内联 Extent</td><td>8 B</td><td>逻辑→物理映射(小文件)</td></tr>
+<tr><td>Extent 树根</td><td>2 B</td><td>大文件 B+ 树根块号</td></tr>
+<tr><td>树层级</td><td>2 B</td><td>B+ 树高度</td></tr>
+<tr><td>保留</td><td>8 B</td><td>对齐填充</td></tr>
+</table>
+</div>
+</div>
+<h3 class="sub-h">Extent · 目录项 · 锚块</h3>
+<div class="g3">
+<div class="card"><h4>Extent（8 B）</h4><p>起始逻辑块号(4B) + 起始物理块号(2B) + 连续块数(2B)</p><p>一条记录可映射最多 65535 个连续块</p></div>
+<div class="card"><h4>目录项（16 B）</h4><p>inode 号(2B) + 文件名(14B)</p><p>删除仅需置 inode 号为 0</p></div>
+<div class="card"><h4>块组锚块（512 B）</h4><p>魔数(4B) + 空闲计数(4B) + 栈(100B,50项) + 链表头(2B)</p></div>
+</div>
+</div>
+<div class="pn">9</div>
+</div>
+
+<!-- ==================== SLIDE 10: 内存inode~PCB~Pipe ==================== -->
+<div class="s bg-t2">
+<h2 class="slide-h">运行时数据结构</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">内存 inode（40+ B）</h3>
+<p>磁盘 inode 副本(32B) + inode 号 + 引用计数 + 脏标志 + 读写锁。128 桶哈希表索引，最大 2048 项。</p>
+<h3 class="sub-h">打开文件表项（16 B）</h3>
+<p>读位置(4B) + 写位置(4B) + 模式 + 锁标志 + inode 指针。每用户独立维护 20 项。</p>
+<h3 class="sub-h">管道</h3>
+<p><strong>512 B</strong> 环形缓冲区 + 读写指针 + 引用计数。读写回绕，双端引用均为零时回收。</p>
+</div>
+<div>
+<h3 class="sub-h">进程控制块（PCB）</h3>
+<table class="tbl-sm">
+<tr><th>字段组</th><th>内容</th></tr>
+<tr><td>标识</td><td>PID/PPID/名称/5 种状态</td></tr>
+<tr><td>CPU 上下文</td><td>16 寄存器 + PC + FLAGS + 时间片</td></tr>
+<tr><td>内存</td><td>4096 项页表(16MB) + 各段地址</td></tr>
+<tr><td>文件</td><td>16 项描述符(终端/文件/管道)</td></tr>
+<tr><td>进程关系</td><td>子进程数组 + 退出码</td></tr>
+<tr><td>IPC</td><td>信号位掩码 + 共享内存表(4段)</td></tr>
+</table>
+<h3 class="sub-h">指令编码（32 位定长）</h3>
+<div class="svg-wrap">
+<svg width="380" height="44" viewBox="0 0 380 44">
+<rect x="0" y="4" width="95" height="36" rx="4" fill="#E3F2FD" stroke="#1565C0" stroke-width="1"/>
+<text x="47" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#1565C0">操作码</text>
+<text x="47" y="32" text-anchor="middle" font-size="8" fill="#555">8 位 [31:24]</text>
+<rect x="100" y="4" width="65" height="36" rx="4" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1"/>
+<text x="132" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#2E7D32">rd</text>
+<text x="132" y="32" text-anchor="middle" font-size="8" fill="#555">4 位</text>
+<rect x="170" y="4" width="60" height="36" rx="4" fill="#FFF3E0" stroke="#E65100" stroke-width="1"/>
+<text x="200" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#E65100">rs1</text>
+<text x="200" y="32" text-anchor="middle" font-size="8" fill="#555">4 位</text>
+<rect x="235" y="4" width="55" height="36" rx="4" fill="#FCE4EC" stroke="#C62828" stroke-width="1"/>
+<text x="262" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#C62828">rs2</text>
+<text x="262" y="32" text-anchor="middle" font-size="8" fill="#555">4 位</text>
+<rect x="295" y="4" width="80" height="36" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1"/>
+<text x="335" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#6A1B9A">imm12</text>
+<text x="335" y="32" text-anchor="middle" font-size="8" fill="#555">12 位 [11:0]</text>
+</svg>
+</div>
+</div>
+</div>
+</div>
+<div class="pn">10</div>
+</div>
+
+<!-- ==================== SLIDE 11: Section - 内核 ==================== -->
+<div class="s bg-cel">
+<div class="sec-title">
+<div class="num">05</div>
+<h2>内核层结构</h2>
+<p>内存管理、虚拟机、进程管理、调度、系统调用、IPC。</p>
+</div>
+<div class="pn">11</div>
+</div>
+
+<!-- ==================== SLIDE 12: 内存 + CPU + 进程 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">内存 · 虚拟机 · 进程</h2>
+<div class="s-inner">
+<div class="g3">
+<div>
+<h3 class="sub-h">物理内存（128 MB）</h3>
+<div class="svg-wrap">
+<svg width="220" height="160" viewBox="0 0 220 160">
+<rect x="10" y="5" width="200" height="35" rx="4" fill="#FFCDD2" stroke="#C62828" stroke-width="1"/>
+<text x="110" y="22" text-anchor="middle" font-size="10" font-weight="600" fill="#C62828">内核保留区</text>
+<text x="110" y="34" text-anchor="middle" font-size="8" fill="#555">4096 页 = 16 MB</text>
+<rect x="10" y="44" width="200" height="100" rx="4" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/>
+<text x="110" y="85" text-anchor="middle" font-size="11" font-weight="600" fill="#2E7D32">用户进程区</text>
+<text x="110" y="103" text-anchor="middle" font-size="9" fill="#555">28672 页 = 112 MB</text>
+<text x="110" y="118" text-anchor="middle" font-size="8" fill="#888">位图法管理，每位 = 1 页(4KB)</text>
+<text x="110" y="152" text-anchor="middle" font-size="9" fill="#555">总计 32768 页 × 4 KB = 128 MB</text>
+</svg>
+</div>
+</div>
+<div>
+<h3 class="sub-h">RISC 虚拟机</h3>
+<ul>
+<li><strong>22 条指令</strong>，32 位定长编码</li>
+<li>16 个通用寄存器（R15=SP）</li>
+<li>PC + FLAGS（ZF 零标志）</li>
+<li>页表地址翻译（4096 页/进程 = 16 MB）</li>
+<li>取指→译码→执行 循环</li>
+<li>时间片中断：每条指令递减</li>
+</ul>
+<h3 class="sub-h">进程生命周期</h3>
+<div class="svg-wrap">
+<svg width="240" height="100" viewBox="0 0 240 100">
+<rect x="5" y="35" width="40" height="24" rx="10" fill="#eee" stroke="#999" stroke-width="1"/><text x="25" y="51" text-anchor="middle" font-size="8">空闲</text>
+<rect x="60" y="35" width="40" height="24" rx="10" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/><text x="80" y="51" text-anchor="middle" font-size="8" fill="#2E7D32">就绪</text>
+<rect x="115" y="35" width="40" height="24" rx="10" fill="#BBDEFB" stroke="#1565C0" stroke-width="1"/><text x="135" y="51" text-anchor="middle" font-size="8" fill="#1565C0">运行</text>
+<rect x="175" y="10" width="45" height="24" rx="10" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/><text x="197" y="26" text-anchor="middle" font-size="8" fill="#E65100">阻塞</text>
+<rect x="175" y="60" width="45" height="24" rx="10" fill="#FFCDD2" stroke="#C62828" stroke-width="1"/><text x="197" y="76" text-anchor="middle" font-size="8" fill="#C62828">僵尸</text>
+<line x1="45" y1="47" x2="58" y2="47" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="100" y1="47" x2="113" y2="47" stroke="#666" stroke-width="1" marker-end="url(#arrow)"/>
+<path d="M135 35 Q165 10 175 22" fill="none" stroke="#666" stroke-width="1"/>
+<path d="M135 59 Q165 80 175 72" fill="none" stroke="#666" stroke-width="1"/>
+<path d="M175 22 Q125 8 100 35" fill="none" stroke="#666" stroke-width="1"/>
+</svg>
+</div>
+</div>
+<div>
+<h3 class="sub-h">进程管理</h3>
+<ul>
+<li>最多 <strong>64</strong> 个并发进程</li>
+<li>每进程 <strong>16</strong> 个文件描述符</li>
+<li><strong>fork</strong>：完整复制页表+内存</li>
+<li><strong>exec</strong>：加载 UPX 可执行文件</li>
+<li><strong>wait</strong>：回收僵尸子进程</li>
+<li><strong>exit</strong>：释放资源，孤儿过继</li>
+</ul>
+<h3 class="sub-h">调度器</h3>
+<ul>
+<li><strong>时间片轮转</strong>：100 条指令/片</li>
+<li>环形数组就绪队列</li>
+<li>协作式让出（管道/信号量阻塞时）</li>
+<li>自动回收 init 的僵尸子进程</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="pn">12</div>
+</div>
+
+<!-- ==================== SLIDE 13: 系统调用 + IPC ==================== -->
+<div class="s bg-t1">
+<h2 class="slide-h">系统调用 · 进程间通信</h2>
+<div class="s-inner">
+<h3 class="sub-h">30+ 系统调用</h3>
+<div class="g3" style="font-size:.82em;">
+<div class="card"><h4>进程类</h4>退出 · 派生 · 执行 · 等待 · 获取 PID</div>
+<div class="card"><h4>文件/目录类</h4>创建 · 打开 · 读 · 写 · 关闭 · 定位 · 删除 · 属性 · 切换目录 · 创建目录</div>
+<div class="card"><h4>IPC/环境/内存/工具</h4>管道 · 信号 · 信号量 · 消息队列 · 共享内存 · 环境变量 · 堆扩展 · 编辑器 · 汇编器</div>
+</div>
+<h3 class="sub-h">六种 IPC 机制</h3>
+<div class="g3">
+<div class="card" style="border-left:4px solid #1565C0;">
+<h4>匿名管道 <span class="badge badge-blue">×16</span></h4>
+<p>512 B 环形缓冲区，引用计数管理读/写端，空管道自动阻塞。Shell 支持 2~8 级串联。</p>
+</div>
+<div class="card" style="border-left:4px solid #6A1B9A;">
+<h4>命名管道 FIFO <span class="badge badge-blue">×8</span></h4>
+<p>通过路径标识，复用匿名管道机制，不相关进程可通过路径通信。</p>
+</div>
+<div class="card" style="border-left:4px solid #2E7D32;">
+<h4>信号量 <span class="badge badge-green">×16</span></h4>
+<p>键值获取，P(等待/减一) / V(释放/加一)，P 为零时自动让出 CPU。</p>
+</div>
+<div class="card" style="border-left:4px solid #E65100;">
+<h4>消息队列 <span class="badge badge-orange">×8</span></h4>
+<p>每队列最多 32 条消息(128B/条)，支持按类型接收。</p>
+</div>
+<div class="card" style="border-left:4px solid #C62828;">
+<h4>共享内存 <span class="badge badge-orange">×8</span></h4>
+<p>每段最多 4 页(16 KB)，映射到虚拟地址空间，多进程直接访问。</p>
+</div>
+<div class="card" style="border-left:4px solid #F57F17;">
+<h4>信号机制</h4>
+<p>SIGKILL / SIGTERM / SIGUSR1，位掩码挂起，调度时投递。</p>
+</div>
+</div>
+</div>
+<div class="pn">13</div>
+</div>
+
+<!-- ==================== SLIDE 14: 用户+环境+工具链+网络 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">用户管理 · 工具链 · 网络服务</h2>
+<div class="s-inner">
+<div class="g3">
+<div>
+<h3 class="sub-h">多用户系统</h3>
+<ul>
+<li>最多 <strong>10</strong> 个用户账户</li>
+<li>密码：<span class="hl">16 B 盐 + 10000 轮迭代哈希</span> → 32 B 哈希</li>
+<li>用户数据库：/etc/passwd</li>
+<li>首次格式化自动创建 POSIX 目录结构</li>
+</ul>
+<h3 class="sub-h">UNIX 权限模型</h3>
+<p>Owner/Group/Other × R/W/X（9 位）</p>
+<p>Root（UID=0）绕过所有检查</p>
+<h3 class="sub-h">环境变量</h3>
+<p>系统级(/etc/environment) + 用户级(~/.env)</p>
+<p>每层 <strong>64</strong> 变量，键 63 字符，值 255 字符</p>
+</div>
+<div>
+<h3 class="sub-h">工具链</h3>
+<div class="card" style="margin-bottom:8px;"><h4>两遍汇编器</h4><p>第一遍收集标签 → 第二遍生成 32 位机器码 → 输出 UPX 二进制</p></div>
+<div class="card" style="margin-bottom:8px;"><h4>C 语言编译器</h4>
+<div class="svg-wrap" style="margin:4px 0;">
+<svg width="280" height="36" viewBox="0 0 280 36">
+<rect x="0" y="4" width="50" height="28" rx="5" fill="#E3F2FD" stroke="#1565C0" stroke-width="1"/><text x="25" y="22" text-anchor="middle" font-size="8" fill="#1565C0">词法</text>
+<text x="58" y="22" font-size="10" fill="#999">→</text>
+<rect x="66" y="4" width="50" height="28" rx="5" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1"/><text x="91" y="22" text-anchor="middle" font-size="8" fill="#2E7D32">语法</text>
+<text x="124" y="22" font-size="10" fill="#999">→</text>
+<rect x="132" y="4" width="40" height="28" rx="5" fill="#FFF3E0" stroke="#E65100" stroke-width="1"/><text x="152" y="22" text-anchor="middle" font-size="8" fill="#E65100">AST</text>
+<text x="180" y="22" font-size="10" fill="#999">→</text>
+<rect x="188" y="4" width="42" height="28" rx="5" fill="#FCE4EC" stroke="#C62828" stroke-width="1"/><text x="209" y="22" text-anchor="middle" font-size="8" fill="#C62828">代码生成</text>
+<text x="238" y="22" font-size="10" fill="#999">→</text>
+<rect x="246" y="4" width="32" height="28" rx="5" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1"/><text x="262" y="22" text-anchor="middle" font-size="8" fill="#6A1B9A">UPX</text>
+</svg>
+</div>
+</div>
+<div class="card" style="margin-bottom:8px;"><h4>内置 vim 编辑器</h4><p>光标移动 · 文本编辑 · 行号 · 语法高亮</p></div>
+<div class="card"><h4>UPX 格式（24 B 头）</h4><p>魔数 + 入口 + 代码段 + 数据段 + BSS + 栈</p></div>
+</div>
+<div>
+<h3 class="sub-h">网络服务</h3>
+<div class="svg-wrap">
+<svg width="230" height="200" viewBox="0 0 230 200">
+<rect x="60" y="0" width="110" height="30" rx="6" fill="#E3F2FD" stroke="#1565C0" stroke-width="1.5"/><text x="115" y="20" text-anchor="middle" font-size="10" font-weight="600" fill="#1565C0">浏览器</text>
+<line x1="85" y1="30" x2="50" y2="55" stroke="#999" stroke-width="1"/>
+<line x1="115" y1="30" x2="115" y2="55" stroke="#999" stroke-width="1"/>
+<line x1="145" y1="30" x2="180" y2="55" stroke="#999" stroke-width="1"/>
+<rect x="10" y="55" width="70" height="26" rx="5" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/><text x="45" y="72" text-anchor="middle" font-size="8" fill="#2E7D32">HTTP:8080</text>
+<rect x="85" y="55" width="62" height="26" rx="5" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/><text x="116" y="72" text-anchor="middle" font-size="8" fill="#E65100">WS /ws/N</text>
+<rect x="152" y="55" width="68" height="26" rx="5" fill="#FFCDD2" stroke="#C62828" stroke-width="1"/><text x="186" y="72" text-anchor="middle" font-size="8" fill="#C62828">API /api</text>
+<line x1="115" y1="81" x2="115" y2="100" stroke="#999" stroke-width="1"/>
+<rect x="30" y="100" width="170" height="30" rx="6" fill="#E0F7FA" stroke="#00695C" stroke-width="1.5"/><text x="115" y="119" text-anchor="middle" font-size="10" font-weight="600" fill="#00695C">UPFS 内核 (mmap 共享)</text>
+<line x1="115" y1="130" x2="115" y2="145" stroke="#999" stroke-width="1"/>
+<rect x="50" y="145" width="130" height="26" rx="5" fill="#FFF9C4" stroke="#F9A825" stroke-width="1"/><text x="115" y="162" text-anchor="middle" font-size="9" fill="#F57F17">磁盘镜像文件</text>
+<rect x="10" y="180" width="80" height="18" rx="4" fill="#eee" stroke="#999" stroke-width=".5"/><text x="50" y="193" text-anchor="middle" font-size="8" fill="#666">TCP:4096 终端</text>
+</svg>
+</div>
+<p style="font-size:.82em;">Web 桌面：终端 · Finder · TextEdit · Activity Monitor</p>
+<p style="font-size:.82em;">多终端 mmap 共享磁盘，命令前重载超级块。</p>
+</div>
+</div>
+</div>
+<div class="pn">14</div>
+</div>
+
+<!-- ==================== SLIDE 15: Section - 文件作用 ==================== -->
+<div class="s bg-icy">
+<div class="sec-title">
+<div class="num">09</div>
+<h2>各文件作用说明</h2>
+<p>30+ 源文件按功能层次组织。</p>
+</div>
+<div class="pn">15</div>
+</div>
+
+<!-- ==================== SLIDE 16: 文件作用 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">源文件一览</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">文件系统层 src/fs/</h3>
+<table class="tbl-sm">
+<tr><th>文件</th><th>职责</th></tr>
+<tr><td>disk_io</td><td>虚拟块设备驱动（内存 / mmap）</td></tr>
+<tr><td>format</td><td>磁盘格式化（引导→块组→日志→inode→超级块→根目录）</td></tr>
+<tr><td>bg</td><td>块组管理 · 成组链接法分配/回收</td></tr>
+<tr><td>inomap</td><td>动态 inode B+ 树（位置树 + 空闲树）</td></tr>
+<tr><td>extent</td><td>Extent 映射 + B+ 树 + 自动合并</td></tr>
+<tr><td>buf</td><td>LRU + Hash 块缓存（1024 槽）</td></tr>
+<tr><td>journal</td><td>WAL 日志 · 事务提交 · 崩溃重放</td></tr>
+<tr><td>allocator</td><td>块/inode 分配封装 · inode 哈希缓存</td></tr>
+<tr><td>dir_sys</td><td>目录操作 · namei 路径解析</td></tr>
+<tr><td>file_sys</td><td>两级打开文件表 · CRUD · 硬链接</td></tr>
+<tr><td>vfs</td><td>VFS 抽象层（三张操作函数表）</td></tr>
+</table>
+</div>
+<div>
+<h3 class="sub-h">内核层 src/kernel/</h3>
+<table class="tbl-sm">
+<tr><th>文件</th><th>职责</th></tr>
+<tr><td>memory</td><td>128 MB 物理内存 · 页位图分配</td></tr>
+<tr><td>cpu</td><td>22 条指令译码执行 · 页表翻译</td></tr>
+<tr><td>process</td><td>PCB · fork/exec/wait/exit</td></tr>
+<tr><td>scheduler</td><td>时间片轮转 · 就绪队列 · 让出</td></tr>
+<tr><td>syscall</td><td>30+ 系统调用分发</td></tr>
+<tr><td>pipe</td><td>匿名管道 · 环形缓冲 · 引用计数</td></tr>
+<tr><td>ipc</td><td>信号量/消息队列/共享内存/FIFO/信号</td></tr>
+</table>
+<h3 class="sub-h">用户/工具/入口/网络</h3>
+<table class="tbl-sm">
+<tr><th>文件</th><th>职责</th></tr>
+<tr><td>user_mgmt</td><td>用户 CRUD · 加盐哈希</td></tr>
+<tr><td>env</td><td>两级环境变量</td></tr>
+<tr><td>assembler</td><td>两遍汇编器</td></tr>
+<tr><td>compiler/*</td><td>C 编译器全链路</td></tr>
+<tr><td>editor</td><td>vim 风格编辑器</td></tr>
+<tr><td>main</td><td>Shell 入口 · 35+ 命令分发</td></tr>
+<tr><td>serve/web_*</td><td>HTTP/WS/TCP 服务 · JSON API</td></tr>
+</table>
+</div>
+</div>
+</div>
+<div class="pn">16</div>
+</div>
+
+<!-- ==================== SLIDE 17: Section - 重点函数 ==================== -->
+<div class="s bg-ch">
+<div class="sec-title">
+<div class="num">10</div>
+<h2>重点函数源代码与说明</h2>
+<p>源代码与功能说明。</p>
+</div>
+<div class="pn">17</div>
+</div>
+
+<!-- ==================== SLIDE 18: format ==================== -->
+<div class="s bg-w" style="padding:16px 28px 24px;">
+<h2 class="slide-h">磁盘格式化 format()</h2>
+<div class="code-panel" style="flex:1;">
+<pre>int format(const char *disk_path)
+{
+    SuperBlock sb;
+
+    if (disk_path == NULL || disk_path[0] == '\0') {
+        FORMAT_LOG("错误：磁盘路径为空");
+        return -1;
+    }
+
+    if (disk_create() != 0) {
+        FORMAT_LOG("错误：内存分配失败");
+        return -1;
+    }
+
+    if (init_boot_block() != 0) {
+        FORMAT_LOG("错误：引导块写入失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (bg_format_init() != 0) {
+        FORMAT_LOG("错误：块组初始化失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (journal_init_format() != 0) {
+        FORMAT_LOG("错误：日志区初始化失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (inomap_format_init(ROOT_DIR_BLOCK) != 0) {
+        FORMAT_LOG("错误：动态 inode 初始化失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    memset(&amp;sb, 0, sizeof(sb));
+    sb.s_magic = VFS_MAGIC;
+    if (bg_fill_super(&amp;sb) != 0) {
+        FORMAT_LOG("错误：超级块汇总失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (bg_sync() != 0) {
+        FORMAT_LOG("错误：anchor 同步失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (disk_write_block(SUPERBLOCK_BLOCKNO, &amp;sb) != 0) {
+        FORMAT_LOG("错误：超级块写入失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (init_root_directory() != 0) {
+        FORMAT_LOG("错误：根目录初始化失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    if (disk_save(disk_path) != 0) {
+        FORMAT_LOG("错误：镜像保存失败");
+        disk_shutdown();
+        return -1;
+    }
+
+    disk_shutdown();
+    return 0;
+}</pre>
+<div class="code-explain">
+<h4>格式化全流程（顺序不可变）</h4>
+<div class="step"><div class="step-n">1</div><div class="step-t"><strong>分配内存盘</strong> — 在内存中创建 546 块的虚拟磁盘。</div></div>
+<div class="step"><div class="step-n">2</div><div class="step-t"><strong>写入引导块</strong> — 写入启动标识和关键块号。</div></div>
+<div class="step"><div class="step-n">3</div><div class="step-t"><strong>初始化块组</strong> — 建立 8 个块组的锚块和空闲链表。</div></div>
+<div class="step"><div class="step-n">4</div><div class="step-t"><strong>日志区清零</strong> — 初始化 32 块日志区。</div></div>
+<div class="step"><div class="step-n">5</div><div class="step-t"><strong>inode 映射初始化</strong> — 创建位置树和空闲树的根节点，分配根目录的第一个 inode 块。</div></div>
+<div class="step"><div class="step-n">6</div><div class="step-t"><strong>汇总超级块</strong> — 统计空闲块和 inode 数据写入超级块。</div></div>
+<div class="step"><div class="step-n">7</div><div class="step-t"><strong>同步锚块</strong> — 将最新的空闲块状态写回锚块，<span style="color:var(--accent3);">避免 B+ 树块被误分配。</span></div></div>
+<div class="step"><div class="step-n">8</div><div class="step-t"><strong>写超级块</strong> — 持久化到块 1。</div></div>
+<div class="step"><div class="step-n">9</div><div class="step-t"><strong>创建根目录</strong> — 在固定位置创建 / 目录，包含 . 和 .. 条目。</div></div>
+<div class="step"><div class="step-n">10</div><div class="step-t"><strong>保存镜像</strong> — 将内存盘写入磁盘文件。</div></div>
+<p style="margin-top:8px;padding:6px;background:#FFF3E0;border-radius:6px;font-size:.82em;"><strong>注意：</strong>步骤顺序不可变——块组先于 inode 树（后者需要分配块），锚块同步在 inode 树之后（否则空闲栈会包含已占用的块号）。</p>
+</div>
+</div>
+<div class="pn">18</div>
+</div>
+
+<!-- ==================== SLIDE 19: bg_balloc_for ==================== -->
+<div class="s bg-t2" style="padding:16px 28px 24px;">
+<h2 class="slide-h">块分配 bg_balloc_for()</h2>
+<div class="code-panel" style="flex:1;">
+<pre>int bg_balloc_for(uint16_t ino_hint)
+{
+    int start = bg_hint_to_group(ino_hint);
+    int bg;
+    BgRuntime *rt;
+    uint16_t blk;
+
+    for (int pass = 0; pass &lt; BG_COUNT; pass++) {
+        bg = (start + pass) % BG_COUNT;
+        rt = &amp;g_bg[bg];
+        if (rt-&gt;block_free == 0)
+            continue;
+        if (rt-&gt;free_stack_count == 0) {
+            if (bg_reload_free_stack(rt) != 0)
+                continue;
+        }
+        rt-&gt;free_stack_count--;
+        blk = rt-&gt;free_stack[rt-&gt;free_stack_count];
+        rt-&gt;block_free--;
+        return (int)blk;
+    }
+    return -1;
+}</pre>
+<div class="code-explain">
+<h4>按 inode 就近分配空闲数据块</h4>
+<div class="step"><div class="step-n">1</div><div class="step-t"><strong>计算起始块组</strong> — 通过 inode 号查找其所在物理块，推算块组编号。尽量在同一块组分配数据块以提升局部性。</div></div>
+<div class="step"><div class="step-n">2</div><div class="step-t"><strong>循环 8 个块组</strong> — 从起始块组出发，取模轮转遍历所有块组。</div></div>
+<div class="step"><div class="step-n">3</div><div class="step-t"><strong>跳过空组</strong> — 若当前块组空闲块为 0，直接尝试下一组。</div></div>
+<div class="step"><div class="step-n">4</div><div class="step-t"><strong>栈为空时重装</strong> — 从链表中读取寄存块，将一组块号填充到栈中。</div></div>
+<div class="step"><div class="step-n">5</div><div class="step-t"><strong>弹出栈顶</strong> — 取出栈顶块号作为分配结果，更新计数。</div></div>
+<p style="margin-top:8px;padding:6px;background:#E8F5E9;border-radius:6px;font-size:.82em;"><strong>性能：</strong>常态 O(1) 栈弹出，栈耗尽时一次磁盘读取（平均每 50 次分配一次额外 I/O）。</p>
+</div>
+</div>
+<div class="pn">19</div>
+</div>
+
+<!-- ==================== SLIDE 20: namei ==================== -->
+<div class="s bg-w" style="padding:16px 28px 24px;">
+<h2 class="slide-h">路径解析 namei()</h2>
+<div class="code-panel" style="flex:1;">
+<pre>MemINode *namei(const char *path)
+{
+    MemINode   *ip;
+    const char *p;
+    char        comp[MAX_FILENAME_LEN + 1];
+    uint16_t    start_ino;
+
+    if (path == NULL || g_cur_user == NULL
+        || fs_get_superblock() == NULL)
+        return NULL;
+
+    start_ino = (path[0] == '/')
+        ? ROOT_INODE_NO : g_cur_user-&gt;u_cdir;
+    ip = iget(start_ino);
+    if (ip == NULL) return NULL;
+
+    if (path[0] == '/') {
+        p = path_skip_slash(path + 1);
+        if (*p == '\0') return ip;
+        p = path + 1;
+    } else {
+        p = path;
+    }
+
+    while (*p != '\0') {
+        uint16_t next_ino;
+        p = path_next_component(p, comp);
+        if (p == NULL) { iput(ip); return NULL; }
+        if (comp[0] == '\0') break;
+        if (!inode_is_dir(ip))
+            { iput(ip); return NULL; }
+
+        if (strcmp(comp, ".") == 0) {
+            if (path_is_last_component(p))
+                return ip;
+            p = path_skip_slash(p);
+            continue;
+        }
+
+        if (strcmp(comp, "..") == 0) {
+            MemINode *parent_ip;
+            if (dir_lookup(ip, "..", &amp;next_ino) != 0)
+                { iput(ip); return NULL; }
+            parent_ip = iget(next_ino);
+            iput(ip);
+            ip = parent_ip;
+            if (ip == NULL) return NULL;
+            if (path_is_last_component(p))
+                return ip;
+            p = path_skip_slash(p);
+            continue;
+        }
+
+        if (dir_lookup(ip, comp, &amp;next_ino) != 0)
+            { iput(ip); return NULL; }
+
+        if (path_is_last_component(p)) {
+            MemINode *target = iget(next_ino);
+            iput(ip);
+            return target;
+        }
+
+        {
+            MemINode *next_ip = iget(next_ino);
+            iput(ip);
+            ip = next_ip;
+            if (ip == NULL) return NULL;
+        }
+        p = path_skip_slash(p);
+    }
+    return ip;
+}</pre>
+<div class="code-explain">
+<h4>路径字符串 → 内存 inode 指针</h4>
+<div class="step"><div class="step-n">1</div><div class="step-t"><strong>确定起点</strong> — 绝对路径从根 inode 开始，相对路径从当前工作目录开始。</div></div>
+<div class="step"><div class="step-n">2</div><div class="step-t"><strong>逐分量循环</strong> — 提取路径中下一个分量名（以 / 分隔）。</div></div>
+<div class="step"><div class="step-n">3</div><div class="step-t"><strong>处理 "."</strong> — 当前目录，直接跳过。</div></div>
+<div class="step"><div class="step-n">4</div><div class="step-t"><strong>处理 ".."</strong> — 查找父目录的 inode 号，切换到父目录。</div></div>
+<div class="step"><div class="step-n">5</div><div class="step-t"><strong>普通名称</strong> — 在当前目录的 inode 中查找该名称的目录项，获取子项的 inode 号。</div></div>
+<div class="step"><div class="step-n">6</div><div class="step-t"><strong>引用计数管理</strong> — 进入新目录时 iget()获取引用，离开旧目录时 iput()释放引用，保证 inode 缓存的正确性。</div></div>
+<p style="margin-top:8px;padding:6px;background:#E3F2FD;border-radius:6px;font-size:.82em;">所有文件操作的第一步：将路径转换为 inode。</p>
+</div>
+</div>
+<div class="pn">20</div>
+</div>
+
+<!-- ==================== SLIDE 21: cpu_step ==================== -->
+<div class="s bg-t1" style="padding:16px 28px 24px;">
+<h2 class="slide-h">虚拟机单步执行 cpu_step()</h2>
+<div class="code-panel" style="flex:1;">
+<pre>int cpu_step(CPUContext *ctx)
+{
+    if (ctx == NULL) return 1;
+    ctx-&gt;ticks_left--;
+
+    uint32_t inst = cpu_read32(ctx, ctx-&gt;pc * 4);
+    uint32_t op  = CPU_OPCODE(inst);
+    uint32_t rd  = CPU_RD(inst);
+    uint32_t rs1 = CPU_RS1(inst);
+    uint32_t rs2 = CPU_RS2(inst);
+    int32_t  imm = CPU_IMM12(inst);
+    uint32_t *r = ctx-&gt;regs;
+
+    switch (op) {
+    case OP_HALT:
+        ctx-&gt;sycall_halt = 1;
+        ctx-&gt;syscall_no = SYSCALL_EXIT;
+        return 1;
+    case OP_MOVI:
+        if (rd &lt; CPU_NUM_REGS)
+            r[rd] = (uint32_t)(int32_t)imm;
+        ctx-&gt;pc++; break;
+    case OP_ADD:
+        if (rd &lt; 16 &amp;&amp; rs1 &lt; 16 &amp;&amp; rs2 &lt; 16)
+            r[rd] = r[rs1] + r[rs2];
+        ctx-&gt;pc++; break;
+    case OP_LD:
+        if (rd &lt; 16 &amp;&amp; rs1 &lt; 16) {
+            uint32_t addr = r[rs1] + (uint32_t)imm;
+            r[rd] = cpu_read32(ctx, addr);
+        }
+        ctx-&gt;pc++; break;
+    case OP_CMP:
+        if (rs1 &lt; 16 &amp;&amp; rs2 &lt; 16)
+            ctx-&gt;flags = (r[rs1] == r[rs2])
+                ? CPU_FLAG_ZF : 0;
+        ctx-&gt;pc++; break;
+    case OP_JZ:
+        if (ctx-&gt;flags &amp; CPU_FLAG_ZF)
+            ctx-&gt;pc = (uint32_t)((int32_t)ctx-&gt;pc + imm);
+        else ctx-&gt;pc++;
+        break;
+    case OP_CALL:
+        r[CPU_REG_SP] -= 4;
+        cpu_write32(ctx, r[CPU_REG_SP], ctx-&gt;pc + 1);
+        ctx-&gt;pc = (uint32_t)((int32_t)ctx-&gt;pc + imm);
+        break;
+    case OP_SYSCALL:
+        ctx-&gt;sycall_halt = 2;
+        ctx-&gt;syscall_no = (uint32_t)imm;
+        ctx-&gt;pc++; return 1;
+    /* ... 其余 14 条指令结构相同 ... */
+    default: ctx-&gt;pc++; break;
+    }
+
+    if (ctx-&gt;ticks_left == 0) return 1;
+    return 0;
+}</pre>
+<div class="code-explain">
+<h4>单条指令的取指-译码-执行</h4>
+<div class="step"><div class="step-n">1</div><div class="step-t"><strong>时间片递减</strong> — 每执行一条指令减一，归零时触发调度切换。</div></div>
+<div class="step"><div class="step-n">2</div><div class="step-t"><strong>取指</strong> — 通过 PC 从虚拟内存取出 32 位指令（经页表翻译）。</div></div>
+<div class="step"><div class="step-n">3</div><div class="step-t"><strong>译码</strong> — 提取操作码(8 位)、目标寄存器(4 位)、源寄存器(各 4 位)、立即数(12 位)。</div></div>
+<div class="step"><div class="step-n">4</div><div class="step-t"><strong>执行</strong> — switch 分支：<br>· 算术指令直接修改寄存器<br>· 访存指令经页表翻译后读写物理内存<br>· 跳转指令修改 PC<br>· SYSCALL 设置中断标志返回</div></div>
+<div class="step"><div class="step-n">5</div><div class="step-t"><strong>返回值</strong> — 0 表示继续执行，1 表示需要上层处理（时间片耗尽 / 系统调用 / 停机）。</div></div>
+</div>
+</div>
+<div class="pn">21</div>
+</div>
+
+<!-- ==================== SLIDE 22: proc_fork ==================== -->
+<div class="s bg-w" style="padding:16px 28px 24px;">
+<h2 class="slide-h">进程派生 proc_fork()</h2>
+<div class="code-panel" style="flex:1;">
+<pre>int proc_fork(void)
+{
+    PCB *parent = proc_current();
+    if (parent == NULL) return -1;
+
+    PCB *child = proc_alloc();
+    if (child == NULL) return -1;
+
+    for (int i = 0; i &lt; MEM_MAX_PROCESS_PAGES; i++) {
+        if (parent-&gt;p_page_table[i] != 0) {
+            int new_page = mem_alloc_pages(1);
+            if (new_page &lt; 0)
+                { proc_free(child); return -1; }
+            child-&gt;p_page_table[i] = (uint32_t)new_page;
+            uint32_t src = parent-&gt;p_page_table[i]
+                         * MEM_PAGE_SIZE;
+            uint32_t dst = (uint32_t)new_page
+                         * MEM_PAGE_SIZE;
+            mem_copy(dst, src, MEM_PAGE_SIZE);
+        }
+    }
+
+    memcpy(&amp;child-&gt;p_cpu, &amp;parent-&gt;p_cpu,
+           sizeof(CPUContext));
+    child-&gt;p_cpu.ticks_left = CPU_TIMESLICE;
+
+    child-&gt;p_ppid = parent-&gt;p_pid;
+    child-&gt;p_text_start = parent-&gt;p_text_start;
+    child-&gt;p_text_pages = parent-&gt;p_text_pages;
+    child-&gt;p_data_start = parent-&gt;p_data_start;
+    child-&gt;p_data_pages = parent-&gt;p_data_pages;
+    child-&gt;p_bss_end    = parent-&gt;p_bss_end;
+    child-&gt;p_heap_brk   = parent-&gt;p_heap_brk;
+    child-&gt;p_stack_top  = parent-&gt;p_stack_top;
+    child-&gt;p_cwd_ino    = parent-&gt;p_cwd_ino;
+    strncpy(child-&gt;p_name, parent-&gt;p_name,
+            PROC_NAME_LEN - 1);
+
+    for (int i = 0; i &lt; PROC_MAX_FD; i++)
+        proc_dup_fd(&amp;child-&gt;p_ofile[i],
+                    &amp;parent-&gt;p_ofile[i]);
+
+    child-&gt;p_cpu.regs[0] = 0;
+
+    if (parent-&gt;p_child_count &lt; PROC_MAX_COUNT)
+        parent-&gt;p_children[parent-&gt;p_child_count++]
+            = child-&gt;p_pid;
+
+    parent-&gt;p_cpu.regs[0] = child-&gt;p_pid;
+
+    sched_enqueue(child);
+    return (int)child-&gt;p_pid;
+}</pre>
+<div class="code-explain">
+<h4>完整复制父进程，创建独立子进程</h4>
+<div class="step"><div class="step-n">1</div><div class="step-t"><strong>分配 PCB</strong> — 从进程表中获取一个空闲 PCB。</div></div>
+<div class="step"><div class="step-n">2</div><div class="step-t"><strong>复制内存</strong> — 遍历父进程的 4096 项页表，为每个有效虚拟页分配新物理页并逐字节复制内容。<span style="color:var(--accent3);">子进程获得完全独立的地址空间。</span></div></div>
+<div class="step"><div class="step-n">3</div><div class="step-t"><strong>复制 CPU 上下文</strong> — 子进程将从与父进程相同的 PC 位置继续执行。重置时间片。</div></div>
+<div class="step"><div class="step-n">4</div><div class="step-t"><strong>复制元数据</strong> — 段地址、堆指针、栈顶、工作目录等全部继承。</div></div>
+<div class="step"><div class="step-n">5</div><div class="step-t"><strong>复制文件描述符</strong> — 管道类描述符增加引用计数，保证管道在任一端关闭后仍可工作。</div></div>
+<div class="step"><div class="step-n">6</div><div class="step-t"><strong>区分返回值</strong> — 子进程 R0=0，父进程 R0=子PID。这是 fork 的经典语义。</div></div>
+<div class="step"><div class="step-n">7</div><div class="step-t"><strong>加入就绪队列</strong> — 子进程入队等待调度。</div></div>
+</div>
+</div>
+<div class="pn">22</div>
+</div>
+
+<!-- ==================== SLIDE 23: extent_bmap + journal_replay ==================== -->
+<div class="s bg-t1" style="padding:16px 28px 24px;">
+<h2 class="slide-h">Extent 映射 · 日志重放</h2>
+<div class="s-inner">
+<div class="g2">
+<div>
+<h3 class="sub-h">extent_bmap() — 逻辑块→物理块</h3>
+<div style="background:var(--code-bg);color:var(--code-tx);padding:10px;border-radius:8px;font-size:.7em;line-height:1.5;font-family:monospace;max-height:30vh;overflow:auto;">
+int extent_bmap(MemINode *ip, uint32_t lblk,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;int create, uint16_t *phys_out)<br>
+{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// 1. 在现有映射中查找<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (extent_lookup(&amp;ip-&gt;m_dinode, lblk, phys_out) == 0)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return 0;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (!create) return -1;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// 2. 分配新物理块<br>
+&nbsp;&nbsp;&nbsp;&nbsp;blk = balloc_for(ip-&gt;m_inode_no);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// 3. 尝试快速追加（合并到末尾）<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (extent_try_extend_run(ip, lblk, blk) == 0)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{ *phys_out = blk; return 0; }<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// 4. 构造新 Extent 并插入<br>
+&nbsp;&nbsp;&nbsp;&nbsp;new_e = {lblk, blk, 1};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;insert_extent(ip, &amp;new_e);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;*phys_out = blk; return 0;<br>
+}
+</div>
+<p style="font-size:.82em;margin-top:6px;"><strong>三层策略</strong>：查找现有 → 快速追加（O(1)） → 插入+自动合并</p>
+</div>
+<div>
+<h3 class="sub-h">journal_replay() — 崩溃恢复</h3>
+<div style="background:var(--code-bg);color:var(--code-tx);padding:10px;border-radius:8px;font-size:.7em;line-height:1.5;font-family:monospace;max-height:30vh;overflow:auto;">
+int journal_replay(void)<br>
+{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;JournalHeader hdr;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;JournalLogRec rec;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (journal_read_header(&amp;hdr) != 0)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return 0;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// 已提交且有日志 → 需要重放<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (hdr.jh_committed == 0 || hdr.jh_nlogs == 0)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return 0;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;for (i = 0; i &lt; hdr.jh_nlogs; i++) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;disk_read_block(journal_data_block(i), &amp;rec);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if (rec.lr_type != JTXN_LOG) continue;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// 将日志中的完整块副本写回原位<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;journal_apply_log(rec.lr_block, rec.lr_data);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;hdr.jh_committed = 1;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;hdr.jh_nlogs = 0;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;return disk_write_block(header_block, &amp;hdr);<br>
+}
+</div>
+<p style="font-size:.82em;margin-top:6px;"><strong>幂等操作</strong>：日志保存完整块副本而非增量，多次重放不产生副作用。</p>
+</div>
+</div>
+</div>
+<div class="pn">23</div>
+</div>
+
+<!-- ==================== SLIDE 24: Section - 创新算法 ==================== -->
+<div class="s bg-grad1">
+<div class="sec-title">
+<div class="num">11</div>
+<h2>创新算法说明</h2>
+<p>成组链接法、动态 inode、Extent 合并、日志恢复、密码哈希、两遍汇编。</p>
+</div>
+<div class="pn">24</div>
+</div>
+
+<!-- ==================== SLIDE 25: 成组链接法 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">成组链接法空闲块管理</h2>
+<div class="s-inner">
+<div class="g23">
+<div>
+<p>标准成组链接法 + <span class="hl">按 inode 所在块组就近分配</span>，提升数据局部性。</p>
+<div class="svg-wrap">
+<svg width="300" height="140" viewBox="0 0 300 140">
+<rect x="10" y="10" width="70" height="50" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1.5"/>
+<text x="45" y="30" text-anchor="middle" font-size="9" font-weight="600" fill="#E65100">锚块栈</text>
+<text x="45" y="44" text-anchor="middle" font-size="8" fill="#555">[50 项]</text>
+<text x="45" y="56" text-anchor="middle" font-size="7" fill="#E65100">↑ 分配弹出</text>
+<line x1="80" y1="35" x2="100" y2="35" stroke="#999" stroke-width="1" stroke-dasharray="3"/>
+<rect x="100" y="10" width="60" height="50" rx="6" fill="#FFF9C4" stroke="#F9A825" stroke-width="1"/>
+<text x="130" y="30" text-anchor="middle" font-size="8" fill="#F57F17">寄存块 A</text>
+<text x="130" y="44" text-anchor="middle" font-size="7" fill="#555">[50 块号]</text>
+<line x1="160" y1="35" x2="180" y2="35" stroke="#999" stroke-width="1" stroke-dasharray="3"/>
+<rect x="180" y="10" width="60" height="50" rx="6" fill="#FFF9C4" stroke="#F9A825" stroke-width="1"/>
+<text x="210" y="30" text-anchor="middle" font-size="8" fill="#F57F17">寄存块 B</text>
+<text x="210" y="44" text-anchor="middle" font-size="7" fill="#555">[50 块号]</text>
+<line x1="240" y1="35" x2="255" y2="35" stroke="#999" stroke-width="1" stroke-dasharray="3"/>
+<text x="270" y="39" font-size="10" fill="#999">...</text>
+<text x="150" y="90" text-anchor="middle" font-size="9" fill="#555">栈空 → 从寄存块加载 | 栈满 → 写入寄存块</text>
+<text x="150" y="110" text-anchor="middle" font-size="10" fill="var(--em)" font-weight="600">均摊 O(1)，每 50 次操作≤1 次额外 I/O</text>
+</svg>
+</div>
+</div>
+<div>
+<table class="pseudo-tbl">
+<tr><th colspan="2">块分配算法（按 inode 就近）</th></tr>
+<tr><td>1</td><td>输入：父 inode 编号</td></tr>
+<tr><td>2</td><td>通过位置树查找父 inode 所在物理块 → 计算块组编号</td></tr>
+<tr><td>3</td><td><strong>循环</strong>遍历 8 个块组（从该组开始，取模轮转）</td></tr>
+<tr><td>4</td><td>&nbsp;&nbsp;若空闲块=0，跳过</td></tr>
+<tr><td>5</td><td>&nbsp;&nbsp;若栈空，从链表寄存块加载一组块号</td></tr>
+<tr><td>6</td><td>&nbsp;&nbsp;栈顶弹出，空闲块数减一，返回</td></tr>
+<tr><td>7</td><td>所有块组均满 → 分配失败</td></tr>
+</table>
+<table class="pseudo-tbl" style="margin-top:8px;">
+<tr><th colspan="2">块回收算法</th></tr>
+<tr><td>1</td><td>根据块号确定所属块组</td></tr>
+<tr><td>2</td><td>若栈未满 → 压入栈顶</td></tr>
+<tr><td>3</td><td>若栈已满(50项) → 将栈内容写入回收块 → 该块成为新寄存块 → 清空栈</td></tr>
+</table>
+</div>
+</div>
+</div>
+<div class="pn">25</div>
+</div>
+
+<!-- ==================== SLIDE 26: 动态 inode B+ 树 ==================== -->
+<div class="s bg-t2">
+<h2 class="slide-h">动态 inode 分块分配与 B+ 树索引</h2>
+<div class="s-inner">
+<div class="g23">
+<div>
+<p>不预留 inode 区，按需从数据块分配 inode 块(16 个/块)。两棵 B+ 树 + 128 项回收栈。</p>
+<div class="svg-wrap">
+<svg width="280" height="160" viewBox="0 0 280 160">
+<text x="140" y="14" text-anchor="middle" font-size="10" font-weight="600" fill="var(--em)">位置树 (inode号→位置)</text>
+<rect x="90" y="20" width="100" height="24" rx="5" fill="#E3F2FD" stroke="#1565C0" stroke-width="1"/><text x="140" y="36" text-anchor="middle" font-size="8" fill="#1565C0">索引节点 (根)</text>
+<line x1="120" y1="44" x2="60" y2="55" stroke="#999" stroke-width="1"/>
+<line x1="160" y1="44" x2="220" y2="55" stroke="#999" stroke-width="1"/>
+<rect x="10" y="55" width="100" height="22" rx="4" fill="#BBDEFB" stroke="#1565C0" stroke-width=".8"/><text x="60" y="70" text-anchor="middle" font-size="7" fill="#1565C0">叶 [ino→(blk,slot)] ×63</text>
+<rect x="170" y="55" width="100" height="22" rx="4" fill="#BBDEFB" stroke="#1565C0" stroke-width=".8"/><text x="220" y="70" text-anchor="middle" font-size="7" fill="#1565C0">叶 [ino→(blk,slot)] ×63</text>
+
+<text x="140" y="100" text-anchor="middle" font-size="10" font-weight="600" fill="#E65100">空闲树 (块号→位图)</text>
+<rect x="50" y="108" width="180" height="22" rx="4" fill="#FFE0B2" stroke="#E65100" stroke-width=".8"/><text x="140" y="123" text-anchor="middle" font-size="7" fill="#E65100">叶 [(块号, 16位空闲位图)] ×128</text>
+
+<rect x="80" y="138" width="120" height="18" rx="4" fill="#C8E6C9" stroke="#2E7D32" stroke-width=".8"/><text x="140" y="151" text-anchor="middle" font-size="7" fill="#2E7D32">回收栈 [128 项快速路径]</text>
+</svg>
+</div>
+<p style="font-size:.82em;">两层 B+ 树可管理 63×63 = <strong>3969</strong> 个 inode，满足最大 8064 需求。</p>
+</div>
+<div>
+<table class="pseudo-tbl">
+<tr><th colspan="2">inode 分配算法</th></tr>
+<tr><td>1</td><td>尝试从回收栈弹出 inode 号（<span style="color:var(--em);">快速路径</span>）</td></tr>
+<tr><td>2</td><td>&nbsp;&nbsp;→ 位置树查找物理位置 → 空闲树清除标记 → 清零 → 返回</td></tr>
+<tr><td>3</td><td>栈空 → 查父 inode 所在块组（<span style="color:var(--accent3);">慢速路径</span>）</td></tr>
+<tr><td>4</td><td>&nbsp;&nbsp;在空闲树中找该块组有空闲槽的 inode 块</td></tr>
+<tr><td>5</td><td>&nbsp;&nbsp;找到 → 取空闲槽，清标记</td></tr>
+<tr><td>6</td><td>&nbsp;&nbsp;未找到 → 分配新数据块作为 inode 块</td></tr>
+<tr><td>7</td><td>&nbsp;&nbsp;&nbsp;&nbsp;初始化全零，空闲树注册(位图=0xFFFE)</td></tr>
+<tr><td>8</td><td>生成全局唯一 inode 编号</td></tr>
+<tr><td>9</td><td>位置树插入 (inode号, 块号, 槽位)</td></tr>
+</table>
+<table class="pseudo-tbl" style="margin-top:8px;">
+<tr><th colspan="2">叶节点分裂（位置树满时）</th></tr>
+<tr><td>1</td><td>叶满(63项) → 从中间一分为二</td></tr>
+<tr><td>2</td><td>前半留原叶，后半写入新叶</td></tr>
+<tr><td>3</td><td>无索引层 → 创建新索引根，树升一层</td></tr>
+<tr><td>4</td><td>有索引层 → 父索引插入新叶指针</td></tr>
+</table>
+</div>
+</div>
+</div>
+<div class="pn">26</div>
+</div>
+
+<!-- ==================== SLIDE 27: Extent 合并 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">Extent 变长区段映射与自动合并</h2>
+<div class="s-inner">
+<div class="g23">
+<div>
+<p><strong>三级策略：</strong></p>
+<div class="svg-wrap">
+<svg width="270" height="130" viewBox="0 0 270 130">
+<rect x="5" y="5" width="260" height="32" rx="6" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1"/>
+<text x="135" y="18" text-anchor="middle" font-size="9" font-weight="600" fill="#2E7D32">① 内联 Extent（inode 内 8B）</text>
+<text x="135" y="30" text-anchor="middle" font-size="8" fill="#555">小文件：一条记录覆盖所有连续块</text>
+<rect x="5" y="43" width="260" height="32" rx="6" fill="#BBDEFB" stroke="#1565C0" stroke-width="1"/>
+<text x="135" y="56" text-anchor="middle" font-size="9" font-weight="600" fill="#1565C0">② 单叶节点（最多 62 条 Extent）</text>
+<text x="135" y="68" text-anchor="middle" font-size="8" fill="#555">中等文件：一个数据块存放所有映射</text>
+<rect x="5" y="81" width="260" height="32" rx="6" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1"/>
+<text x="135" y="94" text-anchor="middle" font-size="9" font-weight="600" fill="#6A1B9A">③ B+ 树（索引 + 多叶节点）</text>
+<text x="135" y="106" text-anchor="middle" font-size="8" fill="#555">大文件：树形结构扩展，O(log N) 查找</text>
+<text x="135" y="125" text-anchor="middle" font-size="10" font-weight="700" fill="var(--em)">关键创新：自动合并相邻区段</text>
+</svg>
+</div>
+</div>
+<div>
+<table class="pseudo-tbl">
+<tr><th colspan="2">相邻合并算法</th></tr>
+<tr><td>1</td><td>输入：Extent 数组（按逻辑块号排序）</td></tr>
+<tr><td>2</td><td>标记"已变化"= 真</td></tr>
+<tr><td>3</td><td><strong>当"已变化"为真时循环：</strong></td></tr>
+<tr><td>4</td><td>&nbsp;&nbsp;"已变化"= 假</td></tr>
+<tr><td>5</td><td>&nbsp;&nbsp;对每对相邻记录 (i, i+1)：</td></tr>
+<tr><td>6</td><td>&nbsp;&nbsp;&nbsp;&nbsp;若 i 的逻辑结束 = i+1 的逻辑起始</td></tr>
+<tr><td>7</td><td>&nbsp;&nbsp;&nbsp;&nbsp;<strong>且</strong> i 的物理结束 = i+1 的物理起始</td></tr>
+<tr><td>8</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ 合并：i 的长度 += i+1 的长度</td></tr>
+<tr><td>9</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ 删除 i+1，数组长度减一</td></tr>
+<tr><td>10</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ "已变化"= 真，重新扫描</td></tr>
+</table>
+<p style="font-size:.82em;margin-top:6px;"><strong>效果：</strong>顺序写入的文件通常只保留 <strong>1 条</strong> Extent 记录。内联查找 O(1)，B+ 树 O(log N)。</p>
+</div>
+</div>
+</div>
+<div class="pn">27</div>
+</div>
+
+<!-- ==================== SLIDE 28: 日志 + 密码 + 汇编器 ==================== -->
+<div class="s bg-t1">
+<h2 class="slide-h">日志恢复 · 密码哈希 · 汇编器</h2>
+<div class="s-inner">
+<div class="g3">
+<div>
+<h3 class="sub-h">WAL 日志与崩溃恢复</h3>
+<table class="pseudo-tbl">
+<tr><th colspan="2">事务提交</th></tr>
+<tr><td>1</td><td>日志头序列号+1，标志="未完成"，写盘</td></tr>
+<tr><td>2</td><td>循环写入日志记录(块号+完整副本)</td></tr>
+<tr><td>3</td><td>标志改"已完成"，写盘</td></tr>
+<tr><td>4</td><td>循环回写到原始块号</td></tr>
+</table>
+<table class="pseudo-tbl" style="margin-top:6px;">
+<tr><th colspan="2">崩溃恢复</th></tr>
+<tr><td>1</td><td>读日志头</td></tr>
+<tr><td>2</td><td>已完成+有记录 → 重放全部日志</td></tr>
+<tr><td>3</td><td>未完成 → 忽略（安全）</td></tr>
+</table>
+<p style="font-size:.78em;margin-top:4px;color:var(--em);">日志保存完整块，重放幂等。</p>
+</div>
+<div>
+<h3 class="sub-h">加盐迭代密码哈希</h3>
+<table class="pseudo-tbl">
+<tr><th colspan="2">哈希生成</th></tr>
+<tr><td>1</td><td>输入：明文 + 16 B 随机盐</td></tr>
+<tr><td>2</td><td>初始化 8 个 32 位状态字</td></tr>
+<tr><td>3</td><td>拼接盐+密码为混合序列</td></tr>
+<tr><td>4</td><td><strong>10000 轮</strong>迭代：</td></tr>
+<tr><td>5</td><td>&nbsp;&nbsp;取字节 B → 选状态字</td></tr>
+<tr><td>6</td><td>&nbsp;&nbsp;异或 B → 异或邻字</td></tr>
+<tr><td>7</td><td>&nbsp;&nbsp;循环左移 (B mod 32) 位</td></tr>
+<tr><td>8</td><td>输出 8×4 = 32 B 哈希值</td></tr>
+</table>
+<p style="font-size:.78em;margin-top:4px;">加盐防彩虹表 · 高迭代防暴力 · 非线性雪崩</p>
+</div>
+<div>
+<h3 class="sub-h">两遍汇编器标签解析</h3>
+<table class="pseudo-tbl">
+<tr><th colspan="2">第一遍：收集标签</th></tr>
+<tr><td>1</td><td>逐行扫描，跳过空行/注释</td></tr>
+<tr><td>2</td><td>标签定义 → 记录名称→偏移</td></tr>
+<tr><td>3</td><td>伪指令 → 推进段偏移</td></tr>
+<tr><td>4</td><td>指令 → 代码偏移 +4</td></tr>
+</table>
+<table class="pseudo-tbl" style="margin-top:6px;">
+<tr><th colspan="2">第二遍：生成机器码</th></tr>
+<tr><td>1</td><td>解析助记符→操作码</td></tr>
+<tr><td>2</td><td>标签引用→查表获地址</td></tr>
+<tr><td>3</td><td>跳转→计算相对偏移</td></tr>
+<tr><td>4</td><td>组装 32 位指令字→UPX</td></tr>
+</table>
+<p style="font-size:.78em;margin-top:4px;">总复杂度 O(L)，L=源文件行数</p>
+</div>
+</div>
+</div>
+<div class="pn">28</div>
+</div>
+
+<!-- ==================== SLIDE 29: 功能汇总 1 ==================== -->
+<div class="s bg-w">
+<h2 class="slide-h">功能点汇总</h2>
+<div class="s-inner">
+<div class="feat-grid">
+<div class="feat-item"><b>磁盘格式化</b><br>引导块→块组→日志→inode→超级块→根目录</div>
+<div class="feat-item"><b>挂载 / 卸载</b><br>日志重放→加载超级块→初始化各子系统</div>
+<div class="feat-item"><b>文件 CRUD</b><br>创建/读/写/删除/复制/硬链接</div>
+<div class="feat-item"><b>目录操作</b><br>mkdir/cd/pwd/ls · 路径解析(绝对/相对/./..)</div>
+<div class="feat-item"><b>权限控制</b><br>UNIX 三级 rwx · chmod · root 绕过</div>
+<div class="feat-item"><b>成组链接法</b><br>8 块组 × 50 项栈 · 按 inode 就近分配</div>
+<div class="feat-item"><b>动态 inode</b><br>B+ 树(位置+空闲) · 128 项回收栈 · 最多 8064</div>
+<div class="feat-item"><b>Extent 映射</b><br>内联→叶→B+ 树 · 自动合并 · 62 条/叶</div>
+<div class="feat-item"><b>块缓存</b><br>LRU+Hash 1024 槽(512KB) · 延迟写</div>
+<div class="feat-item"><b>元数据日志</b><br>WAL 32 块 · 崩溃恢复 · 幂等重放</div>
+<div class="feat-item"><b>VFS 抽象层</b><br>三张操作表 · 可插拔文件系统</div>
+<div class="feat-item"><b>物理内存</b><br>128 MB · 32768 页 · 位图分配</div>
+<div class="feat-item"><b>RISC 虚拟机</b><br>22 条指令 · 32 位定长 · 页表翻译</div>
+<div class="feat-item"><b>进程管理</b><br>64 PCB · fork/exec/wait/exit · 5 种状态</div>
+<div class="feat-item"><b>RR 调度</b><br>100 指令时间片 · 环形就绪队列 · 协作让出</div>
+<div class="feat-item"><b>30+ 系统调用</b><br>进程/文件/目录/内存/IPC/环境/工具</div>
+<div class="feat-item"><b>匿名管道 ×16</b><br>512B 环形缓冲 · 引用计数 · 2~8 级串联</div>
+<div class="feat-item"><b>命名管道 ×8</b><br>路径标识 · 复用匿名管道机制</div>
+<div class="feat-item"><b>信号量 ×16</b><br>键值获取 · P/V 操作 · 阻塞让出</div>
+<div class="feat-item"><b>消息队列 ×8</b><br>32 消息/队列 · 128B/消息 · 类型接收</div>
+<div class="feat-item"><b>共享内存 ×8</b><br>4 页/段(16KB) · 虚拟地址映射</div>
+<div class="feat-item"><b>信号机制</b><br>KILL/TERM/USR1 · 位掩码挂起 · 调度投递</div>
+<div class="feat-item"><b>多用户 ×10</b><br>加盐哈希 · /etc/passwd · 登录/注销/切换</div>
+<div class="feat-item"><b>环境变量</b><br>系统级+用户级 · 各 64 变量 · 持久化</div>
+<div class="feat-item"><b>两遍汇编器</b><br>22 条指令助记符 · 标签解析 → UPX</div>
+<div class="feat-item"><b>C 编译器</b><br>词法→语法→AST→代码生成→汇编</div>
+<div class="feat-item"><b>vim 编辑器</b><br>光标移动 · 行号 · 语法高亮</div>
+<div class="feat-item"><b>Web 桌面</b><br>终端/Finder/TextEdit/Activity Monitor</div>
+<div class="feat-item"><b>多协议服务</b><br>HTTP/WS/TCP · JSON API · mmap 共享</div>
+<div class="feat-item"><b>35+ Shell 命令</b><br>完整 UNIX 命令行体验</div>
+</div>
+</div>
+<div class="pn">29</div>
+</div>
+
+<!-- ==================== SLIDE 30: Shell 命令一览 ==================== -->
+<div class="s bg-t2">
+<h2 class="slide-h">Shell 命令全集</h2>
+<div class="s-inner">
+<div class="g3">
+<div class="card">
+<h4>系统管理</h4>
+<p><code>format</code> <code>mount</code> <code>umount</code></p>
+<h4 style="margin-top:8px;">目录操作</h4>
+<p><code>mkdir</code> <code>cd</code> <code>pwd</code> <code>ls</code></p>
+</div>
+<div class="card">
+<h4>文件操作</h4>
+<p><code>create</code> <code>write</code> <code>cat</code> <code>rm</code> <code>cp</code> <code>ln</code> <code>stat</code> <code>chmod</code></p>
+<h4 style="margin-top:8px;">用户管理</h4>
+<p><code>useradd</code> <code>login</code> <code>su</code> <code>logout</code> <code>whoami</code> <code>passwd</code> <code>users</code></p>
+</div>
+<div class="card">
+<h4>进程与工具</h4>
+<p><code>asm</code> <code>cc</code> <code>vim</code> <code>run</code> <code>ps</code> <code>kill</code> <code>mkfifo</code></p>
+<h4 style="margin-top:8px;">环境与调试</h4>
+<p><code>env</code> <code>export</code> <code>unset</code> <code>design_debug</code> <code>help</code> <code>clear</code> <code>exit</code></p>
+</div>
+</div>
+<p style="text-align:center;margin-top:10px;font-size:.9em;">支持 <strong>管道连接</strong>（2~8 级）：<code>cat file.txt | grep key | wc</code></p>
+</div>
+<div class="pn">30</div>
+</div>
+
+<!-- ==================== SLIDE 31: Thank You ==================== -->
+<div class="s bg-grad1">
+<div class="title-center">
+<h1 style="font-size:2.8em;">谢谢！</h1>
+<h2 style="font-size:1.3em;color:#555;margin-top:12px;">UPFS 操作系统课程设计</h2>
+<p style="margin-top:24px;font-size:1em;color:#666;">纯 C 实现 · 无外部依赖 · 文件系统 + 内核 + 工具链 + Web 桌面</p>
+</div>
+<div class="pn">31</div>
+</div>
+
+</div><!-- end deck -->
+
+<script>
+const deck=document.getElementById('deck');
+const slides=deck.querySelectorAll('.s');
+const total=slides.length;
+const bar=document.getElementById('progress');
+let cur=0;
+
+function goTo(idx){
+  if(idx<0)idx=0;
+  if(idx>=total)idx=total-1;
+  cur=idx;
+  slides[cur].scrollIntoView({behavior:'smooth',inline:'start'});
+  bar.style.width=(total>1?(cur/(total-1))*100:0)+'%';
+}
+
+document.addEventListener('keydown',function(e){
+  if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){
+    e.preventDefault();goTo(cur+1);
+  }else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
+    e.preventDefault();goTo(cur-1);
+  }else if(e.key==='Home'){
+    e.preventDefault();goTo(0);
+  }else if(e.key==='End'){
+    e.preventDefault();goTo(total-1);
+  }
+});
+</script>
+</body>
+</html>

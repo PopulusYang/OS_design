@@ -1,5 +1,7 @@
-
-
+/*
+ * process.c
+ * 进程表管理、生命周期与文件描述符。
+ */
 #include "kernel/process.h"
 #include "kernel/memory.h"
 #include "kernel/scheduler.h"
@@ -13,27 +15,24 @@
 
 extern KernelShared *g_kernel;
 
-
-
-
+// 按表下标取 PCB，FREE 状态返回空
 static PCB *proc_by_idx(int idx) {
     if (idx < 0 || idx >= PROC_MAX_COUNT) return NULL;
     if (g_kernel->proc_table[idx].p_state == PROC_FREE) return NULL;
     return &g_kernel->proc_table[idx];
 }
 
-
+// PCB 指针换算为进程表下标
 static int proc_to_idx(PCB *p) {
     if (p == NULL) return -1;
     return (int)(p - g_kernel->proc_table);
 }
 
-
-
+// 清零进程表并初始化 IPC 子系统
 int proc_init(void)
 {
     if (g_kernel == NULL) return -1;
-    if (g_kernel->initialized) return 0; 
+    if (g_kernel->initialized) return 0;
     memset(g_kernel->proc_table, 0, sizeof(g_kernel->proc_table));
     g_kernel->current_idx = -1;
     g_kernel->next_pid = 1;
@@ -41,6 +40,7 @@ int proc_init(void)
     return 0;
 }
 
+// 关闭全部进程的文件描述符并清空进程表
 void proc_shutdown(void)
 {
     if (g_kernel == NULL) return;
@@ -58,10 +58,12 @@ void proc_shutdown(void)
 
 PCB *proc_current(void) { return proc_by_idx(g_kernel ? g_kernel->current_idx : -1); }
 
+// 设置当前运行进程
 void proc_set_current(PCB *p) {
     g_kernel->current_idx = proc_to_idx(p);
 }
 
+// 按 PID 在进程表中查找 PCB
 PCB *proc_find(uint32_t pid)
 {
     if (g_kernel == NULL) return NULL;
@@ -71,6 +73,7 @@ PCB *proc_find(uint32_t pid)
     return NULL;
 }
 
+// 分配一个空闲 PCB 槽并初始化页表
 PCB *proc_alloc(void)
 {
     if (g_kernel == NULL) return NULL;
@@ -91,6 +94,7 @@ PCB *proc_alloc(void)
     return NULL;
 }
 
+// 释放进程占用的页、fd 和环境变量
 void proc_free(PCB *p)
 {
     if (p == NULL) return;
@@ -112,7 +116,7 @@ void proc_free(PCB *p)
         free(p->p_envp);
     }
 
-    /* 将子进程过继给 init，防止变成孤儿僵尸 */
+    
     PCB *init = proc_find(0);
     for (int i = 0; i < p->p_child_count; i++) {
         PCB *child = proc_find(p->p_children[i]);
@@ -127,9 +131,10 @@ void proc_free(PCB *p)
     p->p_state = PROC_FREE;
 }
 
+// 创建或复用 PID 为 0 的 init 进程
 PCB *proc_create_init(void)
 {
-    
+
     PCB *existing = proc_find(0);
     if (existing) {
         proc_set_current(existing);
@@ -149,8 +154,7 @@ PCB *proc_create_init(void)
     return p;
 }
 
-
-
+// fork 时复制文件描述符并增加管道引用
 static void proc_dup_fd(ProcFD *dst, const ProcFD *src)
 {
     *dst = *src;
@@ -165,6 +169,7 @@ static void proc_dup_fd(ProcFD *dst, const ProcFD *src)
     }
 }
 
+// 复制父进程地址空间与 fd，子进程返回 0
 int proc_fork(void)
 {
     PCB *parent = proc_current();
@@ -213,8 +218,7 @@ int proc_fork(void)
     return (int)child->p_pid;
 }
 
-
-
+// 创建匿名管道并分配读/写两个 fd
 int proc_pipe(int fds[2])
 {
     PCB *p = proc_current();
@@ -244,8 +248,7 @@ int proc_pipe(int fds[2])
     return 0;
 }
 
-
-
+// 校验 UPX 文件头与段大小是否合法
 int upx_validate(const uint8_t *data, uint32_t size)
 {
     if (size < sizeof(UPXHeader)) return -1;
@@ -257,6 +260,7 @@ int upx_validate(const uint8_t *data, uint32_t size)
     return 0;
 }
 
+// 把 UPX 映像加载到进程虚拟地址空间
 int upx_load(PCB *p, const uint8_t *data, uint32_t size)
 {
     if (upx_validate(data, size) != 0) return -1;
@@ -316,7 +320,7 @@ int upx_load(PCB *p, const uint8_t *data, uint32_t size)
     p->p_stack_top = PROC_STACK_TOP;
     p->p_heap_brk = p->p_bss_end;
 
-    
+
     {
         const uint8_t *text_src = data + sizeof(UPXHeader);
         for (uint32_t i = 0; i < hdr->text_size; i++) {
@@ -351,6 +355,7 @@ int upx_load(PCB *p, const uint8_t *data, uint32_t size)
     return 0;
 }
 
+// 从路径加载 UPX 程序并替换进程映像
 int proc_exec(PCB *p, const char *path)
 {
     int fd = vfs_open(path, O_RDONLY);
@@ -370,14 +375,13 @@ int proc_exec(PCB *p, const char *path)
     return rc;
 }
 
-
-
+// 阻塞等待任一子进程退出并回收其 PCB
 int proc_wait(int *status)
 {
     PCB *parent = proc_current();
     if (parent == NULL) return -1;
 
-    /* 自旋等待，直到有子进程退出（模拟真正的阻塞 wait） */
+    
     for (int spin = 0; spin < 1000000; spin++) {
         for (int i = 0; i < parent->p_child_count; i++) {
             PCB *child = proc_find(parent->p_children[i]);
@@ -391,20 +395,21 @@ int proc_wait(int *status)
                 return (int)cpid;
             }
         }
-        /* 让出 CPU，让子进程有机会运行 */
+        
         sched_cooperate();
-        /* 没有子进程了则返回 -1 */
+        
         if (parent->p_child_count == 0) return -1;
     }
     return -1;
 }
 
+// 当前进程进入僵尸态并记录退出码
 void proc_exit(int code)
 {
     PCB *p = proc_current();
     if (p == NULL || p->p_pid == 0) return;
 
-    /* 将子进程过继给 init（PID=0），避免子进程变成孤儿僵尸 */
+    
     PCB *init = proc_find(0);
     for (int i = 0; i < p->p_child_count; i++) {
         PCB *child = proc_find(p->p_children[i]);
@@ -421,8 +426,7 @@ void proc_exit(int code)
     p->p_cpu.regs[0] = (uint32_t)code;
 }
 
-
-
+// 统计非 FREE 状态的进程数量
 int proc_count(void)
 {
     if (g_kernel == NULL) return 0;
@@ -432,12 +436,14 @@ int proc_count(void)
     return cnt;
 }
 
+// 返回进程表数组及容量
 PCB *proc_get_table(int *count_out)
 {
     if (count_out) *count_out = PROC_MAX_COUNT;
     return g_kernel ? g_kernel->proc_table : NULL;
 }
 
+// 在进程 fd 表中分配一个空闲槽
 int proc_alloc_fd(PCB *p)
 {
     for (int i = 0; i < PROC_MAX_FD; i++)
@@ -445,6 +451,7 @@ int proc_alloc_fd(PCB *p)
     return -1;
 }
 
+// 关闭 fd 对应资源并清空槽位
 void proc_free_fd(PCB *p, int fd)
 {
     if (p == NULL || fd < 0 || fd >= PROC_MAX_FD) return;
@@ -459,6 +466,7 @@ void proc_free_fd(PCB *p, int fd)
     memset(pf, 0, sizeof(ProcFD));
 }
 
+// 调整进程堆顶并按需映射新页
 uint32_t proc_sbrk(PCB *p, int32_t increment)
 {
     uint32_t old_brk = p->p_heap_brk;

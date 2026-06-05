@@ -1,5 +1,7 @@
-
-
+/*
+ * main.c
+ * 交互式 Shell 入口、命令分发与 --serve 分支。
+ */
 #include "vfs_core.h"
 #include "vfs.h"
 #include "fs/disk_io.h"
@@ -33,9 +35,8 @@
 #include <dirent.h>
 #include <termios.h>
 
-
-#define ANSI_ROSE           "\033[38;2;88;166;255m"   /* primary accent (blue) */
-#define ANSI_MAUVE          "\033[38;2;120;170;230m" /* secondary accent */
+#define ANSI_ROSE           "\033[38;2;88;166;255m"   
+#define ANSI_MAUVE          "\033[38;2;120;170;230m" 
 #define ANSI_RESET          "\033[0m"
 #define ANSI_BOLD           "\033[1m"
 #define ANSI_DIM            "\033[2m"
@@ -46,7 +47,6 @@
 #define MAX_ARGS            32
 #define CWD_BUF_SIZE        512
 
-
 static User   g_users[MAX_USERS];
 static int    g_current_user_idx = 0;
 static char   g_disk_path[512] = DEFAULT_DISK_PATH;
@@ -54,13 +54,13 @@ static char   g_cwd[CWD_BUF_SIZE] = "/";
 static char   g_user_home[256] = "/";
 static int    g_mounted = 0;
 
+// 返回当前 Shell 登录用户结构体
 static User *current_user(void)
 {
     return &g_users[g_current_user_idx];
 }
 
-
-
+// 打印启动横幅
 static void ui_banner(void)
 {
     printf("\n%s%sUPFS%s%s . Unix File System Simulator%s\n\n",
@@ -68,23 +68,26 @@ static void ui_banner(void)
     fflush(stdout);
 }
 
+// 打印绿色成功提示
 static void ui_ok(const char *msg)
 {
     printf("%s%s  %s%s\n", ANSI_BOLD, ANSI_OK, msg, ANSI_RESET);
     fflush(stdout);
 }
 
+// 打印蓝色信息提示
 static void ui_info(const char *msg)
 {
     printf("%s%s  %s%s\n", ANSI_DIM, ANSI_MAUVE, msg, ANSI_RESET);
 }
 
+// 打印红色错误提示
 static void ui_err(const char *msg)
 {
     printf("%s%s  %s%s\n", ANSI_BOLD, ANSI_ERR, msg, ANSI_RESET);
 }
 
-
+// 把内部 cwd 格式化为可显示路径
 static void cwd_display(char *out, size_t out_size)
 {
     size_t home_len;
@@ -107,6 +110,7 @@ static void cwd_display(char *out, size_t out_size)
     }
 }
 
+// 打印带用户名与 cwd 的命令提示符
 static void ui_prompt(void)
 {
     char display[CWD_BUF_SIZE];
@@ -127,8 +131,7 @@ static void ui_prompt(void)
     fputs(ANSI_DIM ANSI_MAUVE " >" ANSI_RESET " ", stdout);
 }
 
-
-
+// 检查磁盘镜像文件是否可读
 static int disk_file_exists(const char *path)
 {
     FILE *fp;
@@ -139,6 +142,7 @@ static int disk_file_exists(const char *path)
     return 1;
 }
 
+// 在指定目录下查找默认磁盘镜像
 static int probe_disk_at(const char *search_dir)
 {
     char candidate[512];
@@ -150,6 +154,7 @@ static int probe_disk_at(const char *search_dir)
     return 1;
 }
 
+// 启动时自动探测并挂载磁盘
 static void startup_disk_probe(void)
 {
     const char *search_dirs[] = { ".", "..", "../.." };
@@ -178,7 +183,7 @@ static void startup_disk_probe(void)
     }
 }
 
-
+// 初始化内置 root 用户会话状态
 static void init_root_user(void)
 {
     User *u = current_user();
@@ -189,14 +194,13 @@ static void init_root_user(void)
     u->u_active = 1;
 }
 
+// 把当前用户绑定到 VFS 目录模块
 static void shell_bind_user(void)
 {
     dir_bind_user(current_user());
 }
 
-
-
-
+// 从终端读取密码（不回显）
 static int read_password(char *buf, int max_len)
 {
     int tty_fd = fileno(stdin);
@@ -213,7 +217,7 @@ static int read_password(char *buf, int max_len)
         }
         tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
     } else {
-        
+
         if (fgets(buf, max_len, stdin) == NULL) return -1;
     }
 
@@ -223,7 +227,7 @@ static int read_password(char *buf, int max_len)
     return (int)strlen(buf);
 }
 
-
+// 交互式登录流程
 static int shell_login_prompt(void)
 {
     char user_buf[64], pass_buf[128];
@@ -246,7 +250,7 @@ static int shell_login_prompt(void)
     return uid;
 }
 
-
+// 无用户时引导创建首个账户
 static int shell_create_first_user(void)
 {
     char user_buf[64], pass_buf[128];
@@ -282,18 +286,18 @@ static int shell_create_first_user(void)
         return -1;
     }
 
-    
+
     {
         char root_pass[128];
 
         printf("%sSet root password:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
         if (read_password(root_pass, (int)sizeof(root_pass)) >= 0 && root_pass[0] != '\0') {
-            user_add("root", root_pass); 
+            user_add("root", root_pass);
         }
     }
 
-    
+
     {
         const UserAccount *ua = user_find(user_buf);
         if (ua == NULL) return -1;
@@ -313,7 +317,7 @@ static int shell_create_first_user(void)
         strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
         g_cwd[CWD_BUF_SIZE - 1] = '\0';
 
-        
+
         env_set_current_user(ua->ua_name);
         env_user_load(ua->ua_name);
     }
@@ -323,6 +327,7 @@ static int shell_create_first_user(void)
     return 0;
 }
 
+// 格式化检查、挂载磁盘并初始化子系统
 static int shell_mount(const char *path)
 {
     const char *use_path = (path && path[0]) ? path : g_disk_path;
@@ -390,6 +395,7 @@ static int shell_mount(const char *path)
     return 0;
 }
 
+// 同步数据并卸载文件系统
 static int shell_umount(void)
 {
     if (!g_mounted) { ui_err("Not mounted"); return -1; }
@@ -405,6 +411,7 @@ static int shell_umount(void)
     return 0;
 }
 
+// 格式化磁盘并写入演示程序与目录
 static int shell_format(const char *path)
 {
     const char *use_path = (path && path[0]) ? path : g_disk_path;
@@ -418,7 +425,7 @@ static int shell_format(const char *path)
     }
     ui_ok("Format complete");
 
-    
+
     if (vfs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
     shared_set_disk(use_path);
 
@@ -434,7 +441,7 @@ static int shell_format(const char *path)
     sys_open_file_init();
     env_system_load(); proc_create_init();
 
-    
+
     if (user_create_posix_dirs(0, 0) != 0) {
         ui_err("Failed to create POSIX directories");
         return -1;
@@ -444,7 +451,7 @@ static int shell_format(const char *path)
         return -1;
     }
 
-    
+
     {
         int bc = 0;
         const DemoBinary *demos = binaries_get_all(&bc);
@@ -455,7 +462,7 @@ static int shell_format(const char *path)
         }
     }
 
-    
+
     {
         vfs_mkdir("/src", 0755);
         const char *search[] = { "involve_src", "../involve_src", "../../involve_src" };
@@ -497,11 +504,11 @@ static int shell_format(const char *path)
         }
     }
 
-    
+
     env_set("PATH", "/bin:/usr/bin");
     env_system_save();
 
-    
+
     if (shell_create_first_user() != 0) {
         ui_info("Falling back to root user");
         g_current_user_idx = 0;
@@ -513,9 +520,7 @@ static int shell_format(const char *path)
     return 0;
 }
 
-
-
-
+// 解析 cwd 中的 . 与 .. 分量
 static void cwd_resolve_dots(void)
 {
     char resolved[CWD_BUF_SIZE];
@@ -554,6 +559,7 @@ static void cwd_resolve_dots(void)
     g_cwd[CWD_BUF_SIZE - 1] = '\0';
 }
 
+// 根据 cd 参数更新内部 cwd
 static void cwd_update_after_cd(const char *arg)
 {
     if (arg == NULL || arg[0] == '\0') return;
@@ -573,8 +579,7 @@ static void cwd_update_after_cd(const char *arg)
     cwd_resolve_dots();
 }
 
-
-
+// 去掉字符串首尾空白
 static char *trim(char *s)
 {
     char *end;
@@ -586,6 +591,7 @@ static char *trim(char *s)
     return s;
 }
 
+// 把八进制字符串解析为权限 mode
 static int parse_octal_mode(const char *s, uint16_t *out)
 {
     if (s == NULL || out == NULL) return -1;
@@ -597,6 +603,7 @@ static int parse_octal_mode(const char *s, uint16_t *out)
     return 0;
 }
 
+// 把输入行拆成 argc/argv
 static int parse_command_line(char *line, char **argv, int max_argc)
 {
     int argc = 0;
@@ -622,8 +629,7 @@ static int parse_command_line(char *line, char **argv, int max_argc)
     return argc;
 }
 
-
-
+// 打印命令帮助列表
 static void cmd_help(void)
 {
     printf("\n");
@@ -678,12 +684,14 @@ static void cmd_help(void)
     printf("\n");
 }
 
+// 未挂载时提示并返回失败
 static int require_mounted(void)
 {
     if (!g_mounted) { ui_err("Filesystem not mounted; use mount or format first"); return -1; }
     return 0;
 }
 
+// 根据扩展名判断是否为二进制文件
 static int file_is_binary(const char *path)
 {
     int fd = vfs_open(path, O_RDONLY);
@@ -700,6 +708,7 @@ static int file_is_binary(const char *path)
     return 0;
 }
 
+// Shell 的 cat 命令：输出文件内容
 static int cmd_cat(const char *path)
 {
     if (require_mounted()) return -1;
@@ -723,6 +732,7 @@ static int cmd_cat(const char *path)
     return 0;
 }
 
+// 把相对或含 .. 的路径规范为绝对路径
 static void normalize_vfs_path(const char *in, char *out, size_t out_sz)
 {
     char base[1024];
@@ -750,7 +760,7 @@ static void normalize_vfs_path(const char *in, char *out, size_t out_sz)
     tok = strtok_r(tmp, "/", &save);
     while (tok != NULL) {
         if (strcmp(tok, ".") == 0 || tok[0] == '\0') {
-            /* skip */
+            
         } else if (strcmp(tok, "..") == 0) {
             if (top > 0) top--;
         } else if (top < (int)(sizeof(tokens) / sizeof(tokens[0]))) {
@@ -779,6 +789,7 @@ static void normalize_vfs_path(const char *in, char *out, size_t out_sz)
     }
 }
 
+// 比较两条规范路径是否相同
 static int paths_same(const char *a, const char *b)
 {
     char na[1024], nb[1024];
@@ -789,6 +800,7 @@ static int paths_same(const char *a, const char *b)
     return (na[0] != '\0' && nb[0] != '\0' && strcmp(na, nb) == 0);
 }
 
+// 创建或覆盖文件并写入字节
 static int vfs_write_bytes(const char *path, const void *data, int len)
 {
     MemINode *ip;
@@ -837,6 +849,7 @@ static int vfs_write_bytes(const char *path, const void *data, int len)
     return vfs_sync_all() == 0 ? 0 : -1;
 }
 
+// 向已有文件写入内容
 static int cmd_write_existing(const char *path, const char *data)
 {
     int len = (int)strlen(data);
@@ -848,8 +861,7 @@ static int cmd_write_existing(const char *path, const char *data)
     return 0;
 }
 
-
-
+// Shell 的 useradd 命令
 static int cmd_useradd(const char *username, const char *password)
 {
     if (username == NULL || password == NULL) { ui_err("Usage: useradd <name> <password>"); return -1; }
@@ -860,6 +872,7 @@ static int cmd_useradd(const char *username, const char *password)
     return 0;
 }
 
+// Shell 的 login 命令
 static int cmd_login(const char *username, const char *password)
 {
     if (username == NULL || password == NULL) { ui_err("Usage: login <name> <password>"); return -1; }
@@ -891,7 +904,7 @@ static int cmd_login(const char *username, const char *password)
     return 0;
 }
 
-
+// 切换当前登录用户
 static int cmd_su(const char *username)
 {
     const char *target = (username && username[0]) ? username : "root";
@@ -910,11 +923,11 @@ static int cmd_su(const char *username)
     const UserAccount *ua = user_find_by_uid((uint16_t)uid);
     if (ua == NULL) return -1;
 
-    
+
     User *old = current_user();
     if (old->u_uid != 0) env_user_save(old->u_name);
 
-    
+
     memset(old, 0, sizeof(User));
     strncpy(old->u_name, ua->ua_name, sizeof(old->u_name) - 1);
     old->u_uid = ua->ua_uid; old->u_gid = ua->ua_gid; old->u_active = 1;
@@ -935,6 +948,7 @@ static int cmd_su(const char *username)
     return 0;
 }
 
+// 登出当前用户
 static int cmd_logout(void)
 {
     User *u = current_user();
@@ -951,12 +965,14 @@ static int cmd_logout(void)
     return 0;
 }
 
+// 显示当前用户名与 uid
 static int cmd_whoami(void)
 {
     printf("%s%s%s\n", ANSI_MAUVE, current_user()->u_name, ANSI_RESET);
     return 0;
 }
 
+// 修改用户口令
 static int cmd_passwd(const char *username, const char *new_password)
 {
     if (username == NULL || new_password == NULL) { ui_err("Usage: passwd <name> <new_password>"); return -1; }
@@ -972,6 +988,7 @@ static int cmd_passwd(const char *username, const char *new_password)
     return 0;
 }
 
+// 列出全部注册用户
 static int cmd_users(void)
 {
     int cnt = user_count();
@@ -988,8 +1005,7 @@ static int cmd_users(void)
     return 0;
 }
 
-
-
+// 解析 run 命令的程序路径
 static void resolve_program_path(const char *path, char *resolved, size_t sz)
 {
     if (path == NULL || resolved == NULL || sz == 0) return;
@@ -1001,6 +1017,7 @@ static void resolve_program_path(const char *path, char *resolved, size_t sz)
     }
 }
 
+// 运行 VM 程序前把终端设为非规范模式
 static void shell_vm_enter_raw(struct termios *saved)
 {
     if (!isatty(STDIN_FILENO)) return;
@@ -1015,12 +1032,14 @@ static void shell_vm_enter_raw(struct termios *saved)
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+// VM 程序结束后恢复终端模式
 static void shell_vm_leave_raw(const struct termios *saved)
 {
     if (!isatty(STDIN_FILENO)) return;
     tcsetattr(STDIN_FILENO, TCSAFLUSH, saved);
 }
 
+// 加载并运行 UPX 程序直到退出
 static int cmd_run(const char *path)
 {
     if (path == NULL) { ui_err("Usage: run <binary>"); return -1; }
@@ -1050,6 +1069,7 @@ static int cmd_run(const char *path)
     return 0;
 }
 
+// 从管道阶段字符串取出程序路径
 static const char *pipeline_program(const char *cmd)
 {
     while (cmd != NULL && isspace((unsigned char)*cmd)) cmd++;
@@ -1060,6 +1080,7 @@ static const char *pipeline_program(const char *cmd)
 
 #define PIPELINE_MAX_STAGES 8
 
+// 把进程标准输入绑定到管道读端
 static void proc_bind_pipe_in(PCB *p, int pipe_id)
 {
     p->p_ofile[0].fd_type = PROC_FD_PIPE_RD;
@@ -1067,6 +1088,7 @@ static void proc_bind_pipe_in(PCB *p, int pipe_id)
     pipe_add_reader(pipe_id);
 }
 
+// 把进程标准输出绑定到管道写端
 static void proc_bind_pipe_out(PCB *p, int pipe_id)
 {
     p->p_ofile[1].fd_type = PROC_FD_PIPE_WR;
@@ -1074,6 +1096,7 @@ static void proc_bind_pipe_out(PCB *p, int pipe_id)
     pipe_add_writer(pipe_id);
 }
 
+// 按顺序运行管道中的多个程序
 static int cmd_run_pipeline_chain(int stage_count, char **stages)
 {
     if (stage_count < 2 || stage_count > PIPELINE_MAX_STAGES) {
@@ -1141,6 +1164,7 @@ fail:
     return -1;
 }
 
+// 按 | 拆分命令行为管道阶段
 static int split_pipeline_segments(char *line, char *segments[], int max_seg)
 {
     int count = 0;
@@ -1156,6 +1180,7 @@ static int split_pipeline_segments(char *line, char *segments[], int max_seg)
     return count;
 }
 
+// 若含管道则执行管道并返回状态
 static int try_run_pipeline(char *line)
 {
     if (strchr(line, '|') == NULL) return 0;
@@ -1170,6 +1195,7 @@ static int try_run_pipeline(char *line)
     return cmd_run_pipeline_chain(stage_count, segments) == 0 ? 1 : -1;
 }
 
+// 向进程发送信号
 static int cmd_kill_cmd(int argc, char **argv)
 {
     if (argc < 2) { ui_err("Usage: kill <pid> [sig]"); return -1; }
@@ -1180,6 +1206,7 @@ static int cmd_kill_cmd(int argc, char **argv)
     return 0;
 }
 
+// 创建有名管道文件
 static int cmd_mkfifo(const char *path)
 {
     if (path == NULL || path[0] != '/') { ui_err("Usage: mkfifo </path>"); return -1; }
@@ -1188,6 +1215,7 @@ static int cmd_mkfifo(const char *path)
     return 0;
 }
 
+// design_debug 子命令调试输出
 static int cmd_design_debug(int argc, char **argv)
 {
     if (argc < 2) {
@@ -1258,7 +1286,7 @@ static int cmd_design_debug(int argc, char **argv)
             CPUContext *cpu = &table[i].p_cpu;
             printf("    cpu: PC=0x%X  SP=0x%X  FP=0x%X  FLAGS=0x%X  ticks_left=%u\n",
                    (unsigned)cpu->pc, (unsigned)cpu->regs[CPU_REG_SP],
-                   (unsigned)cpu->regs[14],  /* R14 = FP */
+                   (unsigned)cpu->regs[14],  
                    (unsigned)cpu->flags, (unsigned)cpu->ticks_left);
             printf("    fd: ");
             int fd_any = 0;
@@ -1306,6 +1334,7 @@ static int cmd_design_debug(int argc, char **argv)
     return 0;
 }
 
+// 列出当前进程表
 static int cmd_ps(void)
 {
     int count = 0;
@@ -1328,6 +1357,7 @@ static int cmd_ps(void)
     return 0;
 }
 
+// env 命令的变量打印回调
 static void env_print_cb(const char *name, const char *value, int is_system)
 {
     printf("  %s%-24s = %s%s%s\n",
@@ -1335,6 +1365,7 @@ static void env_print_cb(const char *name, const char *value, int is_system)
            name, value, is_system ? " [sys]" : "", ANSI_RESET);
 }
 
+// 列出环境变量
 static int cmd_env(void)
 {
     printf("\n");
@@ -1342,6 +1373,7 @@ static int cmd_env(void)
     return 0;
 }
 
+// 设置环境变量
 static int cmd_export(const char *arg)
 {
     if (arg == NULL) { ui_err("Usage: export KEY=VALUE"); return -1; }
@@ -1355,6 +1387,7 @@ static int cmd_export(const char *arg)
     return 0;
 }
 
+// 删除环境变量
 static int cmd_unset(const char *key)
 {
     if (key == NULL) { ui_err("Usage: unset KEY"); return -1; }
@@ -1363,8 +1396,7 @@ static int cmd_unset(const char *key)
     return 0;
 }
 
-
-
+// 根据命令名调用对应处理函数
 static int dispatch_command(int argc, char **argv)
 {
     if (argc <= 0 || argv[0] == NULL) return 0;
@@ -1390,11 +1422,11 @@ static int dispatch_command(int argc, char **argv)
             ui_err("Output path must differ from source path");
             return -1;
         }
-        
+
         char tmp_src[256], tmp_out[256];
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_asm_src_%d", getpid());
         snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_asm_out_%d", getpid());
-        
+
         {
             MemINode *ip = namei(argv[1]);
             if (!ip) { ui_err("Source file not found"); return -1; }
@@ -1411,7 +1443,7 @@ static int dispatch_command(int argc, char **argv)
         }
 
         if (assemble_file(tmp_src, tmp_out) != 0) { unlink(tmp_src); unlink(tmp_out); ui_err("Assembly failed"); return -1; }
-        
+
         {
             FILE *f = fopen(tmp_out, "rb");
             if (f) {
@@ -1437,10 +1469,10 @@ static int dispatch_command(int argc, char **argv)
     }
     if (strcmp(cmd, "vim") == 0) {
         if (argc < 2) { ui_err("Usage: vim <file>"); return -1; }
-        
+
         char tmp_path[256];
         snprintf(tmp_path, sizeof(tmp_path), "/tmp/upfs_vim_%d", getpid());
-        
+
         MemINode *ip = namei(argv[1]);
         if (ip != NULL) {
             iput(ip);
@@ -1454,11 +1486,11 @@ static int dispatch_command(int argc, char **argv)
                 if (tf) { fwrite(buf, 1, (size_t)total, tf); fclose(tf); }
             }
         }
-        
+
         printf("\033[2J\033[H"); fflush(stdout);
         editor_open(tmp_path);
         printf("\033[2J\033[H"); fflush(stdout);
-        
+
         FILE *tf = fopen(tmp_path, "r");
         if (tf) {
             fseek(tf, 0, SEEK_END); long sz = ftell(tf); rewind(tf);
@@ -1466,7 +1498,7 @@ static int dispatch_command(int argc, char **argv)
                 char *buf = malloc((size_t)(sz + 1));
                 if (buf) {
                     fread(buf, 1, (size_t)sz, tf);
-                    
+
                     vfs_delete(argv[1]);
                     if (vfs_create(argv[1], 0644) != 0) {
                         vfs_delete(argv[1]);
@@ -1480,7 +1512,7 @@ static int dispatch_command(int argc, char **argv)
                     free(buf);
                 }
             } else {
-                
+
                 vfs_delete(argv[1]);
                 vfs_create(argv[1], 0644);
             }
@@ -1604,7 +1636,7 @@ static int dispatch_command(int argc, char **argv)
 
     if (require_mounted()) return -1;
 
-    
+
     if (cmd[0] == '.' && cmd[1] == '/') { return cmd_run(cmd); }
 
     if (strcmp(cmd, "mkdir") == 0) {
@@ -1617,7 +1649,7 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0) {
         const char *target = argv[1];
         if (argc < 2 || strcmp(target, "~") == 0) {
-            
+
             if (g_user_home[0] == '\0') { ui_err("No home directory configured"); return -1; }
             target = g_user_home;
         }
@@ -1717,7 +1749,7 @@ static int dispatch_command(int argc, char **argv)
     if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }
     if (strcmp(cmd, "unset") == 0) { if (argc < 2) { ui_err("Usage: unset KEY"); return -1; } return cmd_unset(argv[1]); }
 
-    
+
     {
         const char *path_env = env_get_path();
         if (path_env != NULL) {
@@ -1745,25 +1777,18 @@ static int dispatch_command(int argc, char **argv)
     return -1;
 }
 
-
-
 extern int dup2(int oldfd, int newfd);
 
-/*
-@brief 主会话函数，处理输入输出重定向和命令循环
-@param in_fd 输入文件描述符，通常为0（标准输入）
-@param out_fd 输出文件描述符，通常为1（标准输出）
-@return 0表示正常退出，非0表示发生错误
-*/
+// Shell 主循环：挂载磁盘并处理命令
 int upfs_session(int in_fd, int out_fd)
 {
-    vfs_upfs_register(); //注册UPFS文件系统各个函数
+    vfs_upfs_register(); 
 
-    if (g_kernel == NULL) kernel_local_init(); //内核初始化，设置全局内核对象指针
+    if (g_kernel == NULL) kernel_local_init(); 
 
-    if (dup2(out_fd, 1) < 0) return 1;   
-    if (dup2(out_fd, 2) < 0) return 1;   
-    if (dup2(in_fd,  0) < 0) return 1;   
+    if (dup2(out_fd, 1) < 0) return 1;
+    if (dup2(out_fd, 2) < 0) return 1;
+    if (dup2(in_fd,  0) < 0) return 1;
 
     char line[LINE_BUF_SIZE];
     char *argv[MAX_ARGS];
@@ -1811,7 +1836,7 @@ int upfs_session(int in_fd, int out_fd)
         if (dispatch_command(argc, argv) == 1) exit_flag = 1;
     }
 
-    
+
     int is_shared_session = (shared_disk_path() != NULL);
     if (g_mounted) {
         user_db_save();
@@ -1827,14 +1852,13 @@ int upfs_session(int in_fd, int out_fd)
     return 0;
 }
 
-
-
+// 程序入口，--serve 时启动网络服务
 int main(int argc, char *argv[])
 {
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
         int port = 4096;
-        if (argc >= 3) port = atoi(argv[2]);  //检测第二参数作为转发端口，否则默认
+        if (argc >= 3) port = atoi(argv[2]);  
         return serve_main(port);
     }
-    return upfs_session(0, 1);  
+    return upfs_session(0, 1);
 }

@@ -1,4 +1,7 @@
-
+/*
+ * journal.c
+ * 元数据日志：先写日志区再回写目标块，挂载时重放未清理的已提交事务。
+ */
 #include "fs/journal.h"
 #include "fs/bg.h"
 #include "fs/buf.h"
@@ -29,16 +32,19 @@ static struct {
     } logs[JOURNAL_MAX_LOG];
 } g_txn;
 
+// 返回日志区头块号
 static int journal_header_block(void)
 {
     return JOURNAL_ZONE_START;
 }
 
+// 返回第 slot 条日志记录所在块号
 static int journal_data_block(int slot)
 {
     return JOURNAL_ZONE_START + 1 + slot;
 }
 
+// 判断块号是否属于需日志保护的元数据
 int journal_is_metadata_block(int blockno)
 {
     if (blockno == SUPERBLOCK_BLOCKNO || blockno == BOOT_BLOCKNO)
@@ -50,6 +56,7 @@ int journal_is_metadata_block(int blockno)
     return 0;
 }
 
+// 格式化时清零日志区并写入空日志头
 int journal_init_format(void)
 {
     JournalHeader hdr;
@@ -72,6 +79,7 @@ int journal_init_format(void)
     return 0;
 }
 
+// 读取并校验日志头
 static int journal_read_header(JournalHeader *hdr)
 {
     if (disk_read_block(journal_header_block(), hdr) != 0)
@@ -81,11 +89,13 @@ static int journal_read_header(JournalHeader *hdr)
     return 0;
 }
 
+// 把日志中的块副本写回目标块号
 static int journal_apply_log(int blockno, const void *data)
 {
     return disk_write_block(blockno, data);
 }
 
+// 挂载时重放已提交但未清理的日志记录
 int journal_replay(void)
 {
     JournalHeader hdr;
@@ -112,6 +122,7 @@ int journal_replay(void)
     return disk_write_block(journal_header_block(), &hdr);
 }
 
+// 开始新事务，递增序列号
 int journal_begin(void)
 {
     if (g_txn.active)
@@ -121,6 +132,7 @@ int journal_begin(void)
     return 0;
 }
 
+// 在当前事务中记录一块的完整副本
 int journal_log_block(int blockno, const void *data)
 {
     if (!g_txn.active || data == NULL)
@@ -133,12 +145,14 @@ int journal_log_block(int blockno, const void *data)
     return 0;
 }
 
+// 放弃当前事务，丢弃内存中的日志记录
 void journal_abort(void)
 {
     g_txn.active = 0;
     g_txn.nlogs = 0;
 }
 
+// 先写日志再回写目标块，最后更新日志头
 int journal_commit(void)
 {
     JournalHeader hdr;
@@ -191,6 +205,7 @@ int journal_commit(void)
     return 0;
 }
 
+// 带日志保护的块写入封装
 static int journal_write_logged(int blockno, const void *data)
 {
     if (!g_txn.active) {
@@ -204,6 +219,7 @@ static int journal_write_logged(int blockno, const void *data)
     return journal_commit();
 }
 
+// 写超级块、锚块、inode 块等元数据
 int journal_write_metadata(int blockno, const void *data)
 {
     if (data == NULL)
@@ -215,6 +231,7 @@ int journal_write_metadata(int blockno, const void *data)
     return journal_write_logged(blockno, data);
 }
 
+// 写目录数据块，走日志保证一致性
 int journal_write_dir_block(int blockno, const void *data)
 {
     if (data == NULL)

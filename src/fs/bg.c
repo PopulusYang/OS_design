@@ -1,4 +1,7 @@
-// 块组管理模块实现
+/*
+ * bg.c
+ * 块组成组链接法：锚块维护空闲栈，按 inode 所在块组优先分配数据块。
+ */// 块组管理模块实现
 // 空闲块管理采用成组链接法：每个块组以锚点块为栈顶，栈满时通过空闲块本身链式串联下一组
 
 
@@ -39,11 +42,13 @@ static BlockGroupDesc g_bg_desc[BG_COUNT];
 
 static int            g_bg_loaded; // 已加载
 
+// 检查成组链接寄存块头中的计数是否合法
 static int reg_header_valid(uint16_t m)
 {
     return m > 0 && m <= MAX_FREE_BLOCKS;
 }
 
+// 根据物理块号计算所属块组编号
 int bg_from_block(int blockno)
 {
     int bg;
@@ -55,6 +60,7 @@ int bg_from_block(int blockno)
     return bg;
 }
 
+// 判断块号是否落在某块组的数据区内
 int bg_block_in_data_zone(int blockno)
 {
     int bg = bg_from_block(blockno);
@@ -66,11 +72,13 @@ int bg_block_in_data_zone(int blockno)
            blockno < d->bgd_data_start + d->bgd_data_blocks;
 }
 
+// 判断块号是否为 inode 块
 int bg_is_inode_disk_block(int blockno)
 {
     return inomap_is_chunk_block(blockno);
 }
 
+// 判断块号是否为块组锚块或引导/超级块
 int bg_is_anchor_block(int blockno)
 {
     int i;
@@ -81,7 +89,7 @@ int bg_is_anchor_block(int blockno)
     return blockno == SUPERBLOCK_BLOCKNO || blockno == BOOT_BLOCKNO;
 }
 
-// 构建块组磁盘布局：8块组顺序排列，每块组1锚点+63数据块
+// 计算 8 个块组的锚块与数据区起始布局
 static void bg_build_layout(void)
 {
     int bg;
@@ -99,8 +107,7 @@ static void bg_build_layout(void)
     }
 }
 
-// 成组链接法初始化：将空闲块号列表填入选定块组的锚点栈和链块
-// 前 MAX_FREE_BLOCKS 个块号放锚点栈，超出部分按每块 MAX_FREE_BLOCKS 个分组写入链块
+// 用成组链接法初始化块组的空闲块栈
 static int bg_init_free_stack(BgRuntime *rt, uint16_t *blks, int cnt)
 {
     int idx = 0;
@@ -139,6 +146,7 @@ static int bg_init_free_stack(BgRuntime *rt, uint16_t *blks, int cnt)
     return 0;
 }
 
+// 把块组运行时状态写入锚块
 static int bg_write_anchor(int bg_index)
 {
     BgRuntime *rt = &g_bg[bg_index];
@@ -154,6 +162,7 @@ static int bg_write_anchor(int bg_index)
     return disk_write_block((int)rt->desc.bgd_anchor_block, block_buf);
 }
 
+// 从锚块读入块组空闲栈与链表头
 static int bg_read_anchor(int bg_index)
 {
     BgRuntime *rt = &g_bg[bg_index];
@@ -174,6 +183,7 @@ static int bg_read_anchor(int bg_index)
     return 0;
 }
 
+// 格式化时初始化全部块组的空闲链表
 // 格式化时初始化块组：构建布局、收集空闲块号、写入锚点块
 int bg_format_init(void)
 {
@@ -205,6 +215,7 @@ int bg_format_init(void)
     return 0;
 }
 
+// 挂载时从超级块和锚块恢复块组状态
 // 挂载时从超级块恢复块组状态：加载描述符表，读取各块组锚点块
 int bg_init_from_super(const SuperBlock *sb)
 {
@@ -223,6 +234,7 @@ int bg_init_from_super(const SuperBlock *sb)
     return 0;
 }
 
+// 汇总各块组空闲块数写入超级块
 int bg_fill_super(SuperBlock *sb)
 {
     uint32_t bfree = 0;
@@ -244,6 +256,7 @@ int bg_fill_super(SuperBlock *sb)
     return 0;
 }
 
+// 把所有块组锚块写回磁盘
 int bg_sync(void)
 {
     if (!g_bg_loaded)
@@ -255,7 +268,7 @@ int bg_sync(void)
     return 0;
 }
 
-// 空闲栈为空时，从链块中重新加载一批空闲块号（成组链接法核心逻辑）
+// 栈空时从寄存块加载下一组空闲块号
 static int bg_reload_free_stack(BgRuntime *rt)
 {
     if (rt->free_stack_count > 0)
@@ -284,6 +297,7 @@ static int bg_reload_free_stack(BgRuntime *rt)
     return 0;
 }
 
+// 根据 inode 号推算其所在块组，用于就近分配
 static int bg_hint_to_group(uint16_t ino_hint)
 {
     int blk;
@@ -296,8 +310,7 @@ static int bg_hint_to_group(uint16_t ino_hint)
     return 0;
 }
 
-// 分配一个空闲数据块：优先从 ino_hint 所在块组分配（局部性优化），
-// 该块组满则按轮转顺序查找下一个有空闲块的块组
+// 按 inode 提示优先从同块组分配一个空闲数据块
 int bg_balloc_for(uint16_t ino_hint)
 {
     int start = bg_hint_to_group(ino_hint);
@@ -322,8 +335,7 @@ int bg_balloc_for(uint16_t ino_hint)
     return -1;
 }
 
-// 释放一个数据块：归还到所属块组空闲栈。
-// 若栈满则先将当前栈写入该空闲块（作为新的链块），再以该块为新栈顶
+// 把数据块回收到所属块组的空闲栈
 int bg_bfree(int blockno)
 {
     int bg = bg_from_block(blockno);
@@ -357,6 +369,7 @@ int bg_bfree(int blockno)
     return 0;
 }
 
+// 打印各块组锚块、数据区与空闲块统计
 void bg_debug_print(void)
 {
     printf("\n");
@@ -373,6 +386,7 @@ void bg_debug_print(void)
     printf("\n");
 }
 
+// 返回指定块组当前空闲块数
 uint32_t bg_group_free(int group)
 {
     if (group < 0 || group >= BG_COUNT) return 0;

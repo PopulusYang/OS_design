@@ -1,8 +1,7 @@
-
-
-
-
-
+/*
+ * editor.c
+ * vi 风格编辑，经 VFS 读写文件内容。
+ */
 #include "editor.h"
 
 #include <stdio.h>
@@ -15,35 +14,30 @@
 #include <poll.h>
 #include <errno.h>
 
-
-
 enum { M_NORMAL, M_INSERT, M_COMMAND };
 #define MAX_LINES   4096
 #define TAB_STOP    4
 
-
-
 typedef struct {
     char  *lines[MAX_LINES];
     int    nlines;
-    int    cx, cy;        
-    int    scroll;        
+    int    cx, cy;
+    int    scroll;
     int    mode;
-    char   cmd[256];      
+    char   cmd[256];
     int    cmd_len;
     char   path[512];
     int    modified;
-    int    rows, cols;    
+    int    rows, cols;
     char   status[128];
-    int    dirty;         
+    int    dirty;
 } Ed;
 
 static Ed g_ed;
 static struct termios g_orig;
-static char *g_yank = NULL;   
+static char *g_yank = NULL;
 
-
-
+// 把终端设为原始模式以捕获按键
 static void term_raw(void) {
     tcgetattr(STDIN_FILENO, &g_orig);
     struct termios r = g_orig;
@@ -56,10 +50,12 @@ static void term_raw(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &r);
 }
 
+// 恢复终端原先属性
 static void term_restore(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_orig);
 }
 
+// 获取终端窗口行数与列数
 static void get_term_size(int *rows, int *cols) {
     struct winsize ws;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0) {
@@ -70,28 +66,28 @@ static void get_term_size(int *rows, int *cols) {
     }
 }
 
-
-
+// 格式化并保存底部状态栏文字
 static void set_status(const char *fmt, ...) {
     va_list ap; va_start(ap, fmt);
     vsnprintf(g_ed.status, sizeof(g_ed.status), fmt, ap);
     va_end(ap);
 }
 
+// 重绘编辑区、状态栏与命令行
 static void ed_render(void) {
     get_term_size(&g_ed.rows, &g_ed.cols);
     int rows = g_ed.rows, cols = g_ed.cols;
-    
-    int vis_rows = rows - 2;  
+
+    int vis_rows = rows - 2;
     if (vis_rows < 1) vis_rows = 1;
     if (g_ed.cy < g_ed.scroll) g_ed.scroll = g_ed.cy;
     if (g_ed.cy >= g_ed.scroll + vis_rows) g_ed.scroll = g_ed.cy - vis_rows + 1;
     if (g_ed.scroll < 0) g_ed.scroll = 0;
 
-    
+
     printf("\033[2J\033[H\033[?25l");
 
-    
+
     const char *mode_str = g_ed.mode == M_NORMAL  ? "NORMAL"  :
                            g_ed.mode == M_INSERT  ? "INSERT"  : "COMMAND";
     const char *mod_color = g_ed.mode == M_NORMAL  ? "\033[48;2;100;120;180m\033[37m" :
@@ -103,11 +99,11 @@ static void ed_render(void) {
            g_ed.modified ? " \033[38;2;88;166;255m[modified]\033[0m" : "",
            g_ed.path[0] ? "" : "");
 
-    
+
     int end = g_ed.scroll + vis_rows;
     if (end > g_ed.nlines) end = g_ed.nlines;
     for (int i = g_ed.scroll; i < end; i++) {
-        
+
         printf("\033[2m\033[38;2;100;100;100m%4d \033[0m", i + 1);
 
         char *line = g_ed.lines[i];
@@ -123,14 +119,14 @@ static void ed_render(void) {
                 col++;
             }
         }
-        printf("\033[K\r\n");  
+        printf("\033[K\r\n");
     }
 
-    
+
     for (int i = end - g_ed.scroll; i < vis_rows; i++)
         printf("\033[2m~\033[0m\033[K\r\n");
 
-    
+
     if (g_ed.mode == M_COMMAND) {
         printf("\033[48;2;40;40;40m:%s\033[K", g_ed.cmd);
         int cx = g_ed.cmd_len + 1;
@@ -140,9 +136,9 @@ static void ed_render(void) {
     }
     printf("\033[0m");
 
-    
-    int screen_row = (g_ed.cy - g_ed.scroll) + 2;  
-    int screen_col = 6;  
+
+    int screen_row = (g_ed.cy - g_ed.scroll) + 2;
+    int screen_col = 6;
     char *cur_line = g_ed.lines[g_ed.cy];
     for (int j = 0; j < g_ed.cx && j < (int)strlen(cur_line); j++) {
         if (cur_line[j] == '\t') screen_col += TAB_STOP - (screen_col - 6) % TAB_STOP;
@@ -152,8 +148,7 @@ static void ed_render(void) {
     fflush(stdout);
 }
 
-
-
+// 在指定行号插入一行文本
 static int line_insert(int at, const char *s) {
     if (g_ed.nlines >= MAX_LINES) return -1;
     for (int i = g_ed.nlines; i > at; i--) g_ed.lines[i] = g_ed.lines[i - 1];
@@ -163,6 +158,7 @@ static int line_insert(int at, const char *s) {
     return 0;
 }
 
+// 删除指定行号的文本行
 static void line_delete(int at) {
     if (at < 0 || at >= g_ed.nlines) return;
     free(g_ed.lines[at]);
@@ -171,6 +167,7 @@ static void line_delete(int at) {
     g_ed.modified = 1;
 }
 
+// 在光标处插入一个字符
 static void char_insert(int ch) {
     char *line = g_ed.lines[g_ed.cy];
     int len = (int)strlen(line);
@@ -183,6 +180,7 @@ static void char_insert(int ch) {
     g_ed.modified = 1;
 }
 
+// 删除光标前一个字符
 static void char_delete(void) {
     if (g_ed.cx <= 0) return;
     char *line = g_ed.lines[g_ed.cy];
@@ -192,12 +190,11 @@ static void char_delete(void) {
     g_ed.modified = 1;
 }
 
-
-
+// 从 VFS 读文件到行缓冲区
 static int ed_load(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) {
-        
+
         line_insert(0, "");
         g_ed.modified = 0;
         strncpy(g_ed.path, path, sizeof(g_ed.path) - 1);
@@ -218,6 +215,7 @@ static int ed_load(const char *path) {
     return 0;
 }
 
+// 把行缓冲区写回 VFS 文件
 static int ed_save(void) {
     if (!g_ed.path[0]) return -1;
     FILE *f = fopen(g_ed.path, "w");
@@ -235,8 +233,7 @@ static int ed_save(void) {
     return 0;
 }
 
-
-
+// 执行命令模式下输入的冒号命令
 static int cmd_execute(void) {
     char *c = g_ed.cmd;
     if (strcmp(c, "w") == 0)      { ed_save(); }
@@ -247,7 +244,7 @@ static int cmd_execute(void) {
     else if (strcmp(c, "q!") == 0) { return 1; }
     else if (strcmp(c, "wq") == 0 || strcmp(c, "x") == 0) { ed_save(); return 1; }
     else if (strncmp(c, "e ", 2) == 0) {
-        
+
         for (int i = 0; i < g_ed.nlines; i++) free(g_ed.lines[i]);
         g_ed.nlines = g_ed.cy = g_ed.cx = g_ed.scroll = 0;
         ed_load(c + 2);
@@ -256,8 +253,7 @@ static int cmd_execute(void) {
     return 0;
 }
 
-
-
+// 处理普通模式下的按键
 static int handle_normal(int ch) {
     switch (ch) {
     case 'h': if (g_ed.cx > 0) g_ed.cx--; break;
@@ -275,7 +271,7 @@ static int handle_normal(int ch) {
     case '0': g_ed.cx = 0; break;
     case '$': g_ed.cx = (int)strlen(g_ed.lines[g_ed.cy]); break;
     case 'w': case 'W': {
-        
+
         char *line = g_ed.lines[g_ed.cy];
         int len = (int)strlen(line);
         while (g_ed.cx < len && line[g_ed.cx] != ' ' && line[g_ed.cx] != '\t') g_ed.cx++;
@@ -290,7 +286,7 @@ static int handle_normal(int ch) {
         while (g_ed.cx > 0 && line[g_ed.cx-1] != ' ' && line[g_ed.cx-1] != '\t') g_ed.cx--;
         break;
     }
-    case 'g': g_ed.cy = 0; g_ed.cx = 0; break;  
+    case 'g': g_ed.cy = 0; g_ed.cx = 0; break;
     case 'G': g_ed.cy = g_ed.nlines - 1; g_ed.cx = 0; break;
     case 'i': g_ed.mode = M_INSERT; break;
     case 'a': g_ed.mode = M_INSERT; if (g_ed.cx < (int)strlen(g_ed.lines[g_ed.cy])) g_ed.cx++; break;
@@ -304,7 +300,7 @@ static int handle_normal(int ch) {
             memmove(line + g_ed.cx, line + g_ed.cx + 1, (size_t)(len - g_ed.cx));
             g_ed.modified = 1;
         } else if (len == 0 || g_ed.cx >= len) {
-            
+
             if (g_ed.cy < g_ed.nlines - 1) {
                 size_t cur_len = strlen(g_ed.lines[g_ed.cy]);
                 g_ed.lines[g_ed.cy] = realloc(g_ed.lines[g_ed.cy], cur_len + strlen(g_ed.lines[g_ed.cy + 1]) + 1);
@@ -316,7 +312,7 @@ static int handle_normal(int ch) {
         break;
     }
     case 'y': {
-        
+
         int y2 = 0;
         struct pollfd p = { .fd = STDIN_FILENO, .events = POLLIN };
         if (poll(&p, 1, 500) > 0 && read(STDIN_FILENO, &y2, 1) == 1 && y2 == 'y') {
@@ -327,7 +323,7 @@ static int handle_normal(int ch) {
         break;
     }
     case 'd': {
-        
+
         int d2 = 0;
         struct pollfd p = { .fd = STDIN_FILENO, .events = POLLIN };
         if (poll(&p, 1, 500) > 0 && read(STDIN_FILENO, &d2, 1) == 1 && d2 == 'd') {
@@ -342,7 +338,7 @@ static int handle_normal(int ch) {
         }
         break;
     }
-    case 'p': 
+    case 'p':
         if (g_yank) {
             line_insert(g_ed.cy + 1, g_yank);
             g_ed.cy++;
@@ -350,7 +346,7 @@ static int handle_normal(int ch) {
             g_ed.modified = 1;
         }
         break;
-    case 'P': 
+    case 'P':
         if (g_yank) {
             line_insert(g_ed.cy, g_yank);
             g_ed.cx = 0;
@@ -362,16 +358,17 @@ static int handle_normal(int ch) {
     return 0;
 }
 
+// 处理插入模式下的按键
 static int handle_insert(int ch) {
-    if (ch == 27) {  
+    if (ch == 27) {
         g_ed.mode = M_NORMAL;
         if (g_ed.cx > 0) g_ed.cx--;
         return 0;
     }
-    if (ch == 127 || ch == '\b') {  
+    if (ch == 127 || ch == '\b') {
         if (g_ed.cx > 0) char_delete();
         else if (g_ed.cy > 0) {
-            
+
             int prev_len = (int)strlen(g_ed.lines[g_ed.cy - 1]);
             g_ed.lines[g_ed.cy - 1] = realloc(g_ed.lines[g_ed.cy - 1], (size_t)(prev_len + strlen(g_ed.lines[g_ed.cy]) + 1));
             strcat(g_ed.lines[g_ed.cy - 1], g_ed.lines[g_ed.cy]);
@@ -383,7 +380,7 @@ static int handle_insert(int ch) {
         return 0;
     }
     if (ch == '\r' || ch == '\n') {
-        
+
         char *line = g_ed.lines[g_ed.cy];
         char *rest = strdup(line + g_ed.cx);
         line[g_ed.cx] = '\0';
@@ -400,8 +397,9 @@ static int handle_insert(int ch) {
     return 0;
 }
 
+// 处理命令模式下的按键
 static int handle_command(int ch) {
-    if (ch == 27) {  
+    if (ch == 27) {
         g_ed.mode = M_NORMAL;
         g_ed.cmd_len = 0;
         return 0;
@@ -423,8 +421,7 @@ static int handle_command(int ch) {
     return 0;
 }
 
-
-
+// 打开文件并进入全屏编辑循环
 int editor_open(const char *path) {
     memset(&g_ed, 0, sizeof(g_ed));
     ed_load(path);
@@ -432,7 +429,7 @@ int editor_open(const char *path) {
     g_ed.mode = M_NORMAL;
 
     term_raw();
-    printf("\033[?1049h");  
+    printf("\033[?1049h");
     ed_render();
 
     for (;;) {
@@ -443,23 +440,23 @@ int editor_open(const char *path) {
         int ch = seq[0];
         int quit = 0;
 
-        
+
         if (ch == 27 && n >= 3 && seq[1] == '[') {
             switch (seq[2]) {
-            case 'A': ch = 'k'; break;  
-            case 'B': ch = 'j'; break;  
-            case 'C': ch = 'l'; break;  
-            case 'D': ch = 'h'; break;  
-            case 'H': ch = '0'; break;  
-            case 'F': ch = '$'; break;  
-            case '1': if (n >= 5 && seq[3] == ';') ch = '0'; break;  
-            case '3': ch = 'x'; break;  
-            case '5': ch = 'g'; break;  
-            case '6': ch = 'G'; break;  
+            case 'A': ch = 'k'; break;
+            case 'B': ch = 'j'; break;
+            case 'C': ch = 'l'; break;
+            case 'D': ch = 'h'; break;
+            case 'H': ch = '0'; break;
+            case 'F': ch = '$'; break;
+            case '1': if (n >= 5 && seq[3] == ';') ch = '0'; break;
+            case '3': ch = 'x'; break;
+            case '5': ch = 'g'; break;
+            case '6': ch = 'G'; break;
             default:  ch = 0; break;
             }
         } else if (ch == 27 && n == 1) {
-            
+
             ch = 27;
         }
 
@@ -475,7 +472,7 @@ int editor_open(const char *path) {
         if (quit) break;
     }
 
-    printf("\033[?1049l");  
+    printf("\033[?1049l");
     term_restore();
     return 0;
 }
