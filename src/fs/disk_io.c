@@ -209,7 +209,6 @@ int disk_sync(void)
         return -1;
 
     if (g_disk_fd >= 0)
-    {
         return msync(g_disk_mem, g_disk_size, MS_SYNC) == 0 ? 0 : -1;
     return disk_save(g_disk_path);
 }
