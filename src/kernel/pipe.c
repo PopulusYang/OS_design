@@ -1,5 +1,7 @@
-
-
+/*
+ * pipe.c
+ * 管道分配、读写与读写端引用计数。
+ */
 #include "kernel/pipe.h"
 #include "kernel/scheduler.h"
 #include "kernel/process.h"
@@ -8,6 +10,7 @@
 
 extern KernelShared *g_kernel;
 
+// 按 id 取有效管道对象
 static Pipe *pipe_get(int pipe_id)
 {
     if (g_kernel == NULL || pipe_id < 0 || pipe_id >= PIPE_MAX_COUNT) return NULL;
@@ -15,6 +18,7 @@ static Pipe *pipe_get(int pipe_id)
     return &g_kernel->pipes[pipe_id];
 }
 
+// 分配一个空闲管道槽
 int pipe_alloc(void)
 {
     if (g_kernel == NULL) return -1;
@@ -28,6 +32,7 @@ int pipe_alloc(void)
     return -1;
 }
 
+// 读写端均关闭后回收管道槽
 void pipe_free(int pipe_id)
 {
     Pipe *p = pipe_get(pipe_id);
@@ -37,18 +42,21 @@ void pipe_free(int pipe_id)
     g_kernel->pipe_used[pipe_id] = 0;
 }
 
+// 增加管道读端引用计数
 void pipe_add_reader(int pipe_id)
 {
     Pipe *p = pipe_get(pipe_id);
     if (p) p->readers++;
 }
 
+// 增加管道写端引用计数
 void pipe_add_writer(int pipe_id)
 {
     Pipe *p = pipe_get(pipe_id);
     if (p) p->writers++;
 }
 
+// 关闭读端，无读写端时释放管道
 void pipe_close_read(int pipe_id)
 {
     Pipe *p = pipe_get(pipe_id);
@@ -57,6 +65,7 @@ void pipe_close_read(int pipe_id)
     if (p->readers == 0 && p->writers == 0) pipe_free(pipe_id);
 }
 
+// 关闭写端，无读写端时释放管道
 void pipe_close_write(int pipe_id)
 {
     Pipe *p = pipe_get(pipe_id);
@@ -65,6 +74,7 @@ void pipe_close_write(int pipe_id)
     if (p->readers == 0 && p->writers == 0) pipe_free(pipe_id);
 }
 
+// 尝试从管道读出一批数据，不阻塞
 static int pipe_try_read(Pipe *p, char *buf, int count)
 {
     if (p->count == 0) return 0;
@@ -77,6 +87,7 @@ static int pipe_try_read(Pipe *p, char *buf, int count)
     return n;
 }
 
+// 尝试向管道写入一批数据，不阻塞
 static int pipe_try_write(Pipe *p, const char *buf, int count)
 {
     int space = PIPE_BUF_SIZE - p->count;
@@ -90,6 +101,7 @@ static int pipe_try_write(Pipe *p, const char *buf, int count)
     return n;
 }
 
+// 从管道读取数据，缓冲区空时协作等待
 int pipe_read(int pipe_id, char *buf, int count)
 {
     if (buf == NULL || count <= 0) return -1;
@@ -107,6 +119,7 @@ int pipe_read(int pipe_id, char *buf, int count)
     return -1;
 }
 
+// 向管道写入数据，缓冲区满时协作等待
 int pipe_write(int pipe_id, const char *buf, int count)
 {
     if (buf == NULL || count <= 0) return -1;

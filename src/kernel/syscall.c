@@ -1,13 +1,13 @@
-
-
+/*
+ * syscall.c
+ * 各系统调用的具体实现，桥接虚拟机和文件系统。
+ */
 #include "kernel/syscall.h"
 #include "kernel/scheduler.h"
 #include "kernel/memory.h"
 #include "kernel/pipe.h"
 #include "kernel/ipc.h"
 #include "vfs_core.h"
-
-
 
 #include "vfs.h"
 #include "fs/dir_sys.h"
@@ -22,10 +22,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-
-
-
-
+// 从进程虚拟地址读取以 \0 结尾的字符串
 int syscall_read_str(const PCB *p, uint32_t virt_addr, char *buf, int max_len)
 {
     if (p == NULL || buf == NULL || max_len <= 0) return -1;
@@ -39,6 +36,7 @@ int syscall_read_str(const PCB *p, uint32_t virt_addr, char *buf, int max_len)
     return 0;
 }
 
+// 把字符串写入进程虚拟地址
 int syscall_write_str(PCB *p, uint32_t virt_addr, const char *str, int max_len)
 {
     if (p == NULL || str == NULL) return -1;
@@ -56,6 +54,7 @@ int syscall_write_str(PCB *p, uint32_t virt_addr, const char *str, int max_len)
     return 0;
 }
 
+// 根据系统调用号分发到具体处理逻辑
 void syscall_dispatch(PCB *p, uint32_t no)
 {
     if (p == NULL) return;
@@ -67,23 +66,23 @@ void syscall_dispatch(PCB *p, uint32_t no)
 
     switch (no) {
 
-    case SYSCALL_EXIT: 
+    case SYSCALL_EXIT:
         proc_exit((int)arg1);
         *ret = 0;
         break;
 
-    case SYSCALL_FORK: 
+    case SYSCALL_FORK:
         *ret = (uint32_t)proc_fork();
         break;
 
-    case SYSCALL_EXEC: { 
+    case SYSCALL_EXEC: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = proc_exec(p, path) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_WAIT: { 
+    case SYSCALL_WAIT: {
         int status = 0;
         int cpid = proc_wait(&status);
         if (cpid >= 0 && arg1 != 0) {
@@ -93,11 +92,11 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_GETPID: 
+    case SYSCALL_GETPID:
         *ret = p->p_pid;
         break;
 
-    case SYSCALL_OPEN: { 
+    case SYSCALL_OPEN: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         {
@@ -116,13 +115,13 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_CLOSE: 
+    case SYSCALL_CLOSE:
         if ((int)arg1 >= 0 && (int)arg1 < PROC_MAX_FD)
             proc_free_fd(p, (int)arg1);
         *ret = 0;
         break;
 
-    case SYSCALL_READ: { 
+    case SYSCALL_READ: {
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
@@ -166,7 +165,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_WRITE: { 
+    case SYSCALL_WRITE: {
         int fd = (int)arg1;
         if (fd < 0 || fd >= PROC_MAX_FD) { *ret = (uint32_t)-1; break; }
         ProcFD *pfd = &p->p_ofile[fd];
@@ -214,37 +213,37 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_SEEK: { 
+    case SYSCALL_SEEK: {
         (void)arg1; (void)arg2; (void)arg3;
-        
+
         *ret = 0;
         break;
     }
 
-    case SYSCALL_GETCWD: { 
+    case SYSCALL_GETCWD: {
         (void)arg2;
         const User *u = dir_get_user();
         *ret = (uint32_t)-1;
         if (u != NULL && arg1 != 0) {
-            
+
             syscall_write_str(p, arg1, "/", 256);
             *ret = 0;
         }
         break;
     }
 
-    case SYSCALL_CHDIR: { 
+    case SYSCALL_CHDIR: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = chdir(path) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_SBRK: 
+    case SYSCALL_SBRK:
         *ret = proc_sbrk(p, (int32_t)arg1);
         break;
 
-    case SYSCALL_GETENV: { 
+    case SYSCALL_GETENV: {
         char name[64];
         if (syscall_read_str(p, arg1, name, (int)sizeof(name)) != 0) { *ret = (uint32_t)-1; break; }
         const char *val = env_get(name);
@@ -254,7 +253,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_SETENV: { 
+    case SYSCALL_SETENV: {
         char name[64], value[256];
         if (syscall_read_str(p, arg1, name, (int)sizeof(name)) != 0) { *ret = (uint32_t)-1; break; }
         if (syscall_read_str(p, arg2, value, (int)sizeof(value)) != 0) { *ret = (uint32_t)-1; break; }
@@ -262,41 +261,41 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_UNSETENV: { 
+    case SYSCALL_UNSETENV: {
         char name[64];
         if (syscall_read_str(p, arg1, name, (int)sizeof(name)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = env_unset(name) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_STAT: { 
+    case SYSCALL_STAT: {
         (void)arg2;
-        *ret = 0; 
+        *ret = 0;
         break;
     }
 
-    case SYSCALL_CREATE: { 
+    case SYSCALL_CREATE: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = vfs_create(path, (uint16_t)arg2) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_DELETE: { 
+    case SYSCALL_DELETE: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = vfs_delete(path) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_MKDIR: { 
+    case SYSCALL_MKDIR: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = vfs_mkdir(path, (uint16_t)arg2) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_HOST_EDIT: { 
+    case SYSCALL_HOST_EDIT: {
         char path[512]; int i = 0;
         printf("File: "); fflush(stdout);
         while (i < 510) {
@@ -309,7 +308,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         }
         path[i] = '\0'; printf("\r\n"); fflush(stdout);
         if (!path[0]) { *ret = 0; break; }
-        
+
         char tmp[256];
         snprintf(tmp, sizeof(tmp), "/tmp/upfs_vim_sys_%d", getpid());
         MemINode *ip = namei(path);
@@ -350,7 +349,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_HOST_ASM: { 
+    case SYSCALL_HOST_ASM: {
         char src[512], out[512]; int si = 0, oi = 0;
         printf("Source: "); fflush(stdout);
         while (si < 510) {
@@ -373,7 +372,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         char ts[256], to[256];
         snprintf(ts, sizeof(ts), "/tmp/upfs_asm_src_sys_%d", getpid());
         snprintf(to, sizeof(to), "/tmp/upfs_asm_out_sys_%d", getpid());
-        
+
         { MemINode *ip = namei(src);
           if (!ip) { printf("Source not found\n"); *ret = 0; break; }
           iput(ip);
@@ -386,7 +385,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
               if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
           } }
         assemble_file(ts, to);
-        
+
         { FILE *f = fopen(to, "rb");
           if (f) {
               fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
@@ -408,7 +407,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_PIPE: { 
+    case SYSCALL_PIPE: {
         int fds[2];
         if (proc_pipe(fds) != 0) { *ret = (uint32_t)-1; break; }
         cpu_write32(&p->p_cpu, arg1, (uint32_t)fds[0]);
@@ -417,23 +416,23 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_KILL: 
+    case SYSCALL_KILL:
         *ret = ipc_kill(arg1, (int)arg2) == 0 ? 0 : (uint32_t)-1;
         break;
 
-    case SYSCALL_SEMGET: 
+    case SYSCALL_SEMGET:
         *ret = (uint32_t)ipc_semget((int)arg1, (int)arg2);
         break;
 
-    case SYSCALL_SEMOP: 
+    case SYSCALL_SEMOP:
         *ret = ipc_semop((int)arg1, (int)arg2) == 0 ? 0 : (uint32_t)-1;
         break;
 
-    case SYSCALL_MSGGET: 
+    case SYSCALL_MSGGET:
         *ret = (uint32_t)ipc_msgget((int)arg1);
         break;
 
-    case SYSCALL_MSGSND: { 
+    case SYSCALL_MSGSND: {
         int type = (int)cpu_read32(&p->p_cpu, arg2);
         char tmp[IPC_MSG_SIZE];
         int chunk = (int)arg3 > IPC_MSG_SIZE ? IPC_MSG_SIZE : (int)arg3;
@@ -449,7 +448,7 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_MSGRCV: { 
+    case SYSCALL_MSGRCV: {
         char tmp[IPC_MSG_SIZE];
         int out_type = 0;
         int chunk = (int)arg3 > IPC_MSG_SIZE ? IPC_MSG_SIZE : (int)arg3;
@@ -465,26 +464,26 @@ void syscall_dispatch(PCB *p, uint32_t no)
         break;
     }
 
-    case SYSCALL_SHMGET: 
+    case SYSCALL_SHMGET:
         *ret = (uint32_t)ipc_shmget((int)arg1, (int)arg2);
         break;
 
-    case SYSCALL_SHMAT: 
+    case SYSCALL_SHMAT:
         *ret = (uint32_t)ipc_shmat(p, (int)arg1, arg2);
         break;
 
-    case SYSCALL_SHMDT: 
+    case SYSCALL_SHMDT:
         *ret = ipc_shmdt(p, (int)arg1) == 0 ? 0 : (uint32_t)-1;
         break;
 
-    case SYSCALL_MKFIFO: { 
+    case SYSCALL_MKFIFO: {
         char path[256];
         if (syscall_read_str(p, arg1, path, (int)sizeof(path)) != 0) { *ret = (uint32_t)-1; break; }
         *ret = ipc_mkfifo(path) == 0 ? 0 : (uint32_t)-1;
         break;
     }
 
-    case SYSCALL_GETSIG: 
+    case SYSCALL_GETSIG:
         *ret = (uint32_t)p->p_sigusr1_count;
         p->p_sigusr1_count = 0;
         break;

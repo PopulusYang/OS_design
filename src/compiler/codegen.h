@@ -1,5 +1,7 @@
-// codegen.h —— 代码生成器接口
-
+/*
+ * codegen.h
+ * 把 AST 翻译成 UPFS 虚拟机汇编（.s 文件）。
+ */
 #ifndef COMPILER_CODEGEN_H
 #define COMPILER_CODEGEN_H
 
@@ -13,25 +15,22 @@ extern "C" {
 
 typedef struct {
     Compiler *comp;
-    FILE     *out;          // 输出 .s 文件
+    FILE     *out;
     RegAlloc  ra;
-    int       tmp_counter;  // 临时变量计数器
-    char      cur_func[64]; // 当前函数名
-    char      *break_label; // 当前循环的 break label
-    char      *continue_label; // 当前循环的 continue label
-    int       local_var_size;  // 当前函数局部变量总字节数
-    int       saved_regs_mask;   // 需要保存的 callee-saved 寄存器位图
+    int       tmp_counter;
+    char      cur_func[64];
+    char      *break_label;
+    char      *continue_label;
+    int       local_var_size;
+    int       saved_regs_mask;
 } CodeGen;
 
-// 初始化代码生成器
 int  codegen_init(CodeGen *cg, Compiler *comp, FILE *out);
 void codegen_close(CodeGen *cg);
-
-// 从 AST 生成汇编
 void codegen_emit(CodeGen *cg, ASTNode *root);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // COMPILER_CODEGEN_H
+#endif

@@ -1,12 +1,8 @@
-// codegen.c —— AST → VM 汇编代码生成器
-//
-// 将 C AST 翻译为 UPFS VM 汇编 (.s) 代码。
-// 关键约束处理：
-//   - MOVI 仅 12 位有符号立即数 → 大地址用 LUI+MOVI+ADD
-//   - 无立即数算术 → 常数先 MOVI 到临时寄存器
-//   - 仅 ZF 标志位 → < > <= >= 比较用运行时函数
-//   - R0=返回值, R1-R8=临时, R9-R13=callee-saved, R14=FP, R15=SP
-
+/*
+ * codegen.c
+ * 把 AST 翻译成 UPFS 虚拟机汇编。大立即数用 LUI 拼接，
+ * 有符号比较和移位调用 runtime.s 中的辅助函数。
+ */
 #include "compiler/codegen.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,8 +12,6 @@
 #define REG_FP  14
 #define REG_SP  15
 #define REG_RET 0
-
-// ---------- 辅助函数 ----------
 
 static void emit_escaped_string(CodeGen *cg, const char *s) {
     fputc('"', cg->out);
@@ -49,19 +43,16 @@ static void emit_reg(CodeGen *cg, int r) {
     fprintf(cg->out, "R%d", r);
 }
 
-// 加载一个 32 位立即数到寄存器
-// MOVI 只能处理 12 位有符号 (-2048..2047)
-// 超出范围用 LUI+MOVI+ADD
+// MOVI 只能装 12 位有符号数，更大的数用 LUI 拼高位再 ADD 低位
 static void emit_load_imm(CodeGen *cg, int reg, int32_t val) {
     if (val >= -2048 && val <= 2047) {
         emit(cg, "    MOVI ");
         emit_reg(cg, reg);
         emit(cg, ", %d\n", val);
     } else {
-        // LUI reg, high | MOVI tmp, low | ADD reg, reg, tmp
         int32_t high = (val >> 12) & 0xFFF;
         int32_t low = val & 0xFFF;
-        if (low > 2047) { // 需要符号扩展处理
+        if (low > 2047) {
             low = (int16_t)(low | 0xFFFFF000) & 0xFFF;
             high = ((val - low) >> 12) & 0xFFF;
         }
@@ -88,9 +79,7 @@ static void emit_load_imm(CodeGen *cg, int reg, int32_t val) {
     }
 }
 
-// 加载一个符号地址到寄存器（使用 LUI+MOVI+ADD）
 static void emit_load_addr(CodeGen *cg, int reg, const char *label) {
-    // 如果目标寄存器在临时寄存器池中，标记为已用，防止被分配为 tmp
     int need_mark = (reg >= REG_ALLOC_MIN && reg <= REG_ALLOC_MAX && !cg->ra.used[reg]);
     if (need_mark) cg->ra.used[reg] = true;
     emit(cg, "    LUI ");
@@ -111,21 +100,18 @@ static void emit_load_addr(CodeGen *cg, int reg, const char *label) {
     if (need_mark) cg->ra.used[reg] = false;
 }
 
-// 从局部变量加载到寄存器
 static void emit_load_local(CodeGen *cg, int reg, int offset) {
     emit(cg, "    LD ");
     emit_reg(cg, reg);
     emit(cg, ", R%d, %d\n", REG_FP, offset);
 }
 
-// 存储寄存器值到局部变量
 static void emit_store_local(CodeGen *cg, int val_reg, int offset) {
     emit(cg, "    ST ");
     emit_reg(cg, val_reg);
     emit(cg, ", R%d, %d\n", REG_FP, offset);
 }
 
-// 加载全局变量地址到寄存器，然后 LD
 static void emit_load_global(CodeGen *cg, int reg, Symbol *sym) {
     emit_load_addr(cg, reg, sym->name);
     emit(cg, "    LD ");
@@ -135,7 +121,6 @@ static void emit_load_global(CodeGen *cg, int reg, Symbol *sym) {
     emit(cg, ", 0\n");
 }
 
-// 存储到全局变量
 static void emit_store_global(CodeGen *cg, int val_reg, Symbol *sym) {
     int tmp = regalloc_alloc(&cg->ra);
     emit_load_addr(cg, tmp, sym->name);
@@ -147,11 +132,7 @@ static void emit_store_global(CodeGen *cg, int val_reg, Symbol *sym) {
     regalloc_free(&cg->ra, tmp);
 }
 
-// 将表达式结果加载到指定寄存器
-// 返回存放结果的寄存器编号
 static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg);
-
-// ---------- 表达式代码生成 ----------
 
 static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     if (!n) return target_reg;
@@ -168,7 +149,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     }
 
     case AST_IDENT: {
-        /* 优先使用 parser 已解析的符号（parser 的函数局部 scope 中有正确的 offset） */
         Symbol *sym = n->ident.sym;
         if (!sym) sym = scope_lookup(cg->comp->current_scope, n->ident.name);
         if (!sym) {
@@ -197,7 +177,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
         int rright = regalloc_alloc(&cg->ra);
         emit_expr(cg, n->binary.right, rright);
 
-        // 比较运算 → 运行时函数
         switch (n->binary.op) {
         case BINOP_LT:
         case BINOP_GT:
@@ -338,7 +317,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
             emit(cg, "\n");
             break;
         case BINOP_MOD: {
-            // a % b = a - (a / b) * b
             int tmp = regalloc_alloc(&cg->ra);
             emit(cg, "    DIV ");
             emit_reg(cg, tmp);
@@ -393,7 +371,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
             break;
         case BINOP_LSHIFT:
         case BINOP_RSHIFT:
-            // 无移位指令 → 运行时函数
             emit(cg, "    MOV R1, ");
             emit_reg(cg, rleft);
             emit(cg, "\n");
@@ -448,7 +425,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
             break;
         }
         case UNOP_TILDE: {
-            // ~x = x XOR -1
             int tmp = regalloc_alloc(&cg->ra);
             emit_load_imm(cg, tmp, -1);
             emit(cg, "    XOR ");
@@ -463,7 +439,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
         }
         case UNOP_ADDR:
         case UNOP_DEREF:
-            // 指针操作留到后续阶段
             break;
         }
         return target_reg;
@@ -473,7 +448,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
         int rval = regalloc_alloc(&cg->ra);
         emit_expr(cg, n->assign.rvalue, rval);
 
-        // 存储到目标
         ASTNode *lv = n->assign.lvalue;
         if (lv->kind == AST_IDENT) {
             Symbol *sym = lv->ident.sym;
@@ -489,12 +463,10 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
                 }
             }
         } else if (lv->kind == AST_SUBSCRIPT) {
-            // arr[i] = val
             int base = regalloc_alloc(&cg->ra);
             int idx = regalloc_alloc(&cg->ra);
             emit_expr(cg, lv->subscript.array, base);
             emit_expr(cg, lv->subscript.index, idx);
-            // idx * 4
             int scale = regalloc_alloc(&cg->ra);
             emit_load_imm(cg, scale, 4);
             emit(cg, "    MUL ");
@@ -530,7 +502,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     }
 
     case AST_CALL: {
-        // 参数传入 R1-R8
         for (int i = 0; i < n->call.nargs && i < 8; i++) {
             emit_expr(cg, n->call.args[i], i + 1);
         }
@@ -542,7 +513,6 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     }
 
     case AST_SUBSCRIPT: {
-        // arr[i] → 加载地址然后 LD
         int base = regalloc_alloc(&cg->ra);
         int idx = regalloc_alloc(&cg->ra);
         emit_expr(cg, n->subscript.array, base);
@@ -580,12 +550,8 @@ static int emit_expr(CodeGen *cg, ASTNode *n, int target_reg) {
     }
 }
 
-// ---------- 条件表达式 → 跳转 ----------
-
-// 生成条件判断代码：如果条件为真则跳转到 label
 static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool jump_if_true) {
     if (!cond) {
-        // 无条件
         if (jump_if_true) emit(cg, "    JMP %s\n", label);
         return;
     }
@@ -593,7 +559,6 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
     if (cond->kind == AST_BINARY &&
         (cond->binary.op == BINOP_LT || cond->binary.op == BINOP_GT ||
          cond->binary.op == BINOP_LE || cond->binary.op == BINOP_GE)) {
-        // 比较运算 → 运行时函数返回 0/1
         int rleft = regalloc_alloc(&cg->ra);
         int rright = regalloc_alloc(&cg->ra);
         emit_expr(cg, cond->binary.left, rleft);
@@ -631,7 +596,6 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
         return;
     }
 
-    // == / != 直接比较两个操作数，不通过运行时函数
     if (cond->kind == AST_BINARY &&
         (cond->binary.op == BINOP_EQ || cond->binary.op == BINOP_NE)) {
         int rleft = regalloc_alloc(&cg->ra);
@@ -653,7 +617,6 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
         return;
     }
 
-    // 通用情况：计算表达式值，与 0 比较
     int reg = regalloc_alloc(&cg->ra);
     int zero = regalloc_alloc(&cg->ra);
     emit_expr(cg, cond, reg);
@@ -672,8 +635,6 @@ static void emit_cond_jump(CodeGen *cg, ASTNode *cond, const char *label, bool j
     regalloc_free(&cg->ra, zero);
 }
 
-// ---------- 语句代码生成 ----------
-
 static void emit_stmt(CodeGen *cg, ASTNode *n) {
     if (!n) return;
 
@@ -691,7 +652,6 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
             emit_expr(cg, n->decl.init, reg);
             if (n->decl.sym) {
                 if (n->decl.is_global) {
-                    // 全局变量初始化在 .data 段处理，这里不生成代码
                 } else {
                     emit_store_local(cg, reg, n->decl.sym->offset);
                 }
@@ -785,7 +745,6 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
         if (n->return_val) {
             emit_expr(cg, n->return_val, REG_RET);
         }
-        // 函数尾声
         emit(cg, "    JMP %s_epilogue\n", cg->cur_func);
         break;
     }
@@ -808,7 +767,6 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
         break;
 
     default:
-        // 表达式语句
         {
             int tmp = regalloc_alloc(&cg->ra);
             emit_expr(cg, n, tmp);
@@ -817,8 +775,6 @@ static void emit_stmt(CodeGen *cg, ASTNode *n) {
         break;
     }
 }
-
-// ---------- 局部变量计数（递归扫描嵌套块） ----------
 
 static void count_local_vars(ASTNode *node, int *total) {
     if (!node) return;
@@ -848,32 +804,25 @@ static void count_local_vars(ASTNode *node, int *total) {
     }
 }
 
-// ---------- 函数代码生成 ----------
-
 static void emit_func(CodeGen *cg, ASTNode *n) {
     strncpy(cg->cur_func, n->func.name, sizeof(cg->cur_func) - 1);
 
-    // 计算局部变量空间：递归遍历函数体收集所有嵌套块内的声明
     cg->local_var_size = 0;
     if (n->func.body)
         count_local_vars(n->func.body, &cg->local_var_size);
     cg->local_var_size = (cg->local_var_size + 3) & ~3;
-    // 额外 64 字节安全边距，防止被调用函数的 PUSH/POP 踩到局部变量
     cg->local_var_size += 64;
 
-    // 函数标签
     emit(cg, "%s:\n", n->func.name);
 
-    // 序言：保存 callee-saved 寄存器和 FP
     emit(cg, "    PUSH R13\n");
     emit(cg, "    PUSH R12\n");
     emit(cg, "    PUSH R11\n");
     emit(cg, "    PUSH R10\n");
     emit(cg, "    PUSH R9\n");
-    emit(cg, "    PUSH R14\n");  // 保存旧 FP
-    emit(cg, "    MOV  R14, R15\n");  // FP = SP
+    emit(cg, "    PUSH R14\n");
+    emit(cg, "    MOV  R14, R15\n");
 
-    // 分配局部变量空间
     if (cg->local_var_size > 0) {
         int tmp = regalloc_alloc(&cg->ra);
         emit_load_imm(cg, tmp, cg->local_var_size);
@@ -883,38 +832,28 @@ static void emit_func(CodeGen *cg, ASTNode *n) {
         regalloc_free(&cg->ra, tmp);
     }
 
-    // 初始化参数到栈槽
-    // 参数已经在 R1-R8 中，需要存储到对应的栈偏移
-    int param_offset = 20; // PUSH R13..R14 = 6*4=24, + return addr = 4, total = 28
-    // 实际上：CALL 后栈上 [return_addr(4)] [old R13(4)] ... [old R14(4)]
-    // MOV R14,R15 后 FP 指向 old R14 的位置
-    // 参数从 FP+24 开始（跳过 6 个 PUSH + return addr）
     for (int i = 0; i < n->func.nparams && i < 8; i++) {
         Symbol *sym = scope_lookup(cg->comp->current_scope, n->func.param_names[i]);
         if (sym) {
-            sym->offset = 24 + i * 4; // 参数在 FP 正方向
+            sym->offset = 24 + i * 4;
             emit(cg, "    ST ");
-            emit_reg(cg, i + 1); // R1-R8
+            emit_reg(cg, i + 1);
             emit(cg, ", R14, %d\n", sym->offset);
         }
     }
 
-    // 函数体
     if (n->func.body) {
         emit_stmt(cg, n->func.body);
     }
 
-    // 尾声标签
     emit(cg, "%s_epilogue:\n", cg->cur_func);
 
-    // 释放局部变量
     if (cg->local_var_size > 0) {
         emit(cg, "    MOV  R15, R14\n");
     } else {
         emit(cg, "    MOV  R15, R14\n");
     }
 
-    // 恢复 callee-saved 寄存器和 FP
     emit(cg, "    POP  R14\n");
     emit(cg, "    POP  R9\n");
     emit(cg, "    POP  R10\n");
@@ -924,8 +863,6 @@ static void emit_func(CodeGen *cg, ASTNode *n) {
     emit(cg, "    RET\n");
     emit(cg, "\n");
 }
-
-// ---------- 全局变量代码生成 ----------
 
 static void emit_global_data(CodeGen *cg, ASTNode *n) {
     if (n->kind != AST_DECL) return;
@@ -947,21 +884,16 @@ static void emit_global_data(CodeGen *cg, ASTNode *n) {
     }
 }
 
-// ---------- 主代码生成入口 ----------
-
 void codegen_emit(CodeGen *cg, ASTNode *root) {
     if (!root || root->kind != AST_BLOCK) return;
 
-    // .text 段头
     emit(cg, ".text\n");
     emit(cg, ".entry _start\n\n");
 
-    // _start 包装：CALL main 返回后执行 SYSCALL 0 退出
     emit(cg, "_start:\n");
     emit(cg, "    CALL main\n");
     emit(cg, "    SYSCALL 0\n\n");
 
-    // 第一遍：收集全局变量
     for (int i = 0; i < root->block.nstmts; i++) {
         ASTNode *n = root->block.stmts[i];
         if (n->kind == AST_DECL && n->decl.is_global) {
@@ -969,16 +901,13 @@ void codegen_emit(CodeGen *cg, ASTNode *root) {
         }
     }
 
-    // 第二遍：生成函数代码
     emit(cg, "\n");
     for (int i = 0; i < root->block.nstmts; i++) {
         ASTNode *n = root->block.stmts[i];
         if (n->kind == AST_FUNC) {
-            // 为函数体创建临时作用域
             cg->comp->current_scope = scope_new(cg->comp->global_scope);
             cg->comp->func_local_offset = 0;
 
-            // 添加参数到作用域
             for (int j = 0; j < n->func.nparams && j < 8; j++) {
                 scope_add(cg->comp->current_scope, SYM_PARAM,
                     n->func.param_names[j], 24 + j * 4, 4);
@@ -991,7 +920,6 @@ void codegen_emit(CodeGen *cg, ASTNode *root) {
         }
     }
 
-    // .data 段：字符串字面量
     if (cg->comp->nstrings > 0) {
         emit(cg, "\n.data\n");
         for (int i = 0; i < cg->comp->nstrings; i++) {
@@ -1017,5 +945,5 @@ int codegen_init(CodeGen *cg, Compiler *comp, FILE *out) {
 }
 
 void codegen_close(CodeGen *cg) {
-    // nothing to close
+    (void)cg;
 }

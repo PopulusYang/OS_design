@@ -1,5 +1,7 @@
-
-
+/*
+ * file_sys.c
+ * 文件操作：用户 FD 映射到系统打开文件表，再关联 inode 完成读写与创建删除。
+ */
 #include "fs/file_sys.h"
 #include "fs/dir_sys.h"
 #include "fs/allocator.h"
@@ -12,16 +14,17 @@
 
 #define PATH_BUF_SIZE           256
 
-
 static SysOpenFile g_sys_ofile[SYS_OPEN_FILE_MAX];
 static int         g_sys_ofile_init = 0;
 
+// 初始化系统级打开文件表
 void sys_open_file_init(void)
 {
     memset(g_sys_ofile, 0, sizeof(g_sys_ofile));
     g_sys_ofile_init = 1;
 }
 
+// 统计系统打开文件表当前占用项数
 int sys_open_file_count(void)
 {
     int count = 0;
@@ -31,11 +34,13 @@ int sys_open_file_count(void)
     return count;
 }
 
+// 返回系统级打开文件表指针
 const SysOpenFile *sys_open_file_table(void)
 {
     return g_sys_ofile;
 }
 
+// 在系统打开文件表中分配一项
 static int sys_ofile_alloc(void)
 {
     if (!g_sys_ofile_init) sys_open_file_init();
@@ -45,13 +50,14 @@ static int sys_ofile_alloc(void)
     return -1;
 }
 
+// 释放系统打开文件表的一项
 static void sys_ofile_free(int idx)
 {
     if (idx < 0 || idx >= SYS_OPEN_FILE_MAX) return;
     memset(&g_sys_ofile[idx], 0, sizeof(g_sys_ofile[idx]));
 }
 
-
+// 判断 inode 是否为普通文件
 static int inode_is_reg(const MemINode *ip)
 {
     if (ip == NULL) {
@@ -60,7 +66,7 @@ static int inode_is_reg(const MemINode *ip)
     return (ip->m_dinode.d_mode & IFREG) != 0;
 }
 
-
+// 在当前用户打开文件表中分配文件描述符
 static int alloc_fd(User *u)
 {
     int i;
@@ -76,7 +82,7 @@ static int alloc_fd(User *u)
     return -1;
 }
 
-
+// 按用户文件描述符返回用户打开文件表项
 static OpenFileTable *oft_get(User *u, int fd)
 {
     if (u == NULL || fd < 0 || fd >= MAX_OPEN_FILES) {
@@ -88,76 +94,63 @@ static OpenFileTable *oft_get(User *u, int fd)
     return &u->u_ofile[fd];
 }
 
-
-/*
-@brief UPFS文件系统的文件操作接口实现，提供create、open、read、write等基本文件操作
-@param path 文件路径
-@param mode 权限模式（仅create和open使用）
-@return 操作结果，通常0表示成功，非0表示失败
-*/
+// 在父目录下创建新的空普通文件
 int upfs_create(const char *path, uint16_t mode)
 {
-    User       *u; //当前用户指针，从dir_sys模块获取
-    char        parent_path[PATH_BUF_SIZE]; //父目录路径缓冲区，用于存储从path解析出的父目录路径
-    char        name[MAX_FILENAME_LEN + 1]; //文件名缓冲区，用于存储从path解析出的文件名，最大长度为MAX_FILENAME_LEN字符+1个结尾符
-    MemINode   *parent_ip; //父目录的内存i节点指针，用于操作父目录
-    MemINode   *file_ip; //新文件的内存i节点指针，用于操作新创建的文件
-    int         ino; //新文件的i节点号，由分配器分配得到
+    User       *u;
+    char        parent_path[PATH_BUF_SIZE];
+    char        name[MAX_FILENAME_LEN + 1];
+    MemINode   *parent_ip;
+    MemINode   *file_ip;
+    int         ino;
 
-    u = dir_get_user(); //获取当前用户信息，如果没有登录用户则返回NULL
+    u = dir_get_user();
     if (path == NULL || u == NULL || fs_get_superblock() == NULL) {
         return -1;
     }
-    //分离路径，获取父目录路径和文件名，如果路径无效则返回错误
     if (dir_split_path(path, parent_path, name) != 0) {
         return -1;
     }
 
-    // 检查目标文件是否已经存在，如果存在则返回错误
     {
         MemINode *exist = namei(path);
         if (exist != NULL) {
-            iput(exist);//如果路径已经存在则返回错误
+            iput(exist);
             return -1;
         }
     }
 
-    parent_ip = namei(parent_path);// 获取父目录
-    //再次检测父目录是否存在且是一个目录，如果不是则返回错误
-    if (parent_ip == NULL) { 
+    parent_ip = namei(parent_path);
+    if (parent_ip == NULL) {
         return -1;
     }
-    //父目录必须是一个目录，否则返回错误
     if ((parent_ip->m_dinode.d_mode & IFDIR) == 0) {
         iput(parent_ip);
         return -1;
     }
 
-    //分配一个新的i节点号用于新文件，如果分配失败则返回错误
     ino = ialloc_for(parent_ip->m_inode_no);
     if (ino < 0) {
         iput(parent_ip);
         return -1;
     }
-    
-    // 从磁盘读DiskINode,加载到MemINode缓存
+
     file_ip = iget((uint16_t)ino);
-    // 如果iget失败，说明分配的i节点号无效或者磁盘读取失败，此时需要释放之前分配的i节点号，并释放父目录的内存i节点，然后返回错误
     if (file_ip == NULL) {
-        ifree((uint16_t)ino); // 回滚
+        ifree((uint16_t)ino);
         iput(parent_ip);
         return -1;
     }
 
     memset(&file_ip->m_dinode, 0, sizeof(file_ip->m_dinode));
-    file_ip->m_dinode.d_mode  = (uint16_t)((mode & 0777U) | IFREG); // 设置普通文件
-    file_ip->m_dinode.d_nlink = 1; // 硬链接计数 = 1
+    file_ip->m_dinode.d_mode  = (uint16_t)((mode & 0777U) | IFREG);
+    file_ip->m_dinode.d_nlink = 1;
     file_ip->m_dinode.d_uid   = u->u_uid;
     file_ip->m_dinode.d_gid   = u->u_gid;
-    file_ip->m_dinode.d_size  = 0; // 设置为空文件
-    file_ip->m_flags |= MINODE_DIRTY; //标记为脏数据，需要写回磁盘
+    file_ip->m_dinode.d_size  = 0;
+    file_ip->m_flags |= MINODE_DIRTY;
 
-    if (dir_link_entry(parent_ip, name, (uint16_t)ino) != 0) 
+    if (dir_link_entry(parent_ip, name, (uint16_t)ino) != 0)
     {
         file_ip->m_dinode.d_nlink = 0;
         iput(file_ip);
@@ -165,12 +158,12 @@ int upfs_create(const char *path, uint16_t mode)
         return -1;
     }
 
-    // 释放
     iput(file_ip);
     iput(parent_ip);
     return 0;
 }
 
+// 打开文件并分配用户 fd，关联系统打开文件表
 int upfs_open(const char *path, uint16_t mode)
 {
     User          *u;
@@ -239,6 +232,7 @@ int upfs_open(const char *path, uint16_t mode)
     return fd;
 }
 
+// 从已打开文件当前读位置读取数据
 int upfs_read(int fd, void *buf, int count)
 {
     User          *u;
@@ -306,6 +300,7 @@ int upfs_read(int fd, void *buf, int count)
     return total;
 }
 
+// 向已打开文件当前写位置写入数据
 int upfs_write(int fd, const void *buf, int count)
 {
     User          *u;
@@ -344,7 +339,7 @@ int upfs_write(int fd, const void *buf, int count)
         lblk = oft->oft_write_pos / (uint32_t)BLOCK_SIZE;
         off  = oft->oft_write_pos % (uint32_t)BLOCK_SIZE;
 
-        
+
         if (extent_bmap(ip, lblk, 1, &phys) != 0) {
             return (total > 0) ? total : -1;
         }
@@ -375,6 +370,7 @@ int upfs_write(int fd, const void *buf, int count)
     return total;
 }
 
+// 关闭 fd，递减系统表引用并可能释放 inode
 int upfs_close(int fd)
 {
     User          *u;
@@ -412,6 +408,7 @@ int upfs_close(int fd)
     return 0;
 }
 
+// 删除路径对应的文件并回收 inode
 int upfs_unlink(const char *path)
 {
     char        parent_path[PATH_BUF_SIZE];
@@ -472,7 +469,7 @@ int upfs_unlink(const char *path)
     return 0;
 }
 
-
+// 调整已打开文件的读或写位置
 int upfs_lseek(int fd, int offset, int whence)
 {
     User          *u;
@@ -506,7 +503,7 @@ int upfs_lseek(int fd, int offset, int whence)
     return (int)new_pos;
 }
 
-
+// 检查当前用户对路径的读/写/执行权限
 int upfs_access(const char *path, int amode)
 {
     User     *u;
@@ -544,7 +541,6 @@ int upfs_access(const char *path, int amode)
     return 0;
 }
 
-
 int upfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
              uint16_t *out_nlink, uint16_t *out_uid, uint16_t *out_gid,
              uint16_t *out_ino)
@@ -566,7 +562,7 @@ int upfs_stat(const char *path, uint16_t *out_mode, uint32_t *out_size,
     return 0;
 }
 
-
+// 修改路径对应文件或目录的权限位
 int upfs_chmod(const char *path, uint16_t new_mode)
 {
     User     *u;
@@ -589,7 +585,7 @@ int upfs_chmod(const char *path, uint16_t new_mode)
     return 0;
 }
 
-
+// 复制源文件内容到目标路径（覆盖或新建）
 int upfs_copy(const char *src, const char *dst)
 {
     int src_fd, dst_fd;
@@ -623,7 +619,7 @@ int upfs_copy(const char *src, const char *dst)
     return 0;
 }
 
-
+// 为已有文件创建硬链接目录项
 int upfs_link(const char *existing, const char *new_path)
 {
     char      parent_path[PATH_BUF_SIZE];

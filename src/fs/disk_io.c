@@ -1,5 +1,3 @@
-
-
 #include "fs/disk_io.h"
 
 #include <stdio.h>
@@ -136,7 +134,6 @@ int disk_load(const char *disk_path)
 static void ensure_parent_dir(const char *file_path)
 {
     char buf[512];
-
     strncpy(buf, file_path, sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0'; // 将父目录拷贝到buf,添加字符串结束标识
 
@@ -197,7 +194,6 @@ int disk_save(const char *disk_path)
         }
         fclose(fp);
     }
-
     strncpy(g_disk_path, disk_path, sizeof(g_disk_path) - 1);
     g_disk_path[sizeof(g_disk_path) - 1] = '\0';
     g_disk_dirty = 0; // 同步成功，标记为干净
@@ -215,7 +211,6 @@ int disk_sync(void)
     if (g_disk_fd >= 0)
     {
         return msync(g_disk_mem, g_disk_size, MS_SYNC) == 0 ? 0 : -1;
-    }
     return disk_save(g_disk_path);
 }
 

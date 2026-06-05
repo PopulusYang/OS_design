@@ -1,5 +1,7 @@
-
-
+/*
+ * allocator.c
+ * 挂载卸载、超级块同步、块与 inode 分配封装、内存 inode 池与哈希缓存。
+ */
 #include "fs/allocator.h"
 #include "fs/bg.h"
 #include "fs/inomap.h"
@@ -11,9 +13,7 @@
 #include <string.h>
 #include <pthread.h>
 
-
 #define MINODE_HASH_SIZE        128
-
 
 typedef struct IHashNode {
     MemINode           in;
@@ -24,26 +24,19 @@ typedef struct IHashNode {
     pthread_rwlock_t   rwlock;
 } IHashNode;
 
-
 static int           g_fs_mounted = 0;
-
 
 static SuperBlock    g_super;
 
-
 static int           g_super_dirty = 0;
-
 
 static char          g_disk_path[512];
 
-
 static IHashNode    *g_inode_hash[MINODE_HASH_SIZE];
-
 
 static IHashNode     g_inode_pool[INODE_CACHE_SIZE];
 
-
-
+// 从磁盘读指定 inode 号的 32 字节 inode
 static int read_disk_inode(uint16_t ino, DiskINode *out)
 {
     if (out == NULL || ino == 0)
@@ -51,6 +44,7 @@ static int read_disk_inode(uint16_t ino, DiskINode *out)
     return inomap_read_disk_inode((uint32_t)ino, out);
 }
 
+// 把 inode 写回磁盘对应槽位
 static int write_disk_inode(uint16_t ino, const DiskINode *inode)
 {
     if (inode == NULL || ino == 0)
@@ -58,13 +52,13 @@ static int write_disk_inode(uint16_t ino, const DiskINode *inode)
     return inomap_write_disk_inode((uint32_t)ino, inode);
 }
 
-
-
+// 计算 inode 号对应的哈希桶下标
 static uint32_t inode_hash_key(uint16_t ino)
 {
     return (uint32_t)(ino % MINODE_HASH_SIZE);
 }
 
+// 从 inode 池分配一个空闲槽并初始化读写锁
 static IHashNode *inode_pool_alloc(void)
 {
     int i;
@@ -84,6 +78,7 @@ static IHashNode *inode_pool_alloc(void)
     return NULL;
 }
 
+// 把内存 inode 插入哈希表
 static void inode_hash_insert(IHashNode *node)
 {
     uint32_t key;
@@ -97,6 +92,7 @@ static void inode_hash_insert(IHashNode *node)
     g_inode_hash[key] = node;
 }
 
+// 在哈希表中查找指定 inode 号的缓存节点
 static IHashNode *inode_hash_find(uint16_t ino)
 {
     uint32_t    key;
@@ -111,6 +107,7 @@ static IHashNode *inode_hash_find(uint16_t ino)
     return NULL;
 }
 
+// 从哈希表移除指定 inode 缓存项
 static void inode_hash_remove(IHashNode *node)
 {
     uint32_t    key;
@@ -132,6 +129,7 @@ static void inode_hash_remove(IHashNode *node)
     }
 }
 
+// 释放 inode 池槽并销毁读写锁
 static void inode_pool_free(IHashNode *node)
 {
     if (node == NULL) {
@@ -144,6 +142,7 @@ static void inode_pool_free(IHashNode *node)
     memset(node, 0, sizeof(*node));
 }
 
+// 清空 inode 哈希表与池，用于卸载
 static void inode_cache_reset(void)
 {
     int i;
@@ -157,7 +156,7 @@ static void inode_cache_reset(void)
     memset(g_inode_pool, 0, sizeof(g_inode_pool));
 }
 
-
+// 加载磁盘镜像、恢复块组与 inode 映射并回放日志
 int fs_mount(const char *disk_path)
 {
     if (disk_path == NULL || disk_path[0] == '\0') {
@@ -200,6 +199,7 @@ int fs_mount(const char *disk_path)
     return 0;
 }
 
+// 把内存超级块写回块 1
 int fs_sync_superblock(void)
 {
     if (!g_fs_mounted) {
@@ -218,6 +218,7 @@ int fs_sync_superblock(void)
     return 0;
 }
 
+// 刷缓存、同步超级块并保存镜像
 int fs_sync_disk(void)
 {
     int i;
@@ -256,6 +257,7 @@ int fs_sync_disk(void)
     return rc;
 }
 
+// 刷盘、释放 inode 缓存并关闭磁盘
 int fs_umount(void)
 {
     int i;
@@ -265,7 +267,7 @@ int fs_umount(void)
         return -1;
     }
 
-    
+
     for (i = 0; i < INODE_CACHE_SIZE; i++) {
         if (!g_inode_pool[i].in_use) {
             continue;
@@ -299,6 +301,7 @@ int fs_umount(void)
     return rc;
 }
 
+// 多终端模式下重新从磁盘读超级块
 int fs_reload_super(void)
 {
     if (!g_fs_mounted)
@@ -318,6 +321,7 @@ int fs_reload_super(void)
     return 0;
 }
 
+// 返回已挂载的超级块指针，未挂载时返回 NULL
 const SuperBlock *fs_get_superblock(void)
 {
     if (!g_fs_mounted) {
@@ -326,8 +330,7 @@ const SuperBlock *fs_get_superblock(void)
     return &g_super;
 }
 
-// ---------- 调试输出 ----------
-
+// 打印超级块与各子系统统计信息
 void fs_debug_print_super(void)
 {
     if (!g_fs_mounted) {
@@ -351,6 +354,7 @@ void fs_debug_print_super(void)
     inomap_debug_print();
 }
 
+// 打印 inode 缓存池使用情况
 void fs_debug_print_inodes(void)
 {
     if (!g_fs_mounted) {
@@ -365,7 +369,6 @@ void fs_debug_print_inodes(void)
     }
     for (int i = 0; i < MINODE_HASH_SIZE; i++) {
         for (IHashNode *p = g_inode_hash[i]; p; p = p->h_next) {
-            /* already counted */
         }
     }
 
@@ -376,7 +379,6 @@ void fs_debug_print_inodes(void)
     printf("  Dirty (pending):    %d\n", dirty);
     printf("  Hash buckets:       %d\n", MINODE_HASH_SIZE);
 
-    /* 列出前 32 个在用的 i 节点 */
     int shown = 0;
     printf("\n  ── Active Inodes (first 32) ─────────────────────\n");
     printf("  %-6s %-6s %-8s %-4s %s\n", "Ino", "Mode", "Size", "Ref", "Flags");
@@ -396,8 +398,7 @@ void fs_debug_print_inodes(void)
     printf("\n");
 }
 
-
-
+// 分配数据块，转发到块组并按 inode 就近
 int balloc_for(uint16_t ino_hint)
 {
     int blk;
@@ -415,11 +416,13 @@ int balloc_for(uint16_t ino_hint)
     return blk;
 }
 
+// 分配数据块，不指定 inode 提示
 int balloc(void)
 {
     return balloc_for(0);
 }
 
+// 释放数据块回块组
 int bfree(int blk)
 {
     if (!g_fs_mounted) {
@@ -432,6 +435,7 @@ int bfree(int blk)
     return 0;
 }
 
+// 分配 inode 号，优先在父 inode 所在块组
 int ialloc_for(uint16_t parent_ino)
 {
     int ino;
@@ -449,11 +453,13 @@ int ialloc_for(uint16_t parent_ino)
     return ino;
 }
 
+// 分配 inode 号，不指定父 inode
 int ialloc(void)
 {
     return ialloc_for(0);
 }
 
+// 回收 inode 号（根目录 inode 不可释放）
 int ifree(uint16_t ino)
 {
     if (!g_fs_mounted) {
@@ -471,12 +477,7 @@ int ifree(uint16_t ino)
     return 0;
 }
 
-
-/*
-@brief 从磁盘读取指定i节点号的i节点数据到内存，并返回对应的内存i节点结构体指针
-@param ino i节点号，必须大于0
-@return 成功返回指向内存i节点的指针，失败返回NULL
-*/
+// 缓存命中则引用计数加一，否则从磁盘读入并插入哈希表
 MemINode *iget(uint16_t ino)
 {
     IHashNode *node;
@@ -511,7 +512,7 @@ MemINode *iget(uint16_t ino)
     return &node->in;
 }
 
-// 释放内存i节点，如果i节点被修改过则写回磁盘，如果i节点的链接数为0则释放对应的i节点号
+// 引用计数减一，脏则写回；链接数为 0 时回收 inode 号
 void iput(MemINode *ip)
 {
     IHashNode *node;
@@ -535,7 +536,7 @@ void iput(MemINode *ip)
         return;
     }
 
-    
+
     if (ip->m_flags & MINODE_DIRTY) {
         if (write_disk_inode(ip->m_inode_no, &ip->m_dinode) != 0) {
             return;
@@ -543,7 +544,7 @@ void iput(MemINode *ip)
         ip->m_flags &= (uint8_t)~MINODE_DIRTY;
     }
 
-    
+
     if (ip->m_dinode.d_nlink == 0) {
         ifree(ip->m_inode_no);
     }
@@ -551,6 +552,7 @@ void iput(MemINode *ip)
     inode_pool_free(node);
 }
 
+// 由 MemINode 指针反查对应的池节点
 static IHashNode *inode_node_from_mem(MemINode *ip)
 {
     IHashNode *node;
@@ -565,6 +567,7 @@ static IHashNode *inode_node_from_mem(MemINode *ip)
     return node;
 }
 
+// 对内存 inode 加读锁
 int inode_rdlock(MemINode *ip)
 {
     IHashNode *node;
@@ -576,6 +579,7 @@ int inode_rdlock(MemINode *ip)
     return pthread_rwlock_rdlock(&node->rwlock);
 }
 
+// 对内存 inode 加写锁
 int inode_wrlock(MemINode *ip)
 {
     IHashNode *node;
@@ -587,6 +591,7 @@ int inode_wrlock(MemINode *ip)
     return pthread_rwlock_wrlock(&node->rwlock);
 }
 
+// 解除内存 inode 的读写锁
 void inode_unlock(MemINode *ip)
 {
     IHashNode *node;

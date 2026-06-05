@@ -1,5 +1,7 @@
-
-
+/*
+ * format.c
+ * 格式化流程：引导块、块组、日志、inode 树、超级块、根目录，最后保存镜像。
+ */
 #include "fs/format.h"
 #include "fs/disk_io.h"
 #include "fs/bg.h"
@@ -14,6 +16,7 @@
 
 static const char BOOT_MAGIC[] = "UPFSBOOT";
 
+// 写入 0 号引导块，记录超级块与根目录块号
 static int init_boot_block(void)
 {
     char boot_buf[BLOCK_SIZE];
@@ -29,6 +32,7 @@ static int init_boot_block(void)
     return disk_write_block(BOOT_BLOCKNO, boot_buf);
 }
 
+// 在根目录数据块写入 . 和 .. 两个目录项
 static int init_root_directory(void)
 {
     char dir_block[BLOCK_SIZE];
@@ -51,6 +55,7 @@ static int init_root_directory(void)
     return disk_write_block(ROOT_DIR_BLOCK, dir_block);
 }
 
+// 执行完整格式化并保存磁盘镜像
 int format(const char *disk_path)
 {
     SuperBlock sb;
@@ -97,7 +102,7 @@ int format(const char *disk_path)
         return -1;
     }
 
-    /* inomap_format_init 已从内存空闲栈分配 btree/chunk 块，须落盘 anchor */
+    // inode 树已占用部分数据块，须先同步锚块空闲栈再写超级块
     if (bg_sync() != 0) {
         FORMAT_LOG("错误：块组 anchor 同步失败");
         disk_shutdown();

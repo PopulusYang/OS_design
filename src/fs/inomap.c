@@ -1,4 +1,7 @@
-
+/*
+ * inomap.c
+ * inode 位置树与空闲树：查找、分配、回收 inode，读写磁盘上的 32 字节 inode。
+ */
 #include "fs/inomap.h"
 #include "fs/bg.h"
 #include "fs/buf.h"
@@ -8,8 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define IMAP_LOC_MAGIC   0x494D4C46U  /* IMLF */
-#define IMAP_CHK_MAGIC   0x494D434BU  /* IMCK */
+#define IMAP_LOC_MAGIC   0x494D4C46U
+#define IMAP_CHK_MAGIC   0x494D434BU
 #define IMAP_HDR_SIZE    8
 #define IMAP_LOC_MAX     ((BLOCK_SIZE - IMAP_HDR_SIZE) / 8)
 #define IMAP_CHK_MAX     ((BLOCK_SIZE - IMAP_HDR_SIZE) / 4)
@@ -50,6 +53,7 @@ static struct {
     int          loaded;
 } g_imap;
 
+// 读 inode 映射元数据块，格式化期走直写磁盘
 static int imap_blk_read(int blk, void *buf)
 {
     if (g_imap_formatting)
@@ -57,6 +61,7 @@ static int imap_blk_read(int blk, void *buf)
     return read_block(blk, buf);
 }
 
+// 读 B+ 树叶节点中的 inode 映射条目
 static int imap_leaf_read(int blk, uint32_t magic, uint16_t *cnt, void *ents, int ent_sz, int max_n)
 {
     char buf[BLOCK_SIZE];
@@ -75,6 +80,7 @@ static int imap_leaf_read(int blk, uint32_t magic, uint16_t *cnt, void *ents, in
     return 0;
 }
 
+// 写 inode 映射元数据块，格式化期或走日志
 static int imap_write_blk(int blk, const void *data)
 {
     if (g_imap_formatting)
@@ -82,6 +88,7 @@ static int imap_write_blk(int blk, const void *data)
     return journal_write_dir_block(blk, data);
 }
 
+// 写 B+ 树叶节点的映射条目数组
 static int imap_leaf_write(int blk, uint32_t magic, uint16_t cnt, const void *ents, int ent_sz)
 {
     char buf[BLOCK_SIZE];
@@ -94,6 +101,7 @@ static int imap_leaf_write(int blk, uint32_t magic, uint16_t cnt, const void *en
     return imap_write_blk(blk, buf);
 }
 
+// 读 B+ 树索引节点的子块指针表
 static int imap_index_read(int blk, uint16_t *cnt, uint16_t *level, ImapIdxEnt *ents)
 {
     char buf[BLOCK_SIZE];
@@ -127,6 +135,7 @@ static int imap_index_write(int blk, uint32_t magic, uint16_t cnt, uint16_t leve
     return imap_write_blk(blk, buf);
 }
 
+// 为 inode 映射 B+ 树分配元数据块
 static int imap_alloc_meta(uint32_t parent_ino, uint16_t *out_blk)
 {
     int blk;
@@ -138,6 +147,7 @@ static int imap_alloc_meta(uint32_t parent_ino, uint16_t *out_blk)
     return 0;
 }
 
+// 在位置树中定位覆盖指定 inode 号的叶节点
 static int loc_find_leaf(uint32_t ino, int *leaf_blk)
 {
     ImapIdxEnt idx[IMAP_LOC_MAX];
@@ -170,6 +180,7 @@ static int loc_find_leaf(uint32_t ino, int *leaf_blk)
     return 0;
 }
 
+// 查 inode 号对应的（块号，槽位）
 static int loc_lookup(uint32_t ino, InodeLoc *out)
 {
     InodeLoc ents[IMAP_LOC_MAX];
@@ -194,6 +205,7 @@ static int loc_lookup(uint32_t ino, InodeLoc *out)
     return -1;
 }
 
+// 位置树叶满时分裂并可能升高树高
 static int loc_split_leaf(int old_leaf, const InodeLoc *ents, uint16_t count)
 {
     uint16_t new_leaf_blk;
@@ -287,6 +299,7 @@ static int loc_split_leaf(int old_leaf, const InodeLoc *ents, uint16_t count)
     return 0;
 }
 
+// 向位置树插入一条 inode 位置记录
 static int loc_insert(const InodeLoc *loc)
 {
     InodeLoc ents[IMAP_LOC_MAX];
@@ -335,6 +348,7 @@ static int loc_insert(const InodeLoc *loc)
     return imap_leaf_write(leaf, IMAP_LOC_MAGIC, count, ents, (int)sizeof(InodeLoc));
 }
 
+// 读某 inode 块的 16 位空闲槽位位图
 static int chk_get(uint16_t chunk, uint16_t *mask_out)
 {
     ChunkEnt ents[IMAP_CHK_MAX];
@@ -359,6 +373,7 @@ static int chk_get(uint16_t chunk, uint16_t *mask_out)
     return -1;
 }
 
+// 写某 inode 块的空闲槽位位图
 static int chk_set(uint16_t chunk, uint16_t mask)
 {
     ChunkEnt ents[IMAP_CHK_MAX];
@@ -407,6 +422,7 @@ static int chk_set(uint16_t chunk, uint16_t mask)
                            (int)sizeof(ChunkEnt));
 }
 
+// 在空闲树中找指定块组内有空槽的 inode 块
 static int chunk_find_free_slot(int bg, uint16_t *chunk_out, uint8_t *slot_out)
 {
     ChunkEnt ents[IMAP_CHK_MAX];
@@ -435,6 +451,7 @@ static int chunk_find_free_slot(int bg, uint16_t *chunk_out, uint8_t *slot_out)
     return -1;
 }
 
+// 分配新 inode 块并登记到空闲树
 static int chunk_alloc_new(uint32_t parent_ino, uint16_t *chunk_out, uint8_t *slot_out)
 {
     int blk;
@@ -465,6 +482,7 @@ static int chunk_alloc_new(uint32_t parent_ino, uint16_t *chunk_out, uint8_t *sl
     return 0;
 }
 
+// 判断块号是否为存放 inode 的数据块
 int inomap_is_chunk_block(int blockno)
 {
     ChunkEnt ents[IMAP_CHK_MAX];
@@ -484,6 +502,7 @@ int inomap_is_chunk_block(int blockno)
     return 0;
 }
 
+// 查 inode 号在磁盘上的块号与槽位偏移
 int inomap_lookup(uint32_t ino, int *out_blk, int *out_off)
 {
     InodeLoc loc;
@@ -498,6 +517,7 @@ int inomap_lookup(uint32_t ino, int *out_blk, int *out_off)
     return 0;
 }
 
+// 按 inode 号读取 32 字节磁盘 inode
 int inomap_read_disk_inode(uint32_t ino, DiskINode *out)
 {
     char buf[BLOCK_SIZE];
@@ -514,6 +534,7 @@ int inomap_read_disk_inode(uint32_t ino, DiskINode *out)
     return 0;
 }
 
+// 按 inode 号写回 32 字节磁盘 inode
 int inomap_write_disk_inode(uint32_t ino, const DiskINode *inode)
 {
     char buf[BLOCK_SIZE];
@@ -536,6 +557,7 @@ int inomap_write_disk_inode(uint32_t ino, const DiskINode *inode)
     return journal_write_metadata(blk, buf);
 }
 
+// 把 inode 号压入内存回收栈
 static void imap_push_free(uint32_t ino)
 {
     if (g_imap.free_top >= IMAP_FREE_CAP)
@@ -544,6 +566,7 @@ static void imap_push_free(uint32_t ino)
     g_imap.inode_free_count++;
 }
 
+// 从回收栈弹出一个可复用 inode 号
 static int imap_pop_free(uint32_t *ino_out)
 {
     if (g_imap.free_top == 0)
@@ -554,6 +577,7 @@ static int imap_pop_free(uint32_t *ino_out)
     return 0;
 }
 
+// 生成下一个未使用的全局 inode 号
 static uint32_t inomap_next_free_ino(void)
 {
     InodeLoc dummy;
@@ -565,6 +589,7 @@ static uint32_t inomap_next_free_ino(void)
     }
 }
 
+// 分配 inode：先弹栈，再找空槽，最后新建块
 int inomap_ialloc_for(uint32_t parent_ino)
 {
     InodeLoc loc;
@@ -629,6 +654,7 @@ int inomap_ialloc_for(uint32_t parent_ino)
     return (int)ino;
 }
 
+// 回收 inode 号并更新位置树与空闲树
 int inomap_ifree(uint32_t ino)
 {
     InodeLoc loc;
@@ -655,6 +681,7 @@ int inomap_ifree(uint32_t ino)
     return 0;
 }
 
+// 格式化时建根 inode、位置树与空闲树
 int inomap_format_init(uint16_t root_dir_block)
 {
     uint16_t chunk_blk;
@@ -714,6 +741,7 @@ int inomap_format_init(uint16_t root_dir_block)
     return 0;
 }
 
+// 挂载时从超级块恢复 inode 映射状态
 int inomap_load(const SuperBlock *sb)
 {
     if (sb == NULL)
@@ -735,6 +763,7 @@ int inomap_load(const SuperBlock *sb)
     return 0;
 }
 
+// 把 inode 统计与 B+ 树根写回超级块
 int inomap_sync(SuperBlock *sb)
 {
     if (sb == NULL || !g_imap.loaded)
@@ -754,6 +783,7 @@ int inomap_sync(SuperBlock *sb)
     return 0;
 }
 
+// 打印 inode 映射与回收栈状态
 void inomap_debug_print(void)
 {
     printf("  ── Dynamic Inode Map ────────────────────────────\n");

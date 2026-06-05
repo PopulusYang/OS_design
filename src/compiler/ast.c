@@ -1,11 +1,11 @@
-// ast.c —— AST 节点和符号表操作实现
-
+/*
+ * ast.c
+ * 符号表作用域管理与 AST 节点、编译器上下文的分配与释放。
+ */
 #include "compiler/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// ---------- 符号表 ----------
 
 Scope *scope_new(Scope *parent) {
     Scope *s = malloc(sizeof(*s));
@@ -23,6 +23,7 @@ void scope_free(Scope *s) {
     }
 }
 
+// 从当前作用域向上查找符号
 Symbol *scope_lookup(Scope *s, const char *name) {
     while (s) {
         for (int i = 0; i < s->nsymbols; i++) {
@@ -34,6 +35,7 @@ Symbol *scope_lookup(Scope *s, const char *name) {
     return NULL;
 }
 
+// 在当前作用域末尾插入新符号
 Symbol *scope_add(Scope *s, SymbolKind kind, const char *name, int offset, int size) {
     if (s->nsymbols >= s->capacity) {
         s->capacity = s->capacity == 0 ? 16 : s->capacity * 2;
@@ -48,14 +50,13 @@ Symbol *scope_add(Scope *s, SymbolKind kind, const char *name, int offset, int s
     return sym;
 }
 
-// ---------- AST 节点 ----------
-
 ASTNode *ast_new(ASTKind kind) {
     ASTNode *n = calloc(1, sizeof(*n));
     n->kind = kind;
     return n;
 }
 
+// 按节点类型递归释放子树
 void ast_free(ASTNode *n) {
     if (!n) return;
     switch (n->kind) {
@@ -128,8 +129,6 @@ void ast_free(ASTNode *n) {
     free(n);
 }
 
-// ---------- 编译器上下文 ----------
-
 void compiler_init(Compiler *c) {
     memset(c, 0, sizeof(*c));
     c->global_scope = scope_new(NULL);
@@ -152,12 +151,14 @@ void compiler_free(Compiler *c) {
     free(c->string_values);
 }
 
+// 生成跳转标签，如 .L0、.L1
 char *compiler_new_label(Compiler *c) {
     char buf[32];
     snprintf(buf, sizeof(buf), ".L%d", c->label_counter++);
     return strdup(buf);
 }
 
+// 生成字符串字面量在 .data 段的标签
 char *compiler_new_string_label(Compiler *c) {
     char buf[32];
     snprintf(buf, sizeof(buf), ".L_str_%d", c->string_counter++);

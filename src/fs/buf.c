@@ -1,4 +1,7 @@
-
+/*
+ * buf.c
+ * 块缓存：哈希查找命中，未命中从 LRU 尾淘汰，脏块延迟写或 bflush 刷盘。
+ */
 #include "fs/buf.h"
 #include "fs/disk_io.h"
 
@@ -11,11 +14,13 @@ static Buf           g_lru_head;
 static Buf           g_lru_tail;
 static int           g_buf_inited;
 
+// 计算设备号与块号组合的哈希键
 static uint32_t buf_hash_key(int dev, int blockno)
 {
     return ((uint32_t)(unsigned)dev * 2654435761U) ^ (uint32_t)(unsigned)blockno;
 }
 
+// 从 LRU 双向链表中摘除缓存块
 static void lru_remove(Buf *bp)
 {
     if (bp->b_lru_prev) bp->b_lru_prev->b_lru_next = bp->b_lru_next;
@@ -25,6 +30,7 @@ static void lru_remove(Buf *bp)
     bp->b_lru_prev = bp->b_lru_next = NULL;
 }
 
+// 把缓存块插入 LRU 链表最近使用端
 static void lru_insert_mru(Buf *bp)
 {
     bp->b_lru_prev = &g_lru_head;
@@ -34,6 +40,7 @@ static void lru_insert_mru(Buf *bp)
     g_lru_head.b_lru_next = bp;
 }
 
+// 在哈希表中查找指定设备与块号的缓存块
 static Buf *buf_hash_find(int dev, int blockno)
 {
     uint32_t key = buf_hash_key(dev, blockno) % BC_HASH_BUCKETS;
@@ -44,6 +51,7 @@ static Buf *buf_hash_find(int dev, int blockno)
     return NULL;
 }
 
+// 把缓存块插入哈希表
 static void buf_hash_insert(Buf *bp)
 {
     uint32_t key = buf_hash_key(bp->b_dev, bp->b_blockno) % BC_HASH_BUCKETS;
@@ -51,6 +59,7 @@ static void buf_hash_insert(Buf *bp)
     g_hash[key] = bp;
 }
 
+// 从哈希表移除缓存块
 static void buf_hash_remove(Buf *bp)
 {
     uint32_t key = buf_hash_key(bp->b_dev, bp->b_blockno) % BC_HASH_BUCKETS;
@@ -64,6 +73,7 @@ static void buf_hash_remove(Buf *bp)
     }
 }
 
+// 刷脏并回收一个缓存槽
 static int buf_invalidate(Buf *bp)
 {
     if (bp->b_refcnt > 0)
@@ -82,6 +92,7 @@ static int buf_invalidate(Buf *bp)
     return 0;
 }
 
+// 分配或回收一个缓存槽用于给定块
 static Buf *buf_alloc_slot(int dev, int blockno)
 {
     Buf *bp;
@@ -102,6 +113,7 @@ static Buf *buf_alloc_slot(int dev, int blockno)
     return NULL;
 }
 
+// 初始化块缓存哈希表与 LRU 链表
 void buf_init(void)
 {
     int i;
@@ -122,6 +134,7 @@ void buf_init(void)
     g_buf_inited = 1;
 }
 
+// 关闭缓存并刷写所有脏块
 void buf_shutdown(void)
 {
     if (!g_buf_inited)
@@ -130,6 +143,7 @@ void buf_shutdown(void)
     g_buf_inited = 0;
 }
 
+// 获取块缓存项，未命中则从磁盘读入
 Buf *bread(int dev, int blockno)
 {
     Buf *bp;
@@ -170,6 +184,7 @@ Buf *bread(int dev, int blockno)
     return bp;
 }
 
+// 减少缓存块引用计数
 void brelse(Buf *bp)
 {
     if (bp == NULL)
@@ -181,6 +196,7 @@ void brelse(Buf *bp)
         bp->b_flags &= (uint16_t)~B_BUSY;
 }
 
+// 标记缓存块为脏，延迟写回
 void bdwrite(Buf *bp)
 {
     if (bp == NULL)
@@ -189,6 +205,7 @@ void bdwrite(Buf *bp)
     brelse(bp);
 }
 
+// 立即把缓存块写回磁盘
 void bwrite(Buf *bp)
 {
     if (bp == NULL)
@@ -201,6 +218,7 @@ void bwrite(Buf *bp)
     brelse(bp);
 }
 
+// 刷写全部脏缓存块
 int bflush_all(void)
 {
     int rc = 0;
@@ -224,6 +242,7 @@ int bflush_all(void)
     return rc;
 }
 
+// 清空缓存哈希表，保留槽位结构
 void bcache_invalidate(void)
 {
     if (!g_buf_inited)
@@ -237,6 +256,7 @@ void bcache_invalidate(void)
     }
 }
 
+// 经缓存读取一块，未命中则走 bread
 int read_block(int block_no, void *buf)
 {
     Buf *bp = bread(BC_DEV, block_no);
@@ -247,6 +267,7 @@ int read_block(int block_no, void *buf)
     return 0;
 }
 
+// 经缓存写入一块并标记脏
 int write_block(int block_no, const void *buf)
 {
     Buf *bp = bread(BC_DEV, block_no);

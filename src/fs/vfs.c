@@ -1,4 +1,7 @@
-
+/*
+ * vfs.c
+ * VFS 层：注册 UPFS 操作表，vfs_* 接口转发到当前挂载的文件系统实现。
+ */
 #include "vfs.h"
 #include "fs/allocator.h"
 #include "fs/dir_sys.h"
@@ -7,13 +10,14 @@
 #include "fs/buf.h"
 #include "fs/journal.h"
 
-static struct file_system_type *g_mounted_fs; //当前挂载的文件系统
+static struct file_system_type *g_mounted_fs;
 
-static struct inode_operations g_upfs_iops; //UPFS的i节点操作函数集合
-static struct file_operations  g_upfs_fops; //UPFS的文件操作函数集合
-static struct super_operations g_upfs_sops; //UPFS的超级块操作函数集合
-static struct file_system_type g_upfs_fstype; //UPFS的文件系统类型结构体实例
+static struct inode_operations g_upfs_iops;
+static struct file_operations  g_upfs_fops;
+static struct super_operations g_upfs_sops;
+static struct file_system_type g_upfs_fstype;
 
+// 挂载 UPFS：初始化缓存、加载磁盘并回放日志
 static int upfs_mount_wrap(const char *path)
 {
     buf_init();
@@ -29,6 +33,7 @@ static int upfs_mount_wrap(const char *path)
     return 0;
 }
 
+// 卸载 UPFS：刷缓存后释放文件系统
 static int upfs_umount_wrap(void)
 {
     bflush_all();
@@ -37,27 +42,32 @@ static int upfs_umount_wrap(void)
     return rc;
 }
 
+// 格式化磁盘镜像
 static int upfs_format_wrap(const char *path)
 {
     return format(path);
 }
 
+// 刷缓存并同步磁盘
 static int upfs_sync_wrap(void)
 {
     bflush_all();
     return fs_sync_disk();
 }
 
+// 注册一种文件系统到 VFS
 void vfs_register_filesystem(struct file_system_type *fs)
 {
     g_mounted_fs = fs;
 }
 
+// 返回当前注册到 VFS 的文件系统类型
 struct file_system_type *vfs_current_fs(void)
 {
     return g_mounted_fs;
 }
 
+// 挂载指定路径的磁盘到 VFS
 int vfs_mount(const char *disk_path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->sops == NULL ||
@@ -66,6 +76,7 @@ int vfs_mount(const char *disk_path)
     return g_mounted_fs->sops->mount(disk_path);
 }
 
+// 卸载当前 VFS 文件系统
 int vfs_umount(void)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->sops == NULL ||
@@ -74,6 +85,7 @@ int vfs_umount(void)
     return g_mounted_fs->sops->umount();
 }
 
+// 通过 VFS 格式化磁盘
 int vfs_format_disk(const char *disk_path)
 {
     if (g_mounted_fs && g_mounted_fs->sops && g_mounted_fs->sops->format)
@@ -81,6 +93,7 @@ int vfs_format_disk(const char *disk_path)
     return format(disk_path);
 }
 
+// 通过 VFS 刷写全部脏数据
 int vfs_sync_all(void)
 {
     if (g_mounted_fs && g_mounted_fs->sops && g_mounted_fs->sops->sync)
@@ -88,21 +101,17 @@ int vfs_sync_all(void)
     return fs_sync_disk();
 }
 
-/*
-@brief VFS层的文件和目录操作接口，调用当前挂载文件系统的对应函数实现具体功能
-@param path 文件或目录路径
-@param mode 权限模式（仅create和mkdir使用）
-@return 操作结果，通常0表示成功，非0表示失败
-*/
+// VFS 层创建文件
 int vfs_create(const char *path, uint16_t mode)
 {
-    if (g_mounted_fs == NULL || 
+    if (g_mounted_fs == NULL ||
         g_mounted_fs->iops == NULL ||
-        g_mounted_fs->iops->create == NULL) //检测当前挂载文件系统和i节点操作函数是否存在
+        g_mounted_fs->iops->create == NULL)
         return -1;
     return g_mounted_fs->iops->create(path, mode);
 }
 
+// VFS 层创建目录
 int vfs_mkdir(const char *path, uint16_t mode)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -111,6 +120,7 @@ int vfs_mkdir(const char *path, uint16_t mode)
     return g_mounted_fs->iops->mkdir(path, mode);
 }
 
+// VFS 层按路径解析并返回内存 inode
 struct MemINode *vfs_lookup(const char *path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -119,6 +129,7 @@ struct MemINode *vfs_lookup(const char *path)
     return g_mounted_fs->iops->lookup(path);
 }
 
+// VFS 层删除文件或空目录
 int vfs_delete(const char *path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -127,6 +138,7 @@ int vfs_delete(const char *path)
     return g_mounted_fs->iops->unlink(path);
 }
 
+// VFS 层打开文件
 int vfs_open(const char *path, uint16_t mode)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -135,6 +147,7 @@ int vfs_open(const char *path, uint16_t mode)
     return g_mounted_fs->fops->open(path, mode);
 }
 
+// VFS 层读文件
 int vfs_read(int fd, void *buf, int count)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -143,6 +156,7 @@ int vfs_read(int fd, void *buf, int count)
     return g_mounted_fs->fops->read(fd, buf, count);
 }
 
+// VFS 层写文件
 int vfs_write(int fd, const void *buf, int count)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -151,6 +165,7 @@ int vfs_write(int fd, const void *buf, int count)
     return g_mounted_fs->fops->write(fd, buf, count);
 }
 
+// VFS 层关闭文件描述符
 int vfs_close(int fd)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -159,6 +174,7 @@ int vfs_close(int fd)
     return g_mounted_fs->fops->close(fd);
 }
 
+// VFS 层调整文件偏移
 int vfs_lseek(int fd, int offset, int whence)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -167,6 +183,7 @@ int vfs_lseek(int fd, int offset, int whence)
     return g_mounted_fs->fops->lseek(fd, offset, whence);
 }
 
+// VFS 层检查访问权限
 int vfs_access(const char *path, int amode)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -184,6 +201,7 @@ int vfs_stat(const char *path, uint16_t *mode, uint32_t *size,
     return g_mounted_fs->iops->stat(path, mode, size, nlink, uid, gid, ino);
 }
 
+// VFS 层修改权限
 int vfs_chmod(const char *path, uint16_t new_mode)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -192,6 +210,7 @@ int vfs_chmod(const char *path, uint16_t new_mode)
     return g_mounted_fs->iops->chmod(path, new_mode);
 }
 
+// VFS 层复制文件
 int vfs_copy(const char *src, const char *dst)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->fops == NULL ||
@@ -200,6 +219,7 @@ int vfs_copy(const char *src, const char *dst)
     return g_mounted_fs->fops->copy(src, dst);
 }
 
+// VFS 层创建硬链接
 int vfs_link(const char *existing, const char *new_path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -208,6 +228,7 @@ int vfs_link(const char *existing, const char *new_path)
     return g_mounted_fs->iops->link(existing, new_path);
 }
 
+// VFS 层切换工作目录
 int vfs_chdir(const char *path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -216,6 +237,7 @@ int vfs_chdir(const char *path)
     return g_mounted_fs->iops->chdir(path);
 }
 
+// VFS 层列出目录
 int vfs_listdir(const char *path)
 {
     if (g_mounted_fs == NULL || g_mounted_fs->iops == NULL ||
@@ -224,37 +246,36 @@ int vfs_listdir(const char *path)
     return g_mounted_fs->iops->listdir(path);
 }
 
-//初始化文件系统
+// 注册 UPFS 操作表并挂到 VFS
 void vfs_upfs_register(void)
 {
-    //初始化UPFS的操作函数集合
-    g_upfs_iops.create  = upfs_create; //创建文件
-    g_upfs_iops.mkdir   = upfs_mkdir; //创建目录
-    g_upfs_iops.lookup  = namei; //路径解析和i节点查找
-    g_upfs_iops.unlink  = upfs_unlink; //删除文件或目录
-    g_upfs_iops.link    = upfs_link; //创建硬链接
-    g_upfs_iops.chmod   = upfs_chmod; //修改权限
-    g_upfs_iops.stat    = upfs_stat; //获取文件或目录的状态信息
-    g_upfs_iops.access  = upfs_access; //检查访问权限
-    g_upfs_iops.chdir   = chdir; //改变当前工作目录
-    g_upfs_iops.listdir = dir_list; //列出目录内容
+    g_upfs_iops.create  = upfs_create;
+    g_upfs_iops.mkdir   = upfs_mkdir;
+    g_upfs_iops.lookup  = namei;
+    g_upfs_iops.unlink  = upfs_unlink;
+    g_upfs_iops.link    = upfs_link;
+    g_upfs_iops.chmod   = upfs_chmod;
+    g_upfs_iops.stat    = upfs_stat;
+    g_upfs_iops.access  = upfs_access;
+    g_upfs_iops.chdir   = chdir;
+    g_upfs_iops.listdir = dir_list;
 
-    g_upfs_fops.open   = upfs_open; //打开文件
-    g_upfs_fops.read   = upfs_read; //读取文件内容
-    g_upfs_fops.write  = upfs_write; //写入文件内容
-    g_upfs_fops.close  = upfs_close; //关闭文件
-    g_upfs_fops.lseek  = upfs_lseek; //调整文件读写位置
-    g_upfs_fops.copy   = upfs_copy; //复制文件
+    g_upfs_fops.open   = upfs_open;
+    g_upfs_fops.read   = upfs_read;
+    g_upfs_fops.write  = upfs_write;
+    g_upfs_fops.close  = upfs_close;
+    g_upfs_fops.lseek  = upfs_lseek;
+    g_upfs_fops.copy   = upfs_copy;
 
-    g_upfs_sops.mount  = upfs_mount_wrap; //挂载文件系统
-    g_upfs_sops.umount = upfs_umount_wrap; //卸载文件系统
-    g_upfs_sops.format = upfs_format_wrap; //格式化磁盘
-    g_upfs_sops.sync   = upfs_sync_wrap; //同步数据到磁盘
+    g_upfs_sops.mount  = upfs_mount_wrap;
+    g_upfs_sops.umount = upfs_umount_wrap;
+    g_upfs_sops.format = upfs_format_wrap;
+    g_upfs_sops.sync   = upfs_sync_wrap;
 
-    g_upfs_fstype.name = "upfs"; //文件系统名称
-    g_upfs_fstype.iops = &g_upfs_iops; //关联i节点操作函数集合
-    g_upfs_fstype.fops = &g_upfs_fops; //关联文件操作函数集合
-    g_upfs_fstype.sops = &g_upfs_sops; //关联超级块操作函数集合
+    g_upfs_fstype.name = "upfs";
+    g_upfs_fstype.iops = &g_upfs_iops;
+    g_upfs_fstype.fops = &g_upfs_fops;
+    g_upfs_fstype.sops = &g_upfs_sops;
 
     vfs_register_filesystem(&g_upfs_fstype);
 }

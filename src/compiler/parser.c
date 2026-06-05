@@ -1,14 +1,11 @@
-// parser.c —— C 递归下降语法分析器实现
-//
-// 解析 C 子集（int 类型、函数、变量、控制流、表达式）为 AST。
-// 使用 Pratt 解析器处理表达式优先级。
-
+/*
+ * parser.c
+ * 递归下降语法分析：把 Token 流建成 AST，表达式部分用 Pratt 法处理优先级。
+ */
 #include "compiler/parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// ---------- 辅助函数 ----------
 
 static void parser_advance(Parser *p) {
     p->cur = *lexer_next(p->lexer);
@@ -32,23 +29,22 @@ static void expect(Parser *p, TokenType t, const char *msg) {
     parser_advance(p);
 }
 
-// ---------- Pratt 表达式解析器优先级 ----------
-
+// 运算符优先级，数值越大绑定越紧
 typedef enum {
     PREC_LOWEST = 0,
-    PREC_ASSIGN,      // = += -= ...
-    PREC_OR,          // ||
-    PREC_AND,         // &&
-    PREC_PIPE,        // |
-    PREC_XOR,         // ^
-    PREC_AMP,         // &
-    PREC_EQ,          // == !=
-    PREC_REL,         // < > <= >=
-    PREC_SHIFT,       // << >>
-    PREC_ADD,         // + -
-    PREC_MUL,         // * / %
-    PREC_UNARY,       // - ! ~ * &
-    PREC_CALL,        // () []
+    PREC_ASSIGN,
+    PREC_OR,
+    PREC_AND,
+    PREC_PIPE,
+    PREC_XOR,
+    PREC_AMP,
+    PREC_EQ,
+    PREC_REL,
+    PREC_SHIFT,
+    PREC_ADD,
+    PREC_MUL,
+    PREC_UNARY,
+    PREC_CALL,
     PREC_PRIMARY,
 } Precedence;
 
@@ -107,13 +103,9 @@ static UnOp token_to_unop(TokenType t) {
     }
 }
 
-// ---------- 前向声明 ----------
-
 static ASTNode *parse_expression(Parser *p, Precedence prec);
 static ASTNode *parse_statement(Parser *p);
 static ASTNode *parse_compound_statement(Parser *p);
-
-// ---------- 表达式解析 ----------
 
 static ASTNode *parse_primary(Parser *p) {
     if (p->cur.type == TOK_NUM) {
@@ -152,7 +144,7 @@ static ASTNode *parse_primary(Parser *p) {
     }
 
     if (p->cur.type == TOK_LPAREN) {
-        parser_advance(p); // skip '('
+        parser_advance(p);
         ASTNode *n = parse_expression(p, PREC_LOWEST);
         expect(p, TOK_RPAREN, "expected ')'");
         return n;
@@ -165,7 +157,6 @@ static ASTNode *parse_primary(Parser *p) {
 }
 
 static ASTNode *parse_expression(Parser *p, Precedence prec) {
-    // 一元运算符
     if (p->cur.type == TOK_MINUS || p->cur.type == TOK_NOT ||
         p->cur.type == TOK_TILDE || p->cur.type == TOK_AMP ||
         p->cur.type == TOK_STAR) {
@@ -184,13 +175,11 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
     while (1) {
         TokenType t = p->cur.type;
 
-        // 函数调用
         if (t == TOK_LPAREN) {
             parser_advance(p);
             ASTNode *call = ast_new(AST_CALL);
             call->call.name = left->kind == AST_IDENT ? strdup(left->ident.name) : strdup("(anon)");
 
-            // 收集参数
             if (p->cur.type != TOK_RPAREN) {
                 call->call.args = NULL;
                 call->call.nargs = 0;
@@ -215,7 +204,6 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
             continue;
         }
 
-        // 数组下标
         if (t == TOK_LBRACKET) {
             parser_advance(p);
             ASTNode *sub = ast_new(AST_SUBSCRIPT);
@@ -226,7 +214,6 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
             continue;
         }
 
-        // 结构体成员访问
         if (t == TOK_DOT) {
             parser_advance(p);
             if (p->cur.type != TOK_IDENT) {
@@ -234,21 +221,17 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
                 parser_advance(p);
                 continue;
             }
-            // 简单处理：struct.a 转为 (*(&struct) + offset) 的 AST_BINARY
-            // 这里先存为一个特殊的 BINARY 节点，codegen 时处理
             ASTNode *member = ast_new(AST_IDENT);
             member->ident.name = strdup(p->cur.strval);
             parser_advance(p);
-            // 用 BINARY 的 left=struct, right=member_name 表示
             ASTNode *dot = ast_new(AST_BINARY);
-            dot->binary.op = BINOP_ADD; // placeholder, codegen handles it
+            dot->binary.op = BINOP_ADD;
             dot->binary.left = left;
             dot->binary.right = member;
             left = dot;
             continue;
         }
 
-        // 二元运算符 / 赋值
         if (t == TOK_ASSIGN || t == TOK_PLUS_ASSIGN || t == TOK_MINUS_ASSIGN ||
             t == TOK_STAR_ASSIGN || t == TOK_SLASH_ASSIGN ||
             t == TOK_EQ || t == TOK_NE || t == TOK_LT || t == TOK_GT ||
@@ -272,7 +255,6 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
                 left = n;
             } else if (t == TOK_PLUS_ASSIGN || t == TOK_MINUS_ASSIGN ||
                        t == TOK_STAR_ASSIGN || t == TOK_SLASH_ASSIGN) {
-                // a += b → a = a + b
                 ASTNode *binop = ast_new(AST_BINARY);
                 binop->binary.op = token_to_binop(
                     t == TOK_PLUS_ASSIGN ? TOK_PLUS :
@@ -302,17 +284,13 @@ static ASTNode *parse_expression(Parser *p, Precedence prec) {
     return left;
 }
 
-// ---------- 语句解析 ----------
-
 static ASTNode *parse_declaration(Parser *p);
 
 static ASTNode *parse_statement(Parser *p) {
-    // 声明语句
     if (p->cur.type == TOK_INT) {
         return parse_declaration(p);
     }
 
-    // if
     if (p->cur.type == TOK_IF) {
         parser_advance(p);
         expect(p, TOK_LPAREN, "expected '(' after 'if'");
@@ -331,7 +309,6 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // while
     if (p->cur.type == TOK_WHILE) {
         parser_advance(p);
         expect(p, TOK_LPAREN, "expected '(' after 'while'");
@@ -344,7 +321,6 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // for
     if (p->cur.type == TOK_FOR) {
         parser_advance(p);
         expect(p, TOK_LPAREN, "expected '(' after 'for'");
@@ -375,7 +351,6 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // do-while
     if (p->cur.type == TOK_DO) {
         parser_advance(p);
         ASTNode *body = parse_statement(p);
@@ -390,7 +365,6 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // return
     if (p->cur.type == TOK_RETURN) {
         parser_advance(p);
         ASTNode *n = ast_new(AST_RETURN);
@@ -401,26 +375,22 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // break
     if (p->cur.type == TOK_BREAK) {
         parser_advance(p);
         expect(p, TOK_SEMI, "expected ';' after break");
         return ast_new(AST_BREAK);
     }
 
-    // continue
     if (p->cur.type == TOK_CONTINUE) {
         parser_advance(p);
         expect(p, TOK_SEMI, "expected ';' after continue");
         return ast_new(AST_CONTINUE);
     }
 
-    // 复合语句 { ... }
     if (p->cur.type == TOK_LBRACE) {
         return parse_compound_statement(p);
     }
 
-    // 表达式语句
     if (p->cur.type != TOK_SEMI) {
         ASTNode *expr = parse_expression(p, PREC_LOWEST);
         expect(p, TOK_SEMI, "expected ';' after expression");
@@ -431,7 +401,6 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
-    // 空语句
     parser_advance(p);
     return ast_new(AST_EMPTY);
 }
@@ -443,7 +412,6 @@ static ASTNode *parse_compound_statement(Parser *p) {
     block->block.stmts = NULL;
     block->block.nstmts = 0;
 
-    // 为局部变量创建新作用域
     p->comp->current_scope = scope_new(p->comp->current_scope);
 
     while (p->cur.type != TOK_RBRACE && p->cur.type != TOK_EOF) {
@@ -455,39 +423,31 @@ static ASTNode *parse_compound_statement(Parser *p) {
 
     expect(p, TOK_RBRACE, "expected '}'");
 
-    // 恢复上一级作用域
     p->comp->current_scope = p->comp->current_scope->parent;
 
     return block;
 }
 
-// ---------- 声明解析 ----------
-
 static ASTNode *parse_declaration(Parser *p) {
     expect(p, TOK_INT, "expected 'int'");
 
-    // 检查是否为函数声明
     if (p->cur.type == TOK_IDENT) {
         char *name = strdup(p->cur.strval);
         parser_advance(p);
 
         if (p->cur.type == TOK_LPAREN) {
-            // 函数定义/声明
             parser_advance(p);
             char **param_names = NULL;
             int nparams = 0;
 
-            // 解析参数列表
             if (p->cur.type != TOK_RPAREN) {
                 while (1) {
-                    // 目前只支持 int 类型参数
                     if (p->cur.type == TOK_INT) parser_advance(p);
                     if (p->cur.type == TOK_IDENT) {
                         nparams++;
                         param_names = realloc(param_names, sizeof(char *) * nparams);
                         param_names[nparams - 1] = strdup(p->cur.strval);
 
-                        // 添加参数到符号表
                         scope_add(p->comp->current_scope, SYM_PARAM,
                             p->cur.strval, 0, 4);
                         parser_advance(p);
@@ -502,7 +462,6 @@ static ASTNode *parse_declaration(Parser *p) {
             expect(p, TOK_RPAREN, "expected ')' after function parameters");
 
             if (p->cur.type == TOK_SEMI) {
-                // 前向声明
                 parser_advance(p);
                 ASTNode *n = ast_new(AST_FUNC);
                 n->func.name = name;
@@ -514,7 +473,6 @@ static ASTNode *parse_declaration(Parser *p) {
                 return n;
             }
 
-            // 函数体
             ASTNode *body = parse_compound_statement(p);
 
             ASTNode *n = ast_new(AST_FUNC);
@@ -527,7 +485,6 @@ static ASTNode *parse_declaration(Parser *p) {
             return n;
         }
 
-        // 变量声明
         int array_size = 0;
         if (p->cur.type == TOK_LBRACKET) {
             parser_advance(p);
@@ -545,7 +502,6 @@ static ASTNode *parse_declaration(Parser *p) {
         }
         expect(p, TOK_SEMI, "expected ';' after variable declaration");
 
-        // 判断是全局还是局部变量
         int is_global = (p->comp->current_scope == p->comp->global_scope);
 
         Symbol *sym;
@@ -577,17 +533,14 @@ static ASTNode *parse_declaration(Parser *p) {
     return ast_new(AST_EMPTY);
 }
 
-// ---------- 翻译单元解析 ----------
-
 ASTNode *parser_parse(Parser *p) {
-    parser_advance(p); // 读取第一个 token
+    parser_advance(p);
 
     ASTNode *unit = ast_new(AST_BLOCK);
     unit->block.stmts = NULL;
     unit->block.nstmts = 0;
 
     while (p->cur.type != TOK_EOF) {
-        // 跳过全局作用域的符号
         if (p->cur.type == TOK_INT) {
             unit->block.nstmts++;
             unit->block.stmts = realloc(unit->block.stmts,

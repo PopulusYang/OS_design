@@ -1,5 +1,7 @@
-
-
+/*
+ * ipc.c
+ * System V 风格的进程间通信实现。
+ */
 #include "kernel/ipc.h"
 #include "kernel/pipe.h"
 #include "kernel/scheduler.h"
@@ -10,17 +12,20 @@
 
 extern KernelShared *g_kernel;
 
+// 返回全局 IPC 资源表指针
 static IpcTable *ipc_table(void)
 {
     return g_kernel ? &g_kernel->ipc : NULL;
 }
 
+// 清零 IPC 资源表
 void ipc_init(void)
 {
     IpcTable *t = ipc_table();
     if (t) memset(t, 0, sizeof(*t));
 }
 
+// 释放共享内存页并清空 IPC 表
 void ipc_shutdown(void)
 {
     IpcTable *t = ipc_table();
@@ -36,8 +41,7 @@ void ipc_shutdown(void)
     memset(t, 0, sizeof(*t));
 }
 
-
-
+// 处理当前进程待投递的终止与用户信号
 void ipc_deliver_signals(PCB *p)
 {
     if (p == NULL || p->p_pending_sig == 0) return;
@@ -58,6 +62,7 @@ void ipc_deliver_signals(PCB *p)
     }
 }
 
+// 向目标进程投递信号，必要时唤醒阻塞进程
 int ipc_kill(uint32_t pid, int sig)
 {
     if (sig <= 0 || sig >= 32) return -1;
@@ -75,8 +80,7 @@ int ipc_kill(uint32_t pid, int sig)
     return 0;
 }
 
-
-
+// 按 id 取有效信号量对象
 static IpcSem *sem_get(int semid)
 {
     IpcTable *t = ipc_table();
@@ -84,6 +88,7 @@ static IpcSem *sem_get(int semid)
     return &t->sem[semid];
 }
 
+// 按 key 获取或创建信号量
 int ipc_semget(int key, int initval)
 {
     IpcTable *t = ipc_table();
@@ -103,6 +108,7 @@ int ipc_semget(int key, int initval)
     return -1;
 }
 
+// 对信号量做 P/V 操作，不足时协作等待
 int ipc_semop(int semid, int delta)
 {
     IpcSem *s = sem_get(semid);
@@ -126,8 +132,7 @@ int ipc_semop(int semid, int delta)
     return 0;
 }
 
-
-
+// 按 id 取有效消息队列对象
 static IpcMsgq *msgq_get(int qid)
 {
     IpcTable *t = ipc_table();
@@ -135,6 +140,7 @@ static IpcMsgq *msgq_get(int qid)
     return &t->msgq[qid];
 }
 
+// 按 key 获取或创建消息队列
 int ipc_msgget(int key)
 {
     IpcTable *t = ipc_table();
@@ -154,6 +160,7 @@ int ipc_msgget(int key)
     return -1;
 }
 
+// 向消息队列发送一条消息
 int ipc_msgsnd(int qid, int type, const char *data, int len)
 {
     IpcMsgq *q = msgq_get(qid);
@@ -176,6 +183,7 @@ int ipc_msgsnd(int qid, int type, const char *data, int len)
     return -1;
 }
 
+// 从消息队列接收匹配类型的消息
 int ipc_msgrcv(int qid, int type, char *data, int max_len, int *out_type)
 {
     IpcMsgq *q = msgq_get(qid);
@@ -207,8 +215,7 @@ int ipc_msgrcv(int qid, int type, char *data, int max_len, int *out_type)
     return -1;
 }
 
-
-
+// 按 id 取有效共享内存对象
 static IpcShm *shm_get(int shmid)
 {
     IpcTable *t = ipc_table();
@@ -216,6 +223,7 @@ static IpcShm *shm_get(int shmid)
     return &t->shm[shmid];
 }
 
+// 按字节数计算共享内存所需页数
 static int shm_pages_for_size(int size)
 {
     int pages = (size + (int)MEM_PAGE_SIZE - 1) / (int)MEM_PAGE_SIZE;
@@ -224,6 +232,7 @@ static int shm_pages_for_size(int size)
     return pages;
 }
 
+// 按 key 获取或创建共享内存段
 int ipc_shmget(int key, int size)
 {
     IpcTable *t = ipc_table();
@@ -255,6 +264,7 @@ int ipc_shmget(int key, int size)
     return -1;
 }
 
+// 查找进程已挂载的共享内存记录
 static ShmAttach *proc_shm_find(PCB *p, int shmid)
 {
     if (p == NULL) return NULL;
@@ -264,6 +274,7 @@ static ShmAttach *proc_shm_find(PCB *p, int shmid)
     return NULL;
 }
 
+// 在进程中分配一条共享内存挂载槽
 static ShmAttach *proc_shm_alloc_slot(PCB *p)
 {
     for (int i = 0; i < IPC_SHM_MAX_ATTACH; i++) {
@@ -272,6 +283,7 @@ static ShmAttach *proc_shm_alloc_slot(PCB *p)
     return NULL;
 }
 
+// 把共享内存映射到进程虚拟地址空间
 int ipc_shmat(PCB *p, int shmid, uint32_t virt_addr)
 {
     IpcShm *s = shm_get(shmid);
@@ -296,6 +308,7 @@ int ipc_shmat(PCB *p, int shmid, uint32_t virt_addr)
     return shmid;
 }
 
+// 解除进程对共享内存段的映射
 int ipc_shmdt(PCB *p, int shmid)
 {
     IpcShm *s = shm_get(shmid);
@@ -315,8 +328,7 @@ int ipc_shmdt(PCB *p, int shmid)
     return 0;
 }
 
-
-
+// 按路径查找已创建的有名管道
 static IpcFifo *fifo_find_path(const char *path)
 {
     IpcTable *t = ipc_table();
@@ -327,6 +339,7 @@ static IpcFifo *fifo_find_path(const char *path)
     return NULL;
 }
 
+// 在路径上创建有名管道
 int ipc_mkfifo(const char *path)
 {
     IpcTable *t = ipc_table();
@@ -349,6 +362,7 @@ int ipc_mkfifo(const char *path)
     return -1;
 }
 
+// 打开有名管道并分配读端或写端 fd
 int ipc_fifo_open(PCB *p, const char *path, uint16_t flags)
 {
     IpcFifo *f = fifo_find_path(path);

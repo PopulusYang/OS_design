@@ -1,5 +1,7 @@
-
-
+/*
+ * scheduler.c
+ * 每条进程最多执行 100 条指令后切换。
+ */
 #include "kernel/scheduler.h"
 #include "kernel/syscall.h"
 #include "kernel/ipc.h"
@@ -9,6 +11,7 @@
 
 extern KernelShared *g_kernel;
 
+// 初始化就绪队列环形缓冲区
 int sched_init(void)
 {
     if (g_kernel == NULL) return -1;
@@ -19,6 +22,7 @@ int sched_init(void)
     return 0;
 }
 
+// 把进程放入就绪队列尾部
 void sched_enqueue(PCB *p)
 {
     if (g_kernel == NULL || p == NULL || g_kernel->ready_count >= (PROC_MAX_COUNT + 1)) return;
@@ -29,6 +33,7 @@ void sched_enqueue(PCB *p)
     if (p->p_state != PROC_RUNNING) p->p_state = PROC_READY;
 }
 
+// 从就绪队列头部取下一个进程
 PCB *sched_pick_next(void)
 {
     if (g_kernel == NULL || g_kernel->ready_count == 0) return NULL;
@@ -41,6 +46,7 @@ PCB *sched_pick_next(void)
     return p;
 }
 
+// 按 PID 从就绪队列中移除进程
 void sched_remove(uint32_t pid)
 {
     if (g_kernel == NULL) return;
@@ -57,7 +63,8 @@ void sched_remove(uint32_t pid)
 
 int sched_ready_count(void) { return g_kernel ? g_kernel->ready_count : 0; }
 
-/* 回收父进程为 init（PID=0）的僵尸进程 */
+
+// 回收父进程为 init 的僵尸进程
 static void sched_reap_zombies(void)
 {
     if (g_kernel == NULL) return;
@@ -69,6 +76,7 @@ static void sched_reap_zombies(void)
     }
 }
 
+// 运行进程直至时间片用完、系统调用或退出
 static int sched_run_slice(PCB *p)
 {
     ipc_deliver_signals(p);
@@ -91,6 +99,7 @@ static int sched_run_slice(PCB *p)
     return 0;
 }
 
+// 主动让出 CPU，运行其他就绪进程
 void sched_cooperate(void)
 {
     PCB *self = proc_current();
@@ -114,6 +123,7 @@ void sched_cooperate(void)
     sched_reap_zombies();
 }
 
+// 调度一次：运行当前时间片后切换到下一进程
 int sched_tick(void)
 {
     if (g_kernel == NULL || !g_kernel->sched_inited) return 1;

@@ -1,5 +1,7 @@
-
-
+/*
+ * memory.c
+ * 页位图分配器，以及按物理地址读写内存。
+ */
 #include "kernel/memory.h"
 #include "kernel_shared.h"
 #include <stdio.h>
@@ -7,13 +9,12 @@
 
 extern KernelShared *g_kernel;
 
-
-
+// 初始化页位图，预留内核区并统计空闲页
 int mem_init(void)
 {
     if (g_kernel == NULL) return -1;
-    
-    if (g_kernel->free_pages > 0) return 0;  
+
+    if (g_kernel->free_pages > 0) return 0;
 
     g_kernel->total_pages = (int)MEM_TOTAL_PAGES;
     memset(g_kernel->phys_mem, 0, MEM_TOTAL_SIZE);
@@ -28,15 +29,15 @@ int mem_init(void)
     return 0;
 }
 
+// 释放内存子系统（共享模式下由宿主进程回收）
 void mem_shutdown(void)
 {
-    
+
     if (g_kernel == NULL) return;
-    
+
 }
 
-
-
+// 连续分配 n 个空闲物理页，返回起始页号
 int mem_alloc_pages(int n)
 {
     if (g_kernel == NULL || n <= 0 || n > g_kernel->free_pages) return -1;
@@ -59,6 +60,7 @@ int mem_alloc_pages(int n)
     return -1;
 }
 
+// 释放从 page 开始的 n 个物理页
 void mem_free_pages(int page, int n)
 {
     if (g_kernel == NULL || page < 0 || n <= 0) return;
@@ -68,14 +70,14 @@ void mem_free_pages(int page, int n)
     }
 }
 
-
-
+// 返回指定物理页号对应的内存指针
 void *mem_page_ptr(int page)
 {
     if (g_kernel == NULL || page < 0 || page >= g_kernel->total_pages) return NULL;
     return g_kernel->phys_mem + (uint32_t)page * MEM_PAGE_SIZE;
 }
 
+// 返回物理内存区起始指针
 void *mem_kernel_ptr(void)
 {
     return g_kernel ? g_kernel->phys_mem : NULL;
@@ -83,11 +85,13 @@ void *mem_kernel_ptr(void)
 
 int mem_free_page_count(void) { return g_kernel ? g_kernel->free_pages : 0; }
 
+// 检查物理地址是否在有效范围内
 static int addr_valid(uint32_t addr)
 {
     return g_kernel != NULL && addr < MEM_TOTAL_SIZE;
 }
 
+// 从物理地址读 32 位整数
 uint32_t mem_read32(uint32_t phys_addr)
 {
     if (!addr_valid(phys_addr + 3)) return 0;
@@ -95,6 +99,7 @@ uint32_t mem_read32(uint32_t phys_addr)
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+// 向物理地址写 32 位整数
 void mem_write32(uint32_t phys_addr, uint32_t val)
 {
     if (!addr_valid(phys_addr + 3)) return;
@@ -103,30 +108,35 @@ void mem_write32(uint32_t phys_addr, uint32_t val)
     p[2] = (uint8_t)(val >> 16); p[3] = (uint8_t)(val >> 24);
 }
 
+// 从物理地址读 8 位字节
 uint8_t mem_read8(uint32_t phys_addr)
 {
     if (!addr_valid(phys_addr)) return 0;
     return g_kernel->phys_mem[phys_addr];
 }
 
+// 向物理地址写 8 位字节
 void mem_write8(uint32_t phys_addr, uint8_t val)
 {
     if (!addr_valid(phys_addr)) return;
     g_kernel->phys_mem[phys_addr] = val;
 }
 
+// 在物理地址之间拷贝一段内存
 void mem_copy(uint32_t dst_phys, uint32_t src_phys, uint32_t len)
 {
     if (!addr_valid(dst_phys + len - 1) || !addr_valid(src_phys + len - 1)) return;
     memmove(g_kernel->phys_mem + dst_phys, g_kernel->phys_mem + src_phys, len);
 }
 
+// 把一段物理内存清零
 void mem_zero(uint32_t phys_addr, uint32_t len)
 {
     if (!addr_valid(phys_addr + len - 1)) return;
     memset(g_kernel->phys_mem + phys_addr, 0, len);
 }
 
+// 返回页位图指针及总页数
 const uint8_t *mem_get_page_bitmap(int *total_out)
 {
     if (g_kernel == NULL) { if (total_out) *total_out = 0; return NULL; }
@@ -134,6 +144,7 @@ const uint8_t *mem_get_page_bitmap(int *total_out)
     return g_kernel->page_bitmap;
 }
 
+// 打印物理内存与页位图使用情况
 void mem_debug_print(void)
 {
     if (g_kernel == NULL) {
@@ -158,7 +169,7 @@ void mem_debug_print(void)
     printf("  Used (user):        %d pages\n", user_used);
     printf("  Used (total):       %d pages\n", used);
 
-    /* 可视化位图 — 64 pages per line */
+    
     printf("\n  ── Page Bitmap (kernel=K, user=U, free=.) ──────\n");
     int bytes = (total + 7) / 8;
     int per_line = 64;
