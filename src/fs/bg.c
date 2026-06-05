@@ -11,14 +11,14 @@
 // 块组锚点魔数 BGAN
 #define BG_ANCHOR_MAGIC     0x4247414EU
 
-// 磁盘数据结构
+// 块组锚点块磁盘格式
 typedef struct BgAnchorDisk {
     uint32_t ba_magic; //魔数，通常是0x4247414EU
     uint32_t ba_block_free;// 空闲块总数
     uint16_t ba_free_stack_count; // 当前空闲块中有效块的数量
     uint16_t ba_free_chain; // 空闲链的起始指针
     uint16_t ba_free_stack[MAX_FREE_BLOCKS]; //空闲块栈
-    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2]; //填充字节，确保结构体大小等于块大小
+    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2]; //填充字节，确保结构体大小等于块大小 512字节
 } BgAnchorDisk;
 
 // 块组运行时数据结构
@@ -30,9 +30,11 @@ typedef struct BgRuntime {
     uint16_t       free_stack[MAX_FREE_BLOCKS]; //空闲块栈
 } BgRuntime;
 
+//运行时与元数据共8个
 static BgRuntime      g_bg[BG_COUNT];
 static BlockGroupDesc g_bg_desc[BG_COUNT];
-static int            g_bg_loaded;
+
+static int            g_bg_loaded; // 已加载
 
 static int reg_header_valid(uint16_t m)
 {
