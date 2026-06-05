@@ -1,3 +1,6 @@
+// 块组管理模块实现
+// 空闲块管理采用成组链接法：每个块组以锚点块为栈顶，栈满时通过空闲块本身链式串联下一组
+
 
 #include "fs/bg.h"
 #include "fs/inomap.h"
@@ -11,23 +14,23 @@
 // 块组锚点魔数 BGAN
 #define BG_ANCHOR_MAGIC     0x4247414EU
 
-// 块组锚点块磁盘格式
+// 块组锚点块磁盘格式：每块组的第一个块存放该组空闲块管理信息
 typedef struct BgAnchorDisk {
-    uint32_t ba_magic; //魔数，通常是0x4247414EU
-    uint32_t ba_block_free;// 空闲块总数
-    uint16_t ba_free_stack_count; // 当前空闲块中有效块的数量
-    uint16_t ba_free_chain; // 空闲链的起始指针
-    uint16_t ba_free_stack[MAX_FREE_BLOCKS]; //空闲块栈
-    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2]; //填充字节，确保结构体大小等于块大小 512字节
+    uint32_t ba_magic;              // 魔数 0x4247414E ("BGAN")
+    uint32_t ba_block_free;         // 该块组空闲块总数
+    uint16_t ba_free_stack_count;   // 当前锚点块栈中有效空闲块数量
+    uint16_t ba_free_chain;         // 下一个存有空闲块号的链块号（0表示末尾）
+    uint16_t ba_free_stack[MAX_FREE_BLOCKS]; // 空闲块号栈（栈顶在栈底，出栈从末尾取）
+    uint8_t  ba_pad[BLOCK_SIZE - 12 - MAX_FREE_BLOCKS * 2]; // 填充至512字节
 } BgAnchorDisk;
 
-// 块组运行时数据结构
+// 块组运行时数据结构：磁盘数据的镜像 + 块组描述符
 typedef struct BgRuntime {
-    BlockGroupDesc desc; //块组描述符（元数据）
-    uint32_t       block_free; // 空闲块数量
+    BlockGroupDesc desc;            // 块组描述符（元数据）
+    uint32_t       block_free;      // 空闲块数量
     uint16_t       free_stack_count; // 空闲块栈高度
-    uint16_t       free_chain; // 空闲块链表头
-    uint16_t       free_stack[MAX_FREE_BLOCKS]; //空闲块栈
+    uint16_t       free_chain;      // 空闲块链表头
+    uint16_t       free_stack[MAX_FREE_BLOCKS]; // 空闲块栈
 } BgRuntime;
 
 //运行时与元数据共8个
@@ -78,6 +81,7 @@ int bg_is_anchor_block(int blockno)
     return blockno == SUPERBLOCK_BLOCKNO || blockno == BOOT_BLOCKNO;
 }
 
+// 构建块组磁盘布局：8块组顺序排列，每块组1锚点+63数据块
 static void bg_build_layout(void)
 {
     int bg;
@@ -95,6 +99,8 @@ static void bg_build_layout(void)
     }
 }
 
+// 成组链接法初始化：将空闲块号列表填入选定块组的锚点栈和链块
+// 前 MAX_FREE_BLOCKS 个块号放锚点栈，超出部分按每块 MAX_FREE_BLOCKS 个分组写入链块
 static int bg_init_free_stack(BgRuntime *rt, uint16_t *blks, int cnt)
 {
     int idx = 0;
@@ -168,6 +174,7 @@ static int bg_read_anchor(int bg_index)
     return 0;
 }
 
+// 格式化时初始化块组：构建布局、收集空闲块号、写入锚点块
 int bg_format_init(void)
 {
     uint16_t free_blks[BG_DATA_BLOCKS_PER_GROUP];
@@ -198,6 +205,7 @@ int bg_format_init(void)
     return 0;
 }
 
+// 挂载时从超级块恢复块组状态：加载描述符表，读取各块组锚点块
 int bg_init_from_super(const SuperBlock *sb)
 {
     if (sb == NULL)
@@ -247,6 +255,7 @@ int bg_sync(void)
     return 0;
 }
 
+// 空闲栈为空时，从链块中重新加载一批空闲块号（成组链接法核心逻辑）
 static int bg_reload_free_stack(BgRuntime *rt)
 {
     if (rt->free_stack_count > 0)
@@ -287,6 +296,8 @@ static int bg_hint_to_group(uint16_t ino_hint)
     return 0;
 }
 
+// 分配一个空闲数据块：优先从 ino_hint 所在块组分配（局部性优化），
+// 该块组满则按轮转顺序查找下一个有空闲块的块组
 int bg_balloc_for(uint16_t ino_hint)
 {
     int start = bg_hint_to_group(ino_hint);
@@ -311,6 +322,8 @@ int bg_balloc_for(uint16_t ino_hint)
     return -1;
 }
 
+// 释放一个数据块：归还到所属块组空闲栈。
+// 若栈满则先将当前栈写入该空闲块（作为新的链块），再以该块为新栈顶
 int bg_bfree(int blockno)
 {
     int bg = bg_from_block(blockno);
