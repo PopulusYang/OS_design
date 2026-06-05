@@ -35,24 +35,24 @@
 #include <dirent.h>
 #include <termios.h>
 
-#define ANSI_ROSE           "\033[38;2;88;166;255m"   
-#define ANSI_MAUVE          "\033[38;2;120;170;230m" 
-#define ANSI_RESET          "\033[0m"
-#define ANSI_BOLD           "\033[1m"
-#define ANSI_DIM            "\033[2m"
-#define ANSI_ERR            "\033[38;2;180;90;90m"
-#define ANSI_OK             ANSI_ROSE
+#define ANSI_ROSE "\033[38;2;88;166;255m"
+#define ANSI_MAUVE "\033[38;2;120;170;230m"
+#define ANSI_RESET "\033[0m"
+#define ANSI_BOLD "\033[1m"
+#define ANSI_DIM "\033[2m"
+#define ANSI_ERR "\033[38;2;180;90;90m"
+#define ANSI_OK ANSI_ROSE
 
-#define LINE_BUF_SIZE       1024
-#define MAX_ARGS            32
-#define CWD_BUF_SIZE        512
+#define LINE_BUF_SIZE 1024
+#define MAX_ARGS 32
+#define CWD_BUF_SIZE 512
 
-static User   g_users[MAX_USERS];
-static int    g_current_user_idx = 0;
-static char   g_disk_path[512] = DEFAULT_DISK_PATH;
-static char   g_cwd[CWD_BUF_SIZE] = "/";
-static char   g_user_home[256] = "/";
-static int    g_mounted = 0;
+static User g_users[MAX_USERS];                   // 多用户会话表
+static int g_current_user_idx = 0;                // 当前登录用户索引
+static char g_disk_path[512] = DEFAULT_DISK_PATH; // 磁盘镜像路径
+static char g_cwd[CWD_BUF_SIZE] = "/";            // 当前工作目录
+static char g_user_home[256] = "/";               // 当前用户主目录
+static int g_mounted = 0;                         // 文件系统挂载标记
 
 // 返回当前 Shell 登录用户结构体
 static User *current_user(void)
@@ -92,19 +92,24 @@ static void cwd_display(char *out, size_t out_size)
 {
     size_t home_len;
 
-    if (out == NULL || out_size == 0) return;
+    if (out == NULL || out_size == 0)
+        return;
 
     home_len = strlen(g_user_home);
-    if (home_len > 0 && strncmp(g_cwd, g_user_home, home_len) == 0) {
+    if (home_len > 0 && strncmp(g_cwd, g_user_home, home_len) == 0)
+    {
         if (g_cwd[home_len] == '\0')
             snprintf(out, out_size, "~");
         else if (g_cwd[home_len] == '/')
             snprintf(out, out_size, "~%s", g_cwd + home_len);
-        else {
+        else
+        {
             strncpy(out, g_cwd, out_size - 1);
             out[out_size - 1] = '\0';
         }
-    } else {
+    }
+    else
+    {
         strncpy(out, g_cwd, out_size - 1);
         out[out_size - 1] = '\0';
     }
@@ -113,18 +118,21 @@ static void cwd_display(char *out, size_t out_size)
 // 打印带用户名与 cwd 的命令提示符
 static void ui_prompt(void)
 {
-    char display[CWD_BUF_SIZE];
-    User *u = current_user();
+    char display[CWD_BUF_SIZE]; // 显示缓冲区
+    User *u = current_user();   // 获取当前用户
 
-    cwd_display(display, sizeof(display));
+    cwd_display(display, sizeof(display)); //
 
     fputs(ANSI_BOLD ANSI_ROSE, stdout);
     printf("%s", u->u_name[0] ? u->u_name : "upfs");
     fputs(ANSI_RESET, stdout);
     fputs(ANSI_MAUVE ":", stdout);
-    if (!g_mounted) {
+    if (!g_mounted)
+    {
         fputs(ANSI_DIM "(unmounted)" ANSI_RESET, stdout);
-    } else {
+    }
+    else
+    {
         fputs(display, stdout);
         fputs(ANSI_RESET, stdout);
     }
@@ -135,9 +143,11 @@ static void ui_prompt(void)
 static int disk_file_exists(const char *path)
 {
     FILE *fp;
-    if (path == NULL || path[0] == '\0') return 0;
+    if (path == NULL || path[0] == '\0')
+        return 0;
     fp = fopen(path, "rb");
-    if (fp == NULL) return 0;
+    if (fp == NULL)
+        return 0;
     fclose(fp);
     return 1;
 }
@@ -147,8 +157,10 @@ static int probe_disk_at(const char *search_dir)
 {
     char candidate[512];
     int n = snprintf(candidate, sizeof(candidate), "%s/%s", search_dir, DEFAULT_DISK_PATH);
-    if (n < 0 || (size_t)n >= sizeof(candidate)) return 0;
-    if (!disk_file_exists(candidate)) return 0;
+    if (n < 0 || (size_t)n >= sizeof(candidate))
+        return 0;
+    if (!disk_file_exists(candidate))
+        return 0;
     strncpy(g_disk_path, candidate, sizeof(g_disk_path) - 1);
     g_disk_path[sizeof(g_disk_path) - 1] = '\0';
     return 1;
@@ -157,16 +169,22 @@ static int probe_disk_at(const char *search_dir)
 // 启动时自动探测并挂载磁盘
 static void startup_disk_probe(void)
 {
-    const char *search_dirs[] = { ".", "..", "../.." };
+    const char *search_dirs[] = {".", "..", "../.."};
     const char *found_at = NULL;
 
     ui_info("Scanning for disk image...");
 
-    for (size_t i = 0; i < sizeof(search_dirs) / sizeof(search_dirs[0]); i++) {
-        if (probe_disk_at(search_dirs[i])) { found_at = search_dirs[i]; break; }
+    for (size_t i = 0; i < sizeof(search_dirs) / sizeof(search_dirs[0]); i++)
+    {
+        if (probe_disk_at(search_dirs[i]))
+        {
+            found_at = search_dirs[i];
+            break;
+        }
     }
 
-    if (found_at != NULL) {
+    if (found_at != NULL)
+    {
         printf("\n");
         shared_set_disk(g_disk_path);
         ui_ok("Disk image found");
@@ -174,7 +192,9 @@ static void startup_disk_probe(void)
         ui_info("Use  mount   to restore filesystem");
         ui_info("Use  format  to create a new one (destroys existing data)");
         printf("\n");
-    } else {
+    }
+    else
+    {
         printf("\n");
         ui_info("No disk image found. Run:");
         printf("    %sformat%s  %s— create %s%s\n",
@@ -189,7 +209,8 @@ static void init_root_user(void)
     User *u = current_user();
     memset(u, 0, sizeof(User));
     strncpy(u->u_name, "root", sizeof(u->u_name) - 1);
-    u->u_uid = 0; u->u_gid = 0;
+    u->u_uid = 0;
+    u->u_gid = 0;
     u->u_cdir = ROOT_INODE_NO;
     u->u_active = 1;
 }
@@ -206,23 +227,29 @@ static int read_password(char *buf, int max_len)
     int tty_fd = fileno(stdin);
     struct termios old_tio, new_tio;
 
-    if (tcgetattr(tty_fd, &old_tio) == 0) {
+    if (tcgetattr(tty_fd, &old_tio) == 0)
+    {
         new_tio = old_tio;
-        new_tio.c_lflag &= (tcflag_t)~ECHO;
+        new_tio.c_lflag &= (tcflag_t)~ECHO; // 清楚回显标志位
         tcsetattr(tty_fd, TCSAFLUSH, &new_tio);
 
-        if (fgets(buf, max_len, stdin) == NULL) {
-            tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
+        if (fgets(buf, max_len, stdin) == NULL)
+        {
+            tcsetattr(tty_fd, TCSAFLUSH, &old_tio); //无论如何恢复终端状态否则无输出
             return -1;
         }
         tcsetattr(tty_fd, TCSAFLUSH, &old_tio);
-    } else {
+    }
+    else
+    {
 
-        if (fgets(buf, max_len, stdin) == NULL) return -1;
+        if (fgets(buf, max_len, stdin) == NULL)
+            return -1;
     }
 
     char *nl = strchr(buf, '\n');
-    if (nl) *nl = '\0';
+    if (nl)
+        *nl = '\0'; // 换行，豪看
     printf("\n");
     return (int)strlen(buf);
 }
@@ -235,15 +262,22 @@ static int shell_login_prompt(void)
     printf("\n");
     printf("%sUsername:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
     fflush(stdout);
-    if (fgets(user_buf, (int)sizeof(user_buf), stdin) == NULL) return -1;
-    { char *nl = strchr(user_buf, '\n'); if (nl) *nl = '\0'; }
+    if (fgets(user_buf, (int)sizeof(user_buf), stdin) == NULL)
+        return -1;
+    {
+        char *nl = strchr(user_buf, '\n');
+        if (nl)
+            *nl = '\0';
+    }
 
     printf("%sPassword:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
     fflush(stdout);
-    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) return -1;
+    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0)
+        return -1;
 
     int uid = user_verify(user_buf, pass_buf);
-    if (uid < 0) {
+    if (uid < 0)
+    {
         ui_err("Authentication failed");
         return -1;
     }
@@ -259,64 +293,89 @@ static int shell_create_first_user(void)
     printf("\n");
     ui_info("Create the first user account");
 
-    for (retry = 0; retry < 3; retry++) {
+    for (retry = 0; retry < 3; retry++)
+    {
         printf("%sUsername:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
-        if (fgets(user_buf, (int)sizeof(user_buf), stdin) == NULL) return -1;
-        { char *nl = strchr(user_buf, '\n'); if (nl) *nl = '\0'; }
+        if (fgets(user_buf, (int)sizeof(user_buf), stdin) == NULL)
+            return -1;
+        {
+            char *nl = strchr(user_buf, '\n');
+            if (nl)
+                *nl = '\0';
+        }
 
-        if (user_buf[0] == '\0') { ui_err("Username cannot be empty"); continue; }
-        if (strlen(user_buf) > 30) { ui_err("Username too long (max 30 chars)"); continue; }
+        if (user_buf[0] == '\0')
+        {
+            ui_err("Username cannot be empty");
+            continue;
+        }
+        if (strlen(user_buf) > 30)
+        {
+            ui_err("Username too long (max 30 chars)");
+            continue;
+        }
         break;
     }
-    if (retry >= 3) return -1;
+    if (retry >= 3)
+        return -1;
 
-    for (retry = 0; retry < 3; retry++) {
+    for (retry = 0; retry < 3; retry++)
+    {
         printf("%sPassword:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
-        if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) return -1;
+        if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0)
+            return -1;
 
-        if (pass_buf[0] == '\0') { ui_err("Password cannot be empty"); continue; }
+        if (pass_buf[0] == '\0')
+        {
+            ui_err("Password cannot be empty");
+            continue;
+        }
         break;
     }
-    if (retry >= 3) return -1;
+    if (retry >= 3)
+        return -1;
 
-    if (user_add(user_buf, pass_buf) != 0) {
+    if (user_add(user_buf, pass_buf) != 0)
+    {
         ui_err("Failed to create user");
         return -1;
     }
-
 
     {
         char root_pass[128];
 
         printf("%sSet root password:%s ", ANSI_BOLD ANSI_MAUVE, ANSI_RESET);
         fflush(stdout);
-        if (read_password(root_pass, (int)sizeof(root_pass)) >= 0 && root_pass[0] != '\0') {
+        if (read_password(root_pass, (int)sizeof(root_pass)) >= 0 && root_pass[0] != '\0')
+        {
             user_add("root", root_pass);
         }
     }
 
-
     {
         const UserAccount *ua = user_find(user_buf);
-        if (ua == NULL) return -1;
+        if (ua == NULL)
+            return -1;
 
         User *u = current_user();
         memset(u, 0, sizeof(User));
         strncpy(u->u_name, ua->ua_name, sizeof(u->u_name) - 1);
-        u->u_uid = ua->ua_uid; u->u_gid = ua->ua_gid; u->u_active = 1;
+        u->u_uid = ua->ua_uid;
+        u->u_gid = ua->ua_gid;
+        u->u_active = 1;
 
         MemINode *home_ip = namei(ua->ua_home);
         u->u_cdir = home_ip ? home_ip->m_inode_no : ROOT_INODE_NO;
-        if (home_ip) iput(home_ip);
+        if (home_ip)
+            iput(home_ip);
 
         shell_bind_user();
         strncpy(g_user_home, ua->ua_home, sizeof(g_user_home) - 1);
         g_user_home[sizeof(g_user_home) - 1] = '\0';
         strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
         g_cwd[CWD_BUF_SIZE - 1] = '\0';
-
 
         env_set_current_user(ua->ua_name);
         env_user_load(ua->ua_name);
@@ -332,12 +391,25 @@ static int shell_mount(const char *path)
 {
     const char *use_path = (path && path[0]) ? path : g_disk_path;
 
-    if (g_mounted) { ui_err("Already mounted, umount first"); return -1; }
-    if (!disk_file_exists(use_path)) { ui_err("Disk image not found; format first"); return -1; }
-    if (vfs_mount(use_path) != 0) { ui_err("Mount failed: corrupted image or wrong format"); return -1; }
+    if (g_mounted)
+    {
+        ui_err("Already mounted, umount first");
+        return -1;
+    }
+    if (!disk_file_exists(use_path))
+    {
+        ui_err("Disk image not found; format first");
+        return -1;
+    }
+    if (vfs_mount(use_path) != 0)
+    {
+        ui_err("Mount failed: corrupted image or wrong format");
+        return -1;
+    }
     shared_set_disk(use_path);
 
-    if (path && path[0] && path != g_disk_path) {
+    if (path && path[0] && path != g_disk_path)
+    {
         strncpy(g_disk_path, use_path, sizeof(g_disk_path) - 1);
         g_disk_path[sizeof(g_disk_path) - 1] = '\0';
     }
@@ -351,14 +423,17 @@ static int shell_mount(const char *path)
     g_mounted = 1;
 
     sys_open_file_init();
-    if (proc_find(0) == NULL) {
+    if (proc_find(0) == NULL)
+    {
         mem_init();
         proc_init();
         sched_init();
         env_init();
         env_system_load();
         proc_create_init();
-    } else {
+    }
+    else
+    {
         env_init();
         env_system_load();
     }
@@ -366,19 +441,27 @@ static int shell_mount(const char *path)
     if (user_init() < 0)
         ui_info("Warning: could not load user database");
 
-    if (user_count() > 0) {
+    if (user_count() > 0)
+    {
         printf("\n");
         ui_info("Login required");
         int uid = shell_login_prompt();
-        if (uid >= 0) {
+        if (uid >= 0)
+        {
             const UserAccount *ua = user_find_by_uid((uint16_t)uid);
-            if (ua) {
+            if (ua)
+            {
                 User *u = current_user();
                 strncpy(u->u_name, ua->ua_name, sizeof(u->u_name) - 1);
-                u->u_uid = ua->ua_uid; u->u_gid = ua->ua_gid;
+                u->u_uid = ua->ua_uid;
+                u->u_gid = ua->ua_gid;
                 strncpy(g_user_home, ua->ua_home, sizeof(g_user_home) - 1);
                 MemINode *home_ip = namei(ua->ua_home);
-                if (home_ip) { u->u_cdir = home_ip->m_inode_no; iput(home_ip); }
+                if (home_ip)
+                {
+                    u->u_cdir = home_ip->m_inode_no;
+                    iput(home_ip);
+                }
                 strncpy(g_cwd, ua->ua_home, CWD_BUF_SIZE - 1);
                 g_cwd[CWD_BUF_SIZE - 1] = '\0';
 
@@ -386,10 +469,14 @@ static int shell_mount(const char *path)
                 env_user_load(ua->ua_name);
             }
             ui_ok("Login successful");
-        } else {
+        }
+        else
+        {
             ui_info("Login failed; operating as root");
         }
-    } else {
+    }
+    else
+    {
         ui_ok("Mounted successfully (no users configured)");
     }
     return 0;
@@ -398,12 +485,20 @@ static int shell_mount(const char *path)
 // 同步数据并卸载文件系统
 static int shell_umount(void)
 {
-    if (!g_mounted) { ui_err("Not mounted"); return -1; }
+    if (!g_mounted)
+    {
+        ui_err("Not mounted");
+        return -1;
+    }
     user_db_save();
     env_system_save();
     proc_shutdown();
     mem_shutdown();
-    if (vfs_umount() != 0) { ui_err("Umount failed"); return -1; }
+    if (vfs_umount() != 0)
+    {
+        ui_err("Umount failed");
+        return -1;
+    }
     g_mounted = 0;
     strncpy(g_cwd, "/", sizeof(g_cwd) - 1);
     g_user_home[0] = '\0';
@@ -416,17 +511,29 @@ static int shell_format(const char *path)
 {
     const char *use_path = (path && path[0]) ? path : g_disk_path;
 
-    if (g_mounted) { ui_err("Umount first before format"); return -1; }
-    if (vfs_format_disk(use_path) != 0) { ui_err("Format failed"); return -1; }
+    if (g_mounted)
+    {
+        ui_err("Umount first before format");
+        return -1;
+    }
+    if (vfs_format_disk(use_path) != 0)
+    {
+        ui_err("Format failed");
+        return -1;
+    }
 
-    if (path && path[0] && path != g_disk_path) {
+    if (path && path[0] && path != g_disk_path)
+    {
         strncpy(g_disk_path, use_path, sizeof(g_disk_path) - 1);
         g_disk_path[sizeof(g_disk_path) - 1] = '\0';
     }
     ui_ok("Format complete");
 
-
-    if (vfs_mount(use_path) != 0) { ui_err("Mount after format failed"); return -1; }
+    if (vfs_mount(use_path) != 0)
+    {
+        ui_err("Mount after format failed");
+        return -1;
+    }
     shared_set_disk(use_path);
 
     memset(g_users, 0, sizeof(g_users));
@@ -437,62 +544,92 @@ static int shell_format(const char *path)
     g_user_home[0] = '\0';
     g_mounted = 1;
 
-    mem_init(); proc_init(); sched_init(); env_init();
+    mem_init();
+    proc_init();
+    sched_init();
+    env_init();
     sys_open_file_init();
-    env_system_load(); proc_create_init();
+    env_system_load();
+    proc_create_init();
 
-
-    if (user_create_posix_dirs(0, 0) != 0) {
+    if (user_create_posix_dirs(0, 0) != 0)
+    {
         ui_err("Failed to create POSIX directories");
         return -1;
     }
-    if (user_init() < 0) {
+    if (user_init() < 0)
+    {
         ui_err("Failed to initialize user database");
         return -1;
     }
 
-
     {
         int bc = 0;
         const DemoBinary *demos = binaries_get_all(&bc);
-        for (int i = 0; i < bc; i++) {
+        for (int i = 0; i < bc; i++)
+        {
             int fd = vfs_open(demos[i].name, O_WRONLY);
-            if (fd < 0) { vfs_create(demos[i].name, 0755); fd = vfs_open(demos[i].name, O_WRONLY); }
-            if (fd >= 0) { vfs_write(fd, demos[i].data, (int)demos[i].size); vfs_close(fd); }
+            if (fd < 0)
+            {
+                vfs_create(demos[i].name, 0755);
+                fd = vfs_open(demos[i].name, O_WRONLY);
+            }
+            if (fd >= 0)
+            {
+                vfs_write(fd, demos[i].data, (int)demos[i].size);
+                vfs_close(fd);
+            }
         }
     }
 
-
     {
         vfs_mkdir("/src", 0755);
-        const char *search[] = { "involve_src", "../involve_src", "../../involve_src" };
+        const char *search[] = {"involve_src", "../involve_src", "../../involve_src"};
         const char *src_dir = NULL;
-        for (size_t si = 0; si < sizeof(search)/sizeof(search[0]); si++) {
+        for (size_t si = 0; si < sizeof(search) / sizeof(search[0]); si++)
+        {
             DIR *d = opendir(search[si]);
-            if (d) { src_dir = search[si]; closedir(d); break; }
+            if (d)
+            {
+                src_dir = search[si];
+                closedir(d);
+                break;
+            }
         }
-        if (src_dir) {
+        if (src_dir)
+        {
             DIR *d = opendir(src_dir);
-            if (d) {
+            if (d)
+            {
                 struct dirent *de;
-                while ((de = readdir(d)) != NULL) {
+                while ((de = readdir(d)) != NULL)
+                {
                     size_t nl = strlen(de->d_name);
                     int is_asm = (nl > 4 && strcmp(de->d_name + nl - 4, ".asm") == 0);
-                    int is_c   = (nl > 2 && strcmp(de->d_name + nl - 2, ".c") == 0);
-                    if (is_asm || is_c) {
+                    int is_c = (nl > 2 && strcmp(de->d_name + nl - 2, ".c") == 0);
+                    if (is_asm || is_c)
+                    {
                         char host_path[512], vfs_path[512];
                         snprintf(host_path, sizeof(host_path), "%s/%s", src_dir, de->d_name);
-                        snprintf(vfs_path,  sizeof(vfs_path),  "/src/%s", de->d_name);
+                        snprintf(vfs_path, sizeof(vfs_path), "/src/%s", de->d_name);
                         FILE *f = fopen(host_path, "r");
-                        if (f) {
-                            fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
+                        if (f)
+                        {
+                            fseek(f, 0, SEEK_END);
+                            long sz = ftell(f);
+                            rewind(f);
                             char *buf = malloc((size_t)(sz + 1));
-                            if (buf) {
+                            if (buf)
+                            {
                                 fread(buf, 1, (size_t)sz, f);
                                 vfs_delete(vfs_path);
                                 vfs_create(vfs_path, 0644);
                                 int fd = vfs_open(vfs_path, O_WRONLY);
-                                if (fd >= 0) { vfs_write(fd, buf, (int)sz); vfs_close(fd); }
+                                if (fd >= 0)
+                                {
+                                    vfs_write(fd, buf, (int)sz);
+                                    vfs_close(fd);
+                                }
                                 free(buf);
                             }
                             fclose(f);
@@ -504,12 +641,11 @@ static int shell_format(const char *path)
         }
     }
 
-
     env_set("PATH", "/bin:/usr/bin");
     env_system_save();
 
-
-    if (shell_create_first_user() != 0) {
+    if (shell_create_first_user() != 0)
+    {
         ui_info("Falling back to root user");
         g_current_user_idx = 0;
         init_root_user();
@@ -527,22 +663,30 @@ static void cwd_resolve_dots(void)
     char *dst = resolved;
     const char *src = g_cwd;
 
-    while (*src) {
-        while (*src == '/') src++;
-        if (*src == '\0') break;
+    while (*src)
+    {
+        while (*src == '/')
+            src++;
+        if (*src == '\0')
+            break;
 
         const char *end = src;
-        while (*end && *end != '/') end++;
+        while (*end && *end != '/')
+            end++;
         size_t len = (size_t)(end - src);
 
-        if (len == 1 && src[0] == '.') {
+        if (len == 1 && src[0] == '.')
+        {
             src = end;
             continue;
         }
-        if (len == 2 && src[0] == '.' && src[1] == '.') {
-            if (dst > resolved + 1) {
+        if (len == 2 && src[0] == '.' && src[1] == '.')
+        {
+            if (dst > resolved + 1)
+            {
                 dst--;
-                while (dst > resolved && *(dst - 1) != '/') dst--;
+                while (dst > resolved && *(dst - 1) != '/')
+                    dst--;
             }
             src = end;
             continue;
@@ -553,7 +697,8 @@ static void cwd_resolve_dots(void)
         src = end;
     }
 
-    if (dst == resolved) *dst++ = '/';
+    if (dst == resolved)
+        *dst++ = '/';
     *dst = '\0';
     strncpy(g_cwd, resolved, CWD_BUF_SIZE - 1);
     g_cwd[CWD_BUF_SIZE - 1] = '\0';
@@ -562,13 +707,18 @@ static void cwd_resolve_dots(void)
 // 根据 cd 参数更新内部 cwd
 static void cwd_update_after_cd(const char *arg)
 {
-    if (arg == NULL || arg[0] == '\0') return;
-    if (strcmp(arg, ".") == 0) return;
+    if (arg == NULL || arg[0] == '\0')
+        return;
+    if (strcmp(arg, ".") == 0)
+        return;
 
     char tmp[CWD_BUF_SIZE * 2];
-    if (arg[0] == '/') {
+    if (arg[0] == '/')
+    {
         strncpy(g_cwd, arg, CWD_BUF_SIZE - 1);
-    } else {
+    }
+    else
+    {
         if (strcmp(g_cwd, "/") == 0)
             snprintf(tmp, sizeof(tmp), "/%s", arg);
         else
@@ -583,22 +733,32 @@ static void cwd_update_after_cd(const char *arg)
 static char *trim(char *s)
 {
     char *end;
-    if (s == NULL) return NULL;
-    while (*s && isspace((unsigned char)*s)) s++;
-    if (*s == '\0') return s;
+    if (s == NULL)
+        return NULL;
+    while (*s && isspace((unsigned char)*s))
+        s++;
+    if (*s == '\0')
+        return s;
     end = s + strlen(s) - 1;
-    while (end > s && isspace((unsigned char)*end)) { *end = '\0'; end--; }
+    while (end > s && isspace((unsigned char)*end))
+    {
+        *end = '\0';
+        end--;
+    }
     return s;
 }
 
 // 把八进制字符串解析为权限 mode
 static int parse_octal_mode(const char *s, uint16_t *out)
 {
-    if (s == NULL || out == NULL) return -1;
-    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) return -1;
+    if (s == NULL || out == NULL)
+        return -1;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        return -1;
     char *end;
     long v = strtol(s, &end, 8);
-    if (end == s || *end != '\0' || v < 0 || v > 0777) return -1;
+    if (end == s || *end != '\0' || v < 0 || v > 0777)
+        return -1;
     *out = (uint16_t)v;
     return 0;
 }
@@ -609,20 +769,37 @@ static int parse_command_line(char *line, char **argv, int max_argc)
     int argc = 0;
     char *p = line, quote = 0;
 
-    while (*p) {
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p) break;
-        if (argc >= max_argc - 1) break;
+    while (*p)
+    {
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        if (!*p)
+            break;
+        if (argc >= max_argc - 1)
+            break;
 
-        if (*p == '"' || *p == '\'') {
+        if (*p == '"' || *p == '\'')
+        {
             quote = *p++;
             argv[argc++] = p;
-            while (*p && *p != quote) p++;
-            if (*p == quote) { *p = '\0'; p++; }
-        } else {
+            while (*p && *p != quote)
+                p++;
+            if (*p == quote)
+            {
+                *p = '\0';
+                p++;
+            }
+        }
+        else
+        {
             argv[argc++] = p;
-            while (*p && !isspace((unsigned char)*p)) p++;
-            if (*p) { *p = '\0'; p++; }
+            while (*p && !isspace((unsigned char)*p))
+                p++;
+            if (*p)
+            {
+                *p = '\0';
+                p++;
+            }
         }
     }
     argv[argc] = NULL;
@@ -687,7 +864,11 @@ static void cmd_help(void)
 // 未挂载时提示并返回失败
 static int require_mounted(void)
 {
-    if (!g_mounted) { ui_err("Filesystem not mounted; use mount or format first"); return -1; }
+    if (!g_mounted)
+    {
+        ui_err("Filesystem not mounted; use mount or format first");
+        return -1;
+    }
     return 0;
 }
 
@@ -695,13 +876,15 @@ static int require_mounted(void)
 static int file_is_binary(const char *path)
 {
     int fd = vfs_open(path, O_RDONLY);
-    if (fd < 0) return 0;
+    if (fd < 0)
+        return 0;
     unsigned char hdr[16];
     int n = vfs_read(fd, (char *)hdr, (int)sizeof(hdr));
     vfs_close(fd);
     if (n >= 4 && hdr[0] == 'U' && hdr[1] == 'P' && hdr[2] == 'X' && hdr[3] == '\0')
         return 1;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++)
+    {
         if (hdr[i] == '\0')
             return 1;
     }
@@ -711,22 +894,42 @@ static int file_is_binary(const char *path)
 // Shell 的 cat 命令：输出文件内容
 static int cmd_cat(const char *path)
 {
-    if (require_mounted()) return -1;
-    if (path == NULL) { ui_err("Usage: cat <path>"); return -1; }
+    if (require_mounted())
+        return -1;
+    if (path == NULL)
+    {
+        ui_err("Usage: cat <path>");
+        return -1;
+    }
 
-    if (file_is_binary(path)) {
+    if (file_is_binary(path))
+    {
         ui_err("Binary file (not displayed)");
         return -1;
     }
 
     int fd = vfs_open(path, O_RDONLY);
-    if (fd < 0) { ui_err("Cannot open file"); return -1; }
+    if (fd < 0)
+    {
+        ui_err("Cannot open file");
+        return -1;
+    }
 
-    char buf[512]; int n;
+    char buf[512];
+    int n;
     printf("%s", ANSI_MAUVE);
-    while ((n = vfs_read(fd, buf, (int)sizeof(buf) - 1)) > 0) { buf[n] = '\0'; fputs(buf, stdout); }
+    while ((n = vfs_read(fd, buf, (int)sizeof(buf) - 1)) > 0)
+    {
+        buf[n] = '\0';
+        fputs(buf, stdout);
+    }
     printf("%s", ANSI_RESET);
-    if (n < 0) { vfs_close(fd); ui_err("Read failed"); return -1; }
+    if (n < 0)
+    {
+        vfs_close(fd);
+        ui_err("Read failed");
+        return -1;
+    }
     putchar('\n');
     vfs_close(fd);
     return 0;
@@ -748,34 +951,47 @@ static void normalize_vfs_path(const char *in, char *out, size_t out_sz)
     if (in == NULL || in[0] == '\0')
         return;
 
-    if (in[0] == '/') {
+    if (in[0] == '/')
+    {
         snprintf(base, sizeof(base), "%s", in);
-    } else if (strcmp(g_cwd, "/") == 0) {
+    }
+    else if (strcmp(g_cwd, "/") == 0)
+    {
         snprintf(base, sizeof(base), "/%s", in);
-    } else {
+    }
+    else
+    {
         snprintf(base, sizeof(base), "%s/%s", g_cwd, in);
     }
 
     snprintf(tmp, sizeof(tmp), "%s", base);
     tok = strtok_r(tmp, "/", &save);
-    while (tok != NULL) {
-        if (strcmp(tok, ".") == 0 || tok[0] == '\0') {
-            
-        } else if (strcmp(tok, "..") == 0) {
-            if (top > 0) top--;
-        } else if (top < (int)(sizeof(tokens) / sizeof(tokens[0]))) {
+    while (tok != NULL)
+    {
+        if (strcmp(tok, ".") == 0 || tok[0] == '\0')
+        {
+        }
+        else if (strcmp(tok, "..") == 0)
+        {
+            if (top > 0)
+                top--;
+        }
+        else if (top < (int)(sizeof(tokens) / sizeof(tokens[0])))
+        {
             tokens[top++] = tok;
         }
         tok = strtok_r(NULL, "/", &save);
     }
 
-    if (top == 0) {
+    if (top == 0)
+    {
         snprintf(out, out_sz, "/");
         return;
     }
 
     out[0] = '\0';
-    for (int i = 0; i < top; i++) {
+    for (int i = 0; i < top; i++)
+    {
         size_t cur = strlen(out);
         size_t left = out_sz > cur ? out_sz - cur : 0;
         if (left <= 1)
@@ -816,22 +1032,27 @@ static int vfs_write_bytes(const char *path, const void *data, int len)
     if (len < 0)
         len = 0;
 
-    if (vfs_stat(path, &mode, &size, &nlink, &uid, &gid, &ino) == 0) {
+    if (vfs_stat(path, &mode, &size, &nlink, &uid, &gid, &ino) == 0)
+    {
         ip = namei(path);
         if (ip == NULL)
             return -1;
-        if (!(ip->m_dinode.d_mode & IFREG)) {
+        if (!(ip->m_dinode.d_mode & IFREG))
+        {
             iput(ip);
             return -1;
         }
-        if (inode_wrlock(ip) != 0) {
+        if (inode_wrlock(ip) != 0)
+        {
             iput(ip);
             return -1;
         }
         extent_clear(ip);
         inode_unlock(ip);
         iput(ip);
-    } else {
+    }
+    else
+    {
         if (vfs_create(path, 0644) != 0)
             return -1;
     }
@@ -853,7 +1074,8 @@ static int vfs_write_bytes(const char *path, const void *data, int len)
 static int cmd_write_existing(const char *path, const char *data)
 {
     int len = (int)strlen(data);
-    if (vfs_write_bytes(path, data, len) != 0) {
+    if (vfs_write_bytes(path, data, len) != 0)
+    {
         ui_err("Write failed");
         return -1;
     }
@@ -864,9 +1086,21 @@ static int cmd_write_existing(const char *path, const char *data)
 // Shell 的 useradd 命令
 static int cmd_useradd(const char *username, const char *password)
 {
-    if (username == NULL || password == NULL) { ui_err("Usage: useradd <name> <password>"); return -1; }
-    if (user_count() >= MAX_USERS) { ui_err("User limit reached"); return -1; }
-    if (user_add(username, password) != 0) { ui_err("Failed to add user (already exists?)"); return -1; }
+    if (username == NULL || password == NULL)
+    {
+        ui_err("Usage: useradd <name> <password>");
+        return -1;
+    }
+    if (user_count() >= MAX_USERS)
+    {
+        ui_err("User limit reached");
+        return -1;
+    }
+    if (user_add(username, password) != 0)
+    {
+        ui_err("Failed to add user (already exists?)");
+        return -1;
+    }
     vfs_sync_all();
     ui_ok("User added");
     return 0;
@@ -875,22 +1109,38 @@ static int cmd_useradd(const char *username, const char *password)
 // Shell 的 login 命令
 static int cmd_login(const char *username, const char *password)
 {
-    if (username == NULL || password == NULL) { ui_err("Usage: login <name> <password>"); return -1; }
+    if (username == NULL || password == NULL)
+    {
+        ui_err("Usage: login <name> <password>");
+        return -1;
+    }
 
     int uid = user_verify(username, password);
-    if (uid < 0) { ui_err("Login failed: wrong username or password"); return -1; }
+    if (uid < 0)
+    {
+        ui_err("Login failed: wrong username or password");
+        return -1;
+    }
 
     const UserAccount *ua = user_find_by_uid((uint16_t)uid);
-    if (ua == NULL) return -1;
+    if (ua == NULL)
+        return -1;
 
     User *u = current_user();
     memset(u, 0, sizeof(User));
     strncpy(u->u_name, ua->ua_name, sizeof(u->u_name) - 1);
-    u->u_uid = ua->ua_uid; u->u_gid = ua->ua_gid; u->u_active = 1;
+    u->u_uid = ua->ua_uid;
+    u->u_gid = ua->ua_gid;
+    u->u_active = 1;
 
     MemINode *home_ip = namei(ua->ua_home);
-    if (home_ip) { u->u_cdir = home_ip->m_inode_no; iput(home_ip); }
-    else u->u_cdir = ROOT_INODE_NO;
+    if (home_ip)
+    {
+        u->u_cdir = home_ip->m_inode_no;
+        iput(home_ip);
+    }
+    else
+        u->u_cdir = ROOT_INODE_NO;
 
     shell_bind_user();
     strncpy(g_user_home, ua->ua_home, sizeof(g_user_home) - 1);
@@ -912,29 +1162,41 @@ static int cmd_su(const char *username)
 
     printf("%sPassword [%s]:%s ", ANSI_BOLD ANSI_MAUVE, target, ANSI_RESET);
     fflush(stdout);
-    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0) {
+    if (read_password(pass_buf, (int)sizeof(pass_buf)) < 0)
+    {
         ui_err("Failed to read password");
         return -1;
     }
 
     int uid = user_verify(target, pass_buf);
-    if (uid < 0) { ui_err("su: authentication failed"); return -1; }
+    if (uid < 0)
+    {
+        ui_err("su: authentication failed");
+        return -1;
+    }
 
     const UserAccount *ua = user_find_by_uid((uint16_t)uid);
-    if (ua == NULL) return -1;
-
+    if (ua == NULL)
+        return -1;
 
     User *old = current_user();
-    if (old->u_uid != 0) env_user_save(old->u_name);
-
+    if (old->u_uid != 0)
+        env_user_save(old->u_name);
 
     memset(old, 0, sizeof(User));
     strncpy(old->u_name, ua->ua_name, sizeof(old->u_name) - 1);
-    old->u_uid = ua->ua_uid; old->u_gid = ua->ua_gid; old->u_active = 1;
+    old->u_uid = ua->ua_uid;
+    old->u_gid = ua->ua_gid;
+    old->u_active = 1;
 
     MemINode *home_ip = namei(ua->ua_home);
-    if (home_ip) { old->u_cdir = home_ip->m_inode_no; iput(home_ip); }
-    else old->u_cdir = ROOT_INODE_NO;
+    if (home_ip)
+    {
+        old->u_cdir = home_ip->m_inode_no;
+        iput(home_ip);
+    }
+    else
+        old->u_cdir = ROOT_INODE_NO;
 
     shell_bind_user();
     strncpy(g_user_home, ua->ua_home, sizeof(g_user_home) - 1);
@@ -952,12 +1214,19 @@ static int cmd_su(const char *username)
 static int cmd_logout(void)
 {
     User *u = current_user();
-    if (u->u_uid == 0) { ui_info("Already root; cannot logout further"); return 0; }
+    if (u->u_uid == 0)
+    {
+        ui_info("Already root; cannot logout further");
+        return 0;
+    }
 
     env_user_save(u->u_name);
     memset(u, 0, sizeof(User));
     strncpy(u->u_name, "root", sizeof(u->u_name) - 1);
-    u->u_uid = 0; u->u_gid = 0; u->u_cdir = ROOT_INODE_NO; u->u_active = 1;
+    u->u_uid = 0;
+    u->u_gid = 0;
+    u->u_cdir = ROOT_INODE_NO;
+    u->u_active = 1;
     shell_bind_user();
     strncpy(g_cwd, "/", CWD_BUF_SIZE - 1);
     g_user_home[0] = '\0';
@@ -975,14 +1244,23 @@ static int cmd_whoami(void)
 // 修改用户口令
 static int cmd_passwd(const char *username, const char *new_password)
 {
-    if (username == NULL || new_password == NULL) { ui_err("Usage: passwd <name> <new_password>"); return -1; }
+    if (username == NULL || new_password == NULL)
+    {
+        ui_err("Usage: passwd <name> <new_password>");
+        return -1;
+    }
 
     User *u = current_user();
-    if (u->u_uid != 0 && strcmp(u->u_name, username) != 0) {
+    if (u->u_uid != 0 && strcmp(u->u_name, username) != 0)
+    {
         ui_err("Permission denied: only root or the user can change a password");
         return -1;
     }
-    if (user_passwd(username, new_password) != 0) { ui_err("Failed to change password"); return -1; }
+    if (user_passwd(username, new_password) != 0)
+    {
+        ui_err("Failed to change password");
+        return -1;
+    }
     vfs_sync_all();
     ui_ok("Password changed");
     return 0;
@@ -992,12 +1270,17 @@ static int cmd_passwd(const char *username, const char *new_password)
 static int cmd_users(void)
 {
     int cnt = user_count();
-    if (cnt == 0) { ui_info("No users configured"); return 0; }
+    if (cnt == 0)
+    {
+        ui_info("No users configured");
+        return 0;
+    }
 
     printf("\n");
     printf("%s%s%-24s %6s  %s%s\n", ANSI_BOLD, ANSI_MAUVE, "Username", "UID", "Home", ANSI_RESET);
     printf("%s-----------------------------------------------%s\n", ANSI_DIM, ANSI_RESET);
-    for (int i = 0; i < cnt; i++) {
+    for (int i = 0; i < cnt; i++)
+    {
         const UserAccount *ua = user_get(i);
         printf("  %-24s %6u  %s\n", ua->ua_name, (unsigned)ua->ua_uid, ua->ua_home);
     }
@@ -1008,10 +1291,12 @@ static int cmd_users(void)
 // 解析 run 命令的程序路径
 static void resolve_program_path(const char *path, char *resolved, size_t sz)
 {
-    if (path == NULL || resolved == NULL || sz == 0) return;
+    if (path == NULL || resolved == NULL || sz == 0)
+        return;
     if (strchr(path, '/') == NULL)
         snprintf(resolved, sz, "./%s", path);
-    else {
+    else
+    {
         strncpy(resolved, path, sz - 1);
         resolved[sz - 1] = '\0';
     }
@@ -1020,12 +1305,13 @@ static void resolve_program_path(const char *path, char *resolved, size_t sz)
 // 运行 VM 程序前把终端设为非规范模式
 static void shell_vm_enter_raw(struct termios *saved)
 {
-    if (!isatty(STDIN_FILENO)) return;
+    if (!isatty(STDIN_FILENO))
+        return;
     tcgetattr(STDIN_FILENO, saved);
     struct termios raw = *saved;
-    raw.c_lflag &= (tcflag_t)~(ECHO | ICANON | IEXTEN | ISIG);
-    raw.c_iflag &= (tcflag_t)~(IXON | ICRNL | BRKINT);
-    raw.c_oflag &= (tcflag_t)~(OPOST);
+    raw.c_lflag &= (tcflag_t) ~(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_iflag &= (tcflag_t) ~(IXON | ICRNL | BRKINT);
+    raw.c_oflag &= (tcflag_t) ~(OPOST);
     raw.c_cflag |= CS8;
     raw.c_cc[VMIN] = 1;
     raw.c_cc[VTIME] = 0;
@@ -1035,24 +1321,34 @@ static void shell_vm_enter_raw(struct termios *saved)
 // VM 程序结束后恢复终端模式
 static void shell_vm_leave_raw(const struct termios *saved)
 {
-    if (!isatty(STDIN_FILENO)) return;
+    if (!isatty(STDIN_FILENO))
+        return;
     tcsetattr(STDIN_FILENO, TCSAFLUSH, saved);
 }
 
 // 加载并运行 UPX 程序直到退出
 static int cmd_run(const char *path)
 {
-    if (path == NULL) { ui_err("Usage: run <binary>"); return -1; }
+    if (path == NULL)
+    {
+        ui_err("Usage: run <binary>");
+        return -1;
+    }
 
     char resolved[256];
     resolve_program_path(path, resolved, sizeof(resolved));
 
     PCB *p = proc_alloc();
-    if (p == NULL) { ui_err("Failed to allocate process"); return -1; }
+    if (p == NULL)
+    {
+        ui_err("Failed to allocate process");
+        return -1;
+    }
     strncpy(p->p_name, path, PROC_NAME_LEN - 1);
     p->p_cwd_ino = current_user()->u_cdir;
 
-    if (proc_exec(p, resolved) != 0) {
+    if (proc_exec(p, resolved) != 0)
+    {
         proc_free(p);
         ui_err("Failed to load program");
         return -1;
@@ -1060,10 +1356,13 @@ static int cmd_run(const char *path)
     sched_enqueue(p);
     struct termios old_tio;
     shell_vm_enter_raw(&old_tio);
-    while (sched_tick() == 0) {}
+    while (sched_tick() == 0)
+    {
+    }
     shell_vm_leave_raw(&old_tio);
 
-    if (p->p_state == PROC_ZOMBIE) {
+    if (p->p_state == PROC_ZOMBIE)
+    {
         proc_free(p);
     }
     return 0;
@@ -1072,9 +1371,12 @@ static int cmd_run(const char *path)
 // 从管道阶段字符串取出程序路径
 static const char *pipeline_program(const char *cmd)
 {
-    while (cmd != NULL && isspace((unsigned char)*cmd)) cmd++;
-    if (cmd == NULL || *cmd == '\0') return cmd;
-    if (strncmp(cmd, "run ", 4) == 0) return cmd + 4;
+    while (cmd != NULL && isspace((unsigned char)*cmd))
+        cmd++;
+    if (cmd == NULL || *cmd == '\0')
+        return cmd;
+    if (strncmp(cmd, "run ", 4) == 0)
+        return cmd + 4;
     return cmd;
 }
 
@@ -1099,40 +1401,56 @@ static void proc_bind_pipe_out(PCB *p, int pipe_id)
 // 按顺序运行管道中的多个程序
 static int cmd_run_pipeline_chain(int stage_count, char **stages)
 {
-    if (stage_count < 2 || stage_count > PIPELINE_MAX_STAGES) {
+    if (stage_count < 2 || stage_count > PIPELINE_MAX_STAGES)
+    {
         ui_err("Pipeline supports 2-8 stages");
         return -1;
     }
 
-    PCB  *procs[PIPELINE_MAX_STAGES];
-    int   pipes[PIPELINE_MAX_STAGES - 1];
-    char  paths[PIPELINE_MAX_STAGES][256];
+    PCB *procs[PIPELINE_MAX_STAGES];
+    int pipes[PIPELINE_MAX_STAGES - 1];
+    char paths[PIPELINE_MAX_STAGES][256];
 
     memset(procs, 0, sizeof(procs));
-    for (int i = 0; i < stage_count - 1; i++) pipes[i] = -1;
+    for (int i = 0; i < stage_count - 1; i++)
+        pipes[i] = -1;
 
-    for (int i = 0; i < stage_count - 1; i++) {
+    for (int i = 0; i < stage_count - 1; i++)
+    {
         pipes[i] = pipe_alloc();
-        if (pipes[i] < 0) {
+        if (pipes[i] < 0)
+        {
             ui_err("No free pipes");
             goto fail;
         }
     }
 
-    for (int i = 0; i < stage_count; i++) {
+    for (int i = 0; i < stage_count; i++)
+    {
         const char *cmd = pipeline_program(stages[i]);
-        if (cmd == NULL || cmd[0] == '\0') { ui_err("Empty pipeline stage"); goto fail; }
+        if (cmd == NULL || cmd[0] == '\0')
+        {
+            ui_err("Empty pipeline stage");
+            goto fail;
+        }
         resolve_program_path(cmd, paths[i], sizeof(paths[i]));
 
         procs[i] = proc_alloc();
-        if (procs[i] == NULL) { ui_err("Failed to allocate process"); goto fail; }
+        if (procs[i] == NULL)
+        {
+            ui_err("Failed to allocate process");
+            goto fail;
+        }
         strncpy(procs[i]->p_name, paths[i], PROC_NAME_LEN - 1);
         procs[i]->p_cwd_ino = current_user()->u_cdir;
 
-        if (i > 0) proc_bind_pipe_in(procs[i], pipes[i - 1]);
-        if (i < stage_count - 1) proc_bind_pipe_out(procs[i], pipes[i]);
+        if (i > 0)
+            proc_bind_pipe_in(procs[i], pipes[i - 1]);
+        if (i < stage_count - 1)
+            proc_bind_pipe_out(procs[i], pipes[i]);
 
-        if (proc_exec(procs[i], paths[i]) != 0) {
+        if (proc_exec(procs[i], paths[i]) != 0)
+        {
             ui_err("Failed to load program");
             goto fail;
         }
@@ -1142,24 +1460,34 @@ static int cmd_run_pipeline_chain(int stage_count, char **stages)
     {
         struct termios old_tio;
         shell_vm_enter_raw(&old_tio);
-        while (sched_tick() == 0) {}
+        while (sched_tick() == 0)
+        {
+        }
         shell_vm_leave_raw(&old_tio);
     }
 
-    for (int i = 0; i < stage_count; i++) {
-        if (procs[i] && procs[i]->p_state == PROC_ZOMBIE) proc_free(procs[i]);
+    for (int i = 0; i < stage_count; i++)
+    {
+        if (procs[i] && procs[i]->p_state == PROC_ZOMBIE)
+            proc_free(procs[i]);
     }
-    for (int i = 0; i < stage_count - 1; i++) {
-        if (pipes[i] >= 0) pipe_free(pipes[i]);
+    for (int i = 0; i < stage_count - 1; i++)
+    {
+        if (pipes[i] >= 0)
+            pipe_free(pipes[i]);
     }
     return 0;
 
 fail:
-    for (int i = 0; i < stage_count; i++) {
-        if (procs[i]) proc_free(procs[i]);
+    for (int i = 0; i < stage_count; i++)
+    {
+        if (procs[i])
+            proc_free(procs[i]);
     }
-    for (int i = 0; i < stage_count - 1; i++) {
-        if (pipes[i] >= 0) pipe_free(pipes[i]);
+    for (int i = 0; i < stage_count - 1; i++)
+    {
+        if (pipes[i] >= 0)
+            pipe_free(pipes[i]);
     }
     return -1;
 }
@@ -1169,12 +1497,16 @@ static int split_pipeline_segments(char *line, char *segments[], int max_seg)
 {
     int count = 0;
     char *part = line;
-    while (count < max_seg) {
+    while (count < max_seg)
+    {
         char *bar = strchr(part, '|');
-        if (bar) *bar = '\0';
+        if (bar)
+            *bar = '\0';
         char *seg = trim(part);
-        if (seg[0] != '\0') segments[count++] = seg;
-        if (bar == NULL) break;
+        if (seg[0] != '\0')
+            segments[count++] = seg;
+        if (bar == NULL)
+            break;
         part = bar + 1;
     }
     return count;
@@ -1183,25 +1515,36 @@ static int split_pipeline_segments(char *line, char *segments[], int max_seg)
 // 若含管道则执行管道并返回状态
 static int try_run_pipeline(char *line)
 {
-    if (strchr(line, '|') == NULL) return 0;
+    if (strchr(line, '|') == NULL)
+        return 0;
 
     char *segments[PIPELINE_MAX_STAGES];
     int stage_count = split_pipeline_segments(line, segments, PIPELINE_MAX_STAGES);
-    if (stage_count < 2) {
+    if (stage_count < 2)
+    {
         ui_err("Usage: cmd1 | cmd2 [| cmd3 ...]");
         return -1;
     }
-    if (require_mounted() != 0) return -1;
+    if (require_mounted() != 0)
+        return -1;
     return cmd_run_pipeline_chain(stage_count, segments) == 0 ? 1 : -1;
 }
 
 // 向进程发送信号
 static int cmd_kill_cmd(int argc, char **argv)
 {
-    if (argc < 2) { ui_err("Usage: kill <pid> [sig]"); return -1; }
+    if (argc < 2)
+    {
+        ui_err("Usage: kill <pid> [sig]");
+        return -1;
+    }
     uint32_t pid = (uint32_t)strtoul(argv[1], NULL, 10);
     int sig = (argc >= 3) ? (int)strtol(argv[2], NULL, 10) : SIG_TERM;
-    if (ipc_kill(pid, sig) != 0) { ui_err("kill failed"); return -1; }
+    if (ipc_kill(pid, sig) != 0)
+    {
+        ui_err("kill failed");
+        return -1;
+    }
     ui_ok("Signal sent");
     return 0;
 }
@@ -1209,8 +1552,16 @@ static int cmd_kill_cmd(int argc, char **argv)
 // 创建有名管道文件
 static int cmd_mkfifo(const char *path)
 {
-    if (path == NULL || path[0] != '/') { ui_err("Usage: mkfifo </path>"); return -1; }
-    if (ipc_mkfifo(path) != 0) { ui_err("mkfifo failed"); return -1; }
+    if (path == NULL || path[0] != '/')
+    {
+        ui_err("Usage: mkfifo </path>");
+        return -1;
+    }
+    if (ipc_mkfifo(path) != 0)
+    {
+        ui_err("mkfifo failed");
+        return -1;
+    }
     ui_ok("FIFO created");
     return 0;
 }
@@ -1218,38 +1569,51 @@ static int cmd_mkfifo(const char *path)
 // design_debug 子命令调试输出
 static int cmd_design_debug(int argc, char **argv)
 {
-    if (argc < 2) {
+    if (argc < 2)
+    {
         ui_err("Usage: design_debug <super|inodes|blocks|bg|sof|memory|process|all>");
         return -1;
     }
     const char *sub = argv[1];
 
-    if (strcmp(sub, "super") == 0 || strcmp(sub, "sb") == 0 || strcmp(sub, "all") == 0) {
-        if (require_mounted()) return -1;
+    if (strcmp(sub, "super") == 0 || strcmp(sub, "sb") == 0 || strcmp(sub, "all") == 0)
+    {
+        if (require_mounted())
+            return -1;
         fs_debug_print_super();
     }
-    if (strcmp(sub, "inodes") == 0 || strcmp(sub, "ino") == 0 || strcmp(sub, "all") == 0) {
-        if (require_mounted()) return -1;
+    if (strcmp(sub, "inodes") == 0 || strcmp(sub, "ino") == 0 || strcmp(sub, "all") == 0)
+    {
+        if (require_mounted())
+            return -1;
         fs_debug_print_inodes();
     }
-    if (strcmp(sub, "blocks") == 0 || strcmp(sub, "blk") == 0) {
-        if (require_mounted()) return -1;
+    if (strcmp(sub, "blocks") == 0 || strcmp(sub, "blk") == 0)
+    {
+        if (require_mounted())
+            return -1;
         fs_debug_print_super();
     }
-    if (strcmp(sub, "bg") == 0 || strcmp(sub, "blockgroup") == 0) {
-        if (require_mounted()) return -1;
+    if (strcmp(sub, "bg") == 0 || strcmp(sub, "blockgroup") == 0)
+    {
+        if (require_mounted())
+            return -1;
         bg_debug_print();
     }
-    if (strcmp(sub, "sof") == 0 || strcmp(sub, "all") == 0) {
-        if (require_mounted()) return -1;
+    if (strcmp(sub, "sof") == 0 || strcmp(sub, "all") == 0)
+    {
+        if (require_mounted())
+            return -1;
         const SysOpenFile *sof = sys_open_file_table();
         int sof_cnt = sys_open_file_count();
         printf("\n");
         printf("  ── System Open File Table (%d/%d) ─────────────\n",
                sof_cnt, SYS_OPEN_FILE_MAX);
         printf("  %-4s %-6s %-6s %-8s %-4s %s\n", "Idx", "Inode", "Mode", "Offset", "Ref", "Flags");
-        for (int i = 0; i < SYS_OPEN_FILE_MAX; i++) {
-            if (sof[i].f_inode == NULL) continue;
+        for (int i = 0; i < SYS_OPEN_FILE_MAX; i++)
+        {
+            if (sof[i].f_inode == NULL)
+                continue;
             printf("  %-4d %-6u 0x%04X %-8u %-4u 0x%04X\n",
                    i, (unsigned)sof[i].f_inode->m_inode_no,
                    (unsigned)sof[i].f_mode, (unsigned)sof[i].f_offset,
@@ -1257,20 +1621,28 @@ static int cmd_design_debug(int argc, char **argv)
         }
         printf("\n");
     }
-    if (strcmp(sub, "memory") == 0 || strcmp(sub, "mem") == 0 || strcmp(sub, "all") == 0) {
+    if (strcmp(sub, "memory") == 0 || strcmp(sub, "mem") == 0 || strcmp(sub, "all") == 0)
+    {
         mem_debug_print();
     }
-    if (strcmp(sub, "process") == 0 || strcmp(sub, "proc") == 0 || strcmp(sub, "all") == 0) {
+    if (strcmp(sub, "process") == 0 || strcmp(sub, "proc") == 0 || strcmp(sub, "all") == 0)
+    {
         int count = 0;
         PCB *table = proc_get_table(&count);
-        if (table == NULL) { printf("  No process table.\n"); return 0; }
+        if (table == NULL)
+        {
+            printf("  No process table.\n");
+            return 0;
+        }
 
         printf("\n");
         printf("  ── Process Table (%d/%d slots) ─────────────────\n",
                proc_count(), PROC_MAX_COUNT);
-        const char *states[] = { "FREE", "READY", "RUN", "BLOCK", "ZOMBIE" };
-        for (int i = 0; i < count; i++) {
-            if (table[i].p_state == PROC_FREE) continue;
+        const char *states[] = {"FREE", "READY", "RUN", "BLOCK", "ZOMBIE"};
+        for (int i = 0; i < count; i++)
+        {
+            if (table[i].p_state == PROC_FREE)
+                continue;
             printf("\n");
             printf("  PID %-5u  %-16s  state=%-6s  ppid=%u\n",
                    (unsigned)table[i].p_pid, table[i].p_name,
@@ -1286,32 +1658,49 @@ static int cmd_design_debug(int argc, char **argv)
             CPUContext *cpu = &table[i].p_cpu;
             printf("    cpu: PC=0x%X  SP=0x%X  FP=0x%X  FLAGS=0x%X  ticks_left=%u\n",
                    (unsigned)cpu->pc, (unsigned)cpu->regs[CPU_REG_SP],
-                   (unsigned)cpu->regs[14],  
+                   (unsigned)cpu->regs[14],
                    (unsigned)cpu->flags, (unsigned)cpu->ticks_left);
             printf("    fd: ");
             int fd_any = 0;
-            for (int j = 0; j < PROC_MAX_FD; j++) {
-                if (table[i].p_ofile[j].fd_type != 0) {
+            for (int j = 0; j < PROC_MAX_FD; j++)
+            {
+                if (table[i].p_ofile[j].fd_type != 0)
+                {
                     const char *ft = "?";
-                    switch (table[i].p_ofile[j].fd_type) {
-                        case PROC_FD_TERM: ft = "term"; break;
-                        case PROC_FD_FILE: ft = "file"; break;
-                        case PROC_FD_PIPE_RD: ft = "pipe-rd"; break;
-                        case PROC_FD_PIPE_WR: ft = "pipe-wr"; break;
-                        case PROC_FD_FIFO_RD: ft = "fifo-rd"; break;
-                        case PROC_FD_FIFO_WR: ft = "fifo-wr"; break;
+                    switch (table[i].p_ofile[j].fd_type)
+                    {
+                    case PROC_FD_TERM:
+                        ft = "term";
+                        break;
+                    case PROC_FD_FILE:
+                        ft = "file";
+                        break;
+                    case PROC_FD_PIPE_RD:
+                        ft = "pipe-rd";
+                        break;
+                    case PROC_FD_PIPE_WR:
+                        ft = "pipe-wr";
+                        break;
+                    case PROC_FD_FIFO_RD:
+                        ft = "fifo-rd";
+                        break;
+                    case PROC_FD_FIFO_WR:
+                        ft = "fifo-wr";
+                        break;
                     }
                     printf("%d:%s(fs=%d) ", j, ft, table[i].p_ofile[j].fd_fs_fd);
                     fd_any++;
                 }
             }
-            if (!fd_any) printf("(none)");
+            if (!fd_any)
+                printf("(none)");
             printf("\n");
             if (table[i].p_pending_sig)
                 printf("    pending_sig=%u  sigusr1_count=%d\n",
                        (unsigned)table[i].p_pending_sig,
                        table[i].p_sigusr1_count);
-            if (table[i].p_child_count > 0) {
+            if (table[i].p_child_count > 0)
+            {
                 printf("    children: ");
                 for (int j = 0; j < table[i].p_child_count; j++)
                     printf("%u ", (unsigned)table[i].p_children[j]);
@@ -1327,7 +1716,8 @@ static int cmd_design_debug(int argc, char **argv)
         strcmp(sub, "blocks") != 0 && strcmp(sub, "blk") != 0 &&
         strcmp(sub, "sof") != 0 &&
         strcmp(sub, "memory") != 0 && strcmp(sub, "mem") != 0 &&
-        strcmp(sub, "process") != 0 && strcmp(sub, "proc") != 0) {
+        strcmp(sub, "process") != 0 && strcmp(sub, "proc") != 0)
+    {
         ui_err("Unknown subcommand. Try: super, inodes, blocks, sof, memory, process, all");
         return -1;
     }
@@ -1339,16 +1729,22 @@ static int cmd_ps(void)
 {
     int count = 0;
     PCB *table = proc_get_table(&count);
-    if (table == NULL) { ui_info("No process table"); return 0; }
+    if (table == NULL)
+    {
+        ui_info("No process table");
+        return 0;
+    }
 
     printf("\n");
     printf("%s%s%-6s %-16s %-10s %s%s\n",
            ANSI_BOLD, ANSI_MAUVE, "PID", "Name", "State", "", ANSI_RESET);
     printf("%s----------------------------------------%s\n", ANSI_DIM, ANSI_RESET);
 
-    const char *states[] = { "FREE", "READY", "RUN", "BLOCK", "ZOMBIE" };
-    for (int i = 0; i < count; i++) {
-        if (table[i].p_state == PROC_FREE) continue;
+    const char *states[] = {"FREE", "READY", "RUN", "BLOCK", "ZOMBIE"};
+    for (int i = 0; i < count; i++)
+    {
+        if (table[i].p_state == PROC_FREE)
+            continue;
         printf("  %-6u %-16s %-10s\n",
                (unsigned)table[i].p_pid, table[i].p_name,
                states[table[i].p_state < 5 ? table[i].p_state : 0]);
@@ -1376,13 +1772,25 @@ static int cmd_env(void)
 // 设置环境变量
 static int cmd_export(const char *arg)
 {
-    if (arg == NULL) { ui_err("Usage: export KEY=VALUE"); return -1; }
+    if (arg == NULL)
+    {
+        ui_err("Usage: export KEY=VALUE");
+        return -1;
+    }
     char buf[512];
     strncpy(buf, arg, sizeof(buf) - 1);
     char *eq = strchr(buf, '=');
-    if (eq == NULL) { ui_err("Format: export KEY=VALUE"); return -1; }
+    if (eq == NULL)
+    {
+        ui_err("Format: export KEY=VALUE");
+        return -1;
+    }
     *eq = '\0';
-    if (env_set(buf, eq + 1) != 0) { ui_err("Failed to set variable"); return -1; }
+    if (env_set(buf, eq + 1) != 0)
+    {
+        ui_err("Failed to set variable");
+        return -1;
+    }
     ui_ok("Variable set");
     return 0;
 }
@@ -1390,8 +1798,16 @@ static int cmd_export(const char *arg)
 // 删除环境变量
 static int cmd_unset(const char *key)
 {
-    if (key == NULL) { ui_err("Usage: unset KEY"); return -1; }
-    if (env_unset(key) != 0) { ui_err("Variable not found"); return -1; }
+    if (key == NULL)
+    {
+        ui_err("Usage: unset KEY");
+        return -1;
+    }
+    if (env_unset(key) != 0)
+    {
+        ui_err("Variable not found");
+        return -1;
+    }
     ui_ok("Variable removed");
     return 0;
 }
@@ -1399,62 +1815,118 @@ static int cmd_unset(const char *key)
 // 根据命令名调用对应处理函数
 static int dispatch_command(int argc, char **argv)
 {
-    if (argc <= 0 || argv[0] == NULL) return 0;
+    if (argc <= 0 || argv[0] == NULL)
+        return 0;
     const char *cmd = argv[0];
 
-    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) { cmd_help(); return 0; }
-    if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) return 1;
-    if (strcmp(cmd, "clear") == 0) { printf("\033[2J\033[H"); ui_banner(); return 0; }
-    if (strcmp(cmd, "format") == 0) return shell_format(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
-    if (strcmp(cmd, "mount") == 0 || strcmp(cmd, "restore") == 0) return shell_mount(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
-    if (strcmp(cmd, "umount") == 0) return shell_umount() == 0 ? 0 : -1;
-    if (strcmp(cmd, "asm") == 0) {
-        if (argc >= 2 && strcmp(argv[1], "--help") == 0) {
+    if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0)
+    {
+        cmd_help();
+        return 0;
+    }
+    if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0)
+        return 1;
+    if (strcmp(cmd, "clear") == 0)
+    {
+        printf("\033[2J\033[H");
+        ui_banner();
+        return 0;
+    }
+    if (strcmp(cmd, "format") == 0)
+        return shell_format(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
+    if (strcmp(cmd, "mount") == 0 || strcmp(cmd, "restore") == 0)
+        return shell_mount(argc > 1 ? argv[1] : NULL) == 0 ? 0 : -1;
+    if (strcmp(cmd, "umount") == 0)
+        return shell_umount() == 0 ? 0 : -1;
+    if (strcmp(cmd, "asm") == 0)
+    {
+        if (argc >= 2 && strcmp(argv[1], "--help") == 0)
+        {
             printf("UPFS Assembler v0.1.0\n\n");
             printf("Usage: asm <source.s> [output.upx]\n\n");
             printf("  source.s     Assembly source file (.s / .asm)\n");
             printf("  output.upx   Output binary (default: a.upx)\n");
             return 0;
         }
-        if (argc < 2) { ui_err("Usage: asm <source.s> [output.upx]"); return -1; }
+        if (argc < 2)
+        {
+            ui_err("Usage: asm <source.s> [output.upx]");
+            return -1;
+        }
         const char *out_name = argc > 2 ? argv[2] : "a.upx";
-        if (paths_same(argv[1], out_name)) {
+        if (paths_same(argv[1], out_name))
+        {
             ui_err("Output path must differ from source path");
             return -1;
         }
 
         char tmp_src[256], tmp_out[256];
+
+        // 生成临时文件（getpid避免多终端冲突）
         snprintf(tmp_src, sizeof(tmp_src), "/tmp/upfs_asm_src_%d", getpid());
         snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_asm_out_%d", getpid());
 
         {
-            MemINode *ip = namei(argv[1]);
-            if (!ip) { ui_err("Source file not found"); return -1; }
-            iput(ip);
+            MemINode *ip = namei(argv[1]); // vfs寻找inode
+            if (!ip)
+            {
+                ui_err("Source file not found");
+                return -1;
+            }
+            iput(ip); // 释放inode引用
             int fd = vfs_open(argv[1], O_RDONLY);
-            if (fd < 0) { ui_err("Cannot open source"); return -1; }
-            char *buf = malloc(65536); int total = 0, n;
-            if (!buf) { vfs_close(fd); ui_err("Out of memory"); return -1; }
-            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0) total += n;
+            if (fd < 0)
+            {
+                ui_err("Cannot open source");
+                return -1;
+            }
+            char *buf = malloc(65536); //申请64KB缓冲区
+            int total = 0, n;
+            if (!buf)
+            {
+                vfs_close(fd);
+                ui_err("Out of memory");
+                return -1;
+            }
+            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0)
+                total += n;
             vfs_close(fd);
             FILE *f = fopen(tmp_src, "w");
-            if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
-            free(buf);
+            if (f)
+            {
+                fwrite(buf, 1, (size_t)total, f); // 缓冲区读入vfs中的内容写入临时文件
+                fclose(f);
+            }
+            free(buf); //释放缓冲区
         }
 
-        if (assemble_file(tmp_src, tmp_out) != 0) { unlink(tmp_src); unlink(tmp_out); ui_err("Assembly failed"); return -1; }
-
+        if (assemble_file(tmp_src, tmp_out) != 0) //执行汇编
+        {
+            unlink(tmp_src);
+            unlink(tmp_out);
+            ui_err("Assembly failed");
+            return -1;
+        }
+        // 输出文件写回vfs
         {
             FILE *f = fopen(tmp_out, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-                if (sz > 0) {
+            if (f)
+            {
+                fseek(f, 0, SEEK_END);
+                long sz = ftell(f); //获取文件大小
+                rewind(f); //回到文件开头
+                if (sz > 0)
+                {
                     char *buf = malloc((size_t)sz);
-                    if (buf) {
+                    if (buf)
+                    {
                         fread(buf, 1, (size_t)sz, f);
-                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0) {
+                        // 写回vfs
+                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0)
+                        {
                             free(buf);
-                            unlink(tmp_src); unlink(tmp_out);
+                            unlink(tmp_src);
+                            unlink(tmp_out);
                             ui_err("Failed to write output to VFS");
                             return -1;
                         }
@@ -1464,54 +1936,79 @@ static int dispatch_command(int argc, char **argv)
                 fclose(f);
             }
         }
-        unlink(tmp_src); unlink(tmp_out);
-        ui_ok("Assembly complete"); return 0;
+        unlink(tmp_src);
+        unlink(tmp_out);
+        ui_ok("Assembly complete");
+        return 0;
     }
-    if (strcmp(cmd, "vim") == 0) {
-        if (argc < 2) { ui_err("Usage: vim <file>"); return -1; }
+    if (strcmp(cmd, "vim") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: vim <file>");
+            return -1;
+        }
 
         char tmp_path[256];
         snprintf(tmp_path, sizeof(tmp_path), "/tmp/upfs_vim_%d", getpid());
 
         MemINode *ip = namei(argv[1]);
-        if (ip != NULL) {
+        if (ip != NULL)
+        {
             iput(ip);
             int fd = vfs_open(argv[1], O_RDONLY);
-            if (fd >= 0) {
-                char buf[4096]; int total = 0, n;
+            if (fd >= 0)
+            {
+                char buf[4096];
+                int total = 0, n;
                 while ((n = vfs_read(fd, buf + total, (int)sizeof(buf) - total - 1)) > 0)
                     total += n;
                 vfs_close(fd);
                 FILE *tf = fopen(tmp_path, "w");
-                if (tf) { fwrite(buf, 1, (size_t)total, tf); fclose(tf); }
+                if (tf)
+                {
+                    fwrite(buf, 1, (size_t)total, tf);
+                    fclose(tf);
+                }
             }
         }
 
-        printf("\033[2J\033[H"); fflush(stdout);
+        printf("\033[2J\033[H");
+        fflush(stdout);
         editor_open(tmp_path);
-        printf("\033[2J\033[H"); fflush(stdout);
+        printf("\033[2J\033[H");
+        fflush(stdout);
 
         FILE *tf = fopen(tmp_path, "r");
-        if (tf) {
-            fseek(tf, 0, SEEK_END); long sz = ftell(tf); rewind(tf);
-            if (sz > 0) {
+        if (tf)
+        {
+            fseek(tf, 0, SEEK_END);
+            long sz = ftell(tf);
+            rewind(tf);
+            if (sz > 0)
+            {
                 char *buf = malloc((size_t)(sz + 1));
-                if (buf) {
+                if (buf)
+                {
                     fread(buf, 1, (size_t)sz, tf);
 
                     vfs_delete(argv[1]);
-                    if (vfs_create(argv[1], 0644) != 0) {
+                    if (vfs_create(argv[1], 0644) != 0)
+                    {
                         vfs_delete(argv[1]);
                         vfs_create(argv[1], 0644);
                     }
                     int fd = vfs_open(argv[1], O_WRONLY);
-                    if (fd >= 0) {
+                    if (fd >= 0)
+                    {
                         vfs_write(fd, buf, (int)sz);
                         vfs_close(fd);
                     }
                     free(buf);
                 }
-            } else {
+            }
+            else
+            {
 
                 vfs_delete(argv[1]);
                 vfs_create(argv[1], 0644);
@@ -1522,19 +2019,28 @@ static int dispatch_command(int argc, char **argv)
         ui_banner();
         return 0;
     }
-    if (strcmp(cmd, "cc") == 0) {
-        if (argc < 2) { ui_err("Usage: cc <source.c> [output.upx] [--asm]"); return -1; }
+    if (strcmp(cmd, "cc") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: cc <source.c> [output.upx] [--asm]");
+            return -1;
+        }
         int save_asm = 0;
-        for (int ai = 1; ai < argc; ai++) {
-            if (strcmp(argv[ai], "--asm") == 0) {
+        for (int ai = 1; ai < argc; ai++)
+        {
+            if (strcmp(argv[ai], "--asm") == 0)
+            {
                 save_asm = 1;
-                for (int aj = ai; aj < argc; aj++) argv[aj] = argv[aj + 1];
+                for (int aj = ai; aj < argc; aj++)
+                    argv[aj] = argv[aj + 1];
                 argc--;
                 break;
             }
         }
         const char *out_name = argc > 2 ? argv[2] : "a.upx";
-        if (paths_same(argv[1], out_name)) {
+        if (paths_same(argv[1], out_name))
+        {
             ui_err("Output path must differ from source path");
             return -1;
         }
@@ -1544,35 +2050,61 @@ static int dispatch_command(int argc, char **argv)
         snprintf(tmp_out, sizeof(tmp_out), "/tmp/upfs_cc_out_%d.upx", getpid());
         {
             MemINode *ip = namei(argv[1]);
-            if (!ip) { ui_err("Source file not found"); return -1; }
+            if (!ip)
+            {
+                ui_err("Source file not found");
+                return -1;
+            }
             iput(ip);
             int fd = vfs_open(argv[1], O_RDONLY);
-            if (fd < 0) { ui_err("Cannot open source"); return -1; }
-            char *buf = malloc(65536); int total = 0, n;
-            if (!buf) { vfs_close(fd); ui_err("Out of memory"); return -1; }
-            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0) total += n;
+            if (fd < 0)
+            {
+                ui_err("Cannot open source");
+                return -1;
+            }
+            char *buf = malloc(65536);
+            int total = 0, n;
+            if (!buf)
+            {
+                vfs_close(fd);
+                ui_err("Out of memory");
+                return -1;
+            }
+            while ((n = vfs_read(fd, buf + total, 65536 - total - 1)) > 0)
+                total += n;
             vfs_close(fd);
             FILE *f = fopen(tmp_src, "w");
-            if (f) { fwrite(buf, 1, (size_t)total, f); fclose(f); }
+            if (f)
+            {
+                fwrite(buf, 1, (size_t)total, f);
+                fclose(f);
+            }
             free(buf);
         }
-        if (compile_c_to_asm(tmp_src, tmp_asm) != 0) {
-            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
-            ui_err("Compilation failed"); return -1;
+        if (compile_c_to_asm(tmp_src, tmp_asm) != 0)
+        {
+            unlink(tmp_src);
+            unlink(tmp_asm);
+            unlink(tmp_out);
+            ui_err("Compilation failed");
+            return -1;
         }
         {
             FILE *asm_f = fopen(tmp_asm, "a");
-            if (asm_f) {
+            if (asm_f)
+            {
                 const char *rt_paths[] = {
                     "src/compiler/runtime.s",
                     "../src/compiler/runtime.s",
                     "../../src/compiler/runtime.s",
-                    NULL
-                };
-                for (int ri = 0; rt_paths[ri]; ri++) {
+                    NULL};
+                for (int ri = 0; rt_paths[ri]; ri++)
+                {
                     FILE *rt_f = fopen(rt_paths[ri], "r");
-                    if (rt_f) {
-                        char buf[4096]; size_t n;
+                    if (rt_f)
+                    {
+                        char buf[4096];
+                        size_t n;
                         while ((n = fread(buf, 1, sizeof(buf), rt_f)) > 0)
                             fwrite(buf, 1, n, asm_f);
                         fclose(rt_f);
@@ -1582,21 +2114,33 @@ static int dispatch_command(int argc, char **argv)
                 fclose(asm_f);
             }
         }
-        if (assemble_file(tmp_asm, tmp_out) != 0) {
-            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
-            ui_err("Assembly after compilation failed"); return -1;
+        if (assemble_file(tmp_asm, tmp_out) != 0)
+        {
+            unlink(tmp_src);
+            unlink(tmp_asm);
+            unlink(tmp_out);
+            ui_err("Assembly after compilation failed");
+            return -1;
         }
         {
             FILE *f = fopen(tmp_out, "rb");
-            if (f) {
-                fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-                if (sz > 0) {
+            if (f)
+            {
+                fseek(f, 0, SEEK_END);
+                long sz = ftell(f);
+                rewind(f);
+                if (sz > 0)
+                {
                     char *buf = malloc((size_t)sz);
-                    if (buf) {
+                    if (buf)
+                    {
                         fread(buf, 1, (size_t)sz, f);
-                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0) {
+                        if (vfs_write_bytes(out_name, buf, (int)sz) != 0)
+                        {
                             free(buf);
-                            unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
+                            unlink(tmp_src);
+                            unlink(tmp_asm);
+                            unlink(tmp_out);
                             ui_err("Failed to write output to VFS");
                             return -1;
                         }
@@ -1606,7 +2150,8 @@ static int dispatch_command(int argc, char **argv)
                 fclose(f);
             }
         }
-        if (save_asm) {
+        if (save_asm)
+        {
             char asm_vfs[512];
             const char *s = argv[1];
             const char *dot = strrchr(s, '.');
@@ -1614,13 +2159,19 @@ static int dispatch_command(int argc, char **argv)
             memcpy(asm_vfs, s, base_len);
             strcpy(asm_vfs + base_len, ".s");
             FILE *af = fopen(tmp_asm, "r");
-            if (af) {
-                fseek(af, 0, SEEK_END); long sz = ftell(af); rewind(af);
-                if (sz > 0) {
+            if (af)
+            {
+                fseek(af, 0, SEEK_END);
+                long sz = ftell(af);
+                rewind(af);
+                if (sz > 0)
+                {
                     char *abuf = malloc((size_t)(sz + 1));
-                    if (abuf) {
+                    if (abuf)
+                    {
                         size_t nread = fread(abuf, 1, (size_t)sz, af);
-                        if (nread > 0) {
+                        if (nread > 0)
+                        {
                             if (vfs_write_bytes(asm_vfs, abuf, (int)nread) == 0)
                                 printf("  asm saved: %s (%zu bytes)\n", asm_vfs, nread);
                         }
@@ -1630,82 +2181,184 @@ static int dispatch_command(int argc, char **argv)
                 fclose(af);
             }
         }
-        unlink(tmp_src); unlink(tmp_asm); unlink(tmp_out);
-        ui_ok("Compilation complete"); return 0;
+        unlink(tmp_src);
+        unlink(tmp_asm);
+        unlink(tmp_out);
+        ui_ok("Compilation complete");
+        return 0;
     }
 
-    if (require_mounted()) return -1;
+    if (require_mounted())
+        return -1;
 
+    if (cmd[0] == '.' && cmd[1] == '/')
+    {
+        return cmd_run(cmd);
+    }
 
-    if (cmd[0] == '.' && cmd[1] == '/') { return cmd_run(cmd); }
-
-    if (strcmp(cmd, "mkdir") == 0) {
+    if (strcmp(cmd, "mkdir") == 0)
+    {
         uint16_t mode = 0755;
-        if (argc < 2) { ui_err("Usage: mkdir <path> [mode]"); return -1; }
-        if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
-        if (vfs_mkdir(argv[1], mode) != 0) { ui_err("mkdir failed"); return -1; }
-        vfs_sync_all(); ui_ok("Directory created"); return 0;
+        if (argc < 2)
+        {
+            ui_err("Usage: mkdir <path> [mode]");
+            return -1;
+        }
+        if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) //指定mode
+        {
+            ui_err("Mode must be octal, e.g. 0755");
+            return -1;
+        }
+        if (vfs_mkdir(argv[1], mode) != 0) // 委托给vfs层，创建目录
+        {
+            ui_err("mkdir failed");
+            return -1;
+        }
+        vfs_sync_all(); //刷到真实磁盘
+        ui_ok("Directory created");
+        return 0;
     }
-    if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0) {
+    if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "chdir") == 0)
+    {
         const char *target = argv[1];
-        if (argc < 2 || strcmp(target, "~") == 0) {
+        if (argc < 2 || strcmp(target, "~") == 0)
+        {
 
-            if (g_user_home[0] == '\0') { ui_err("No home directory configured"); return -1; }
+            if (g_user_home[0] == '\0')
+            {
+                ui_err("No home directory configured");
+                return -1;
+            }
             target = g_user_home;
         }
-        if (chdir(target) != 0) { ui_err("cd failed"); return -1; }
-        cwd_update_after_cd(target); ui_ok("Directory changed"); return 0;
+        if (chdir(target) != 0)
+        {
+            ui_err("cd failed");
+            return -1;
+        }
+        cwd_update_after_cd(target);
+        ui_ok("Directory changed");
+        return 0;
     }
-    if (strcmp(cmd, "pwd") == 0) {
+    if (strcmp(cmd, "pwd") == 0)
+    {
         char display[CWD_BUF_SIZE];
         cwd_display(display, sizeof(display));
         printf("%s%s%s\n", ANSI_MAUVE, display, ANSI_RESET);
         return 0;
     }
-    if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0) {
-        if (dir_list(argc > 1 ? argv[1] : NULL) != 0) { ui_err("ls failed"); return -1; }
+    if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0)
+    {
+        if (dir_list(argc > 1 ? argv[1] : NULL) != 0)
+        {
+            ui_err("ls failed");
+            return -1;
+        }
         return 0;
     }
-    if (strcmp(cmd, "create") == 0) {
+    if (strcmp(cmd, "create") == 0)
+    {
         uint16_t mode = 0644;
-        if (argc < 2) { ui_err("Usage: create <path> [mode]"); return -1; }
-        if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0) { ui_err("Mode must be octal, e.g. 0644"); return -1; }
-        if (vfs_create(argv[1], mode) != 0) { ui_err("create failed"); return -1; }
-        vfs_sync_all(); ui_ok("File created"); return 0;
+        if (argc < 2)
+        {
+            ui_err("Usage: create <path> [mode]");
+            return -1;
+        }
+        if (argc >= 3 && parse_octal_mode(argv[2], &mode) != 0)
+        {
+            ui_err("Mode must be octal, e.g. 0644");
+            return -1;
+        }
+        if (vfs_create(argv[1], mode) != 0)
+        {
+            ui_err("create failed");
+            return -1;
+        }
+        vfs_sync_all();
+        ui_ok("File created");
+        return 0;
     }
-    if (strcmp(cmd, "write") == 0) {
-        if (argc < 3) { ui_err("Usage: write <path> <data>"); return -1; }
+    if (strcmp(cmd, "write") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: write <path> <data>");
+            return -1;
+        }
         int rc = cmd_write_existing(argv[1], argv[2]);
-        if (rc == 0) fs_sync_disk();
+        if (rc == 0)
+            fs_sync_disk();
         return rc;
     }
-    if (strcmp(cmd, "cat") == 0) return cmd_cat(argv[1]);
-    if (strcmp(cmd, "rm") == 0 || strcmp(cmd, "delete") == 0) {
-        if (argc < 2) { ui_err("Usage: rm <path>"); return -1; }
-        if (vfs_delete(argv[1]) != 0) { ui_err("Delete failed"); return -1; }
-        vfs_sync_all(); ui_ok("File deleted"); return 0;
+    if (strcmp(cmd, "cat") == 0)
+        return cmd_cat(argv[1]);
+    if (strcmp(cmd, "rm") == 0 || strcmp(cmd, "delete") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: rm <path>");
+            return -1;
+        }
+        if (vfs_delete(argv[1]) != 0)
+        {
+            ui_err("Delete failed");
+            return -1;
+        }
+        vfs_sync_all();
+        ui_ok("File deleted");
+        return 0;
     }
-    if (strcmp(cmd, "cp") == 0 || strcmp(cmd, "copy") == 0) {
-        if (argc < 3) { ui_err("Usage: cp <src> <dst>"); return -1; }
-        if (vfs_copy(argv[1], argv[2]) != 0) { ui_err("Copy failed"); return -1; }
-        vfs_sync_all(); ui_ok("File copied"); return 0;
+    if (strcmp(cmd, "cp") == 0 || strcmp(cmd, "copy") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: cp <src> <dst>");
+            return -1;
+        }
+        if (vfs_copy(argv[1], argv[2]) != 0)
+        {
+            ui_err("Copy failed");
+            return -1;
+        }
+        vfs_sync_all();
+        ui_ok("File copied");
+        return 0;
     }
-    if (strcmp(cmd, "ln") == 0 || strcmp(cmd, "link") == 0) {
-        if (argc < 3) { ui_err("Usage: ln <target> <link_name>"); return -1; }
-        if (vfs_link(argv[1], argv[2]) != 0) { ui_err("Link failed"); return -1; }
-        vfs_sync_all(); ui_ok("Hard link created"); return 0;
+    if (strcmp(cmd, "ln") == 0 || strcmp(cmd, "link") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: ln <target> <link_name>");
+            return -1;
+        }
+        if (vfs_link(argv[1], argv[2]) != 0)
+        {
+            ui_err("Link failed");
+            return -1;
+        }
+        vfs_sync_all();
+        ui_ok("Hard link created");
+        return 0;
     }
-    if (strcmp(cmd, "stat") == 0) {
-        if (argc < 2) { ui_err("Usage: stat <path>"); return -1; }
+    if (strcmp(cmd, "stat") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: stat <path>");
+            return -1;
+        }
         uint16_t st_mode, st_nlink, st_uid, st_gid, st_ino;
         uint32_t st_size;
-        if (vfs_stat(argv[1], &st_mode, &st_size, &st_nlink, &st_uid, &st_gid, &st_ino) != 0) {
-            ui_err("stat failed"); return -1;
+        if (vfs_stat(argv[1], &st_mode, &st_size, &st_nlink, &st_uid, &st_gid, &st_ino) != 0)
+        {
+            ui_err("stat failed");
+            return -1;
         }
         printf("\n");
         printf("  File:     %s\n", argv[1]);
         printf("  Inode:    %u\n", (unsigned)st_ino);
-        printf("  Type:     %s\n", (st_mode & IFDIR) ? "directory" : (st_mode & IFREG) ? "regular file" : "unknown");
+        printf("  Type:     %s\n", (st_mode & IFDIR) ? "directory" : (st_mode & IFREG) ? "regular file"
+                                                                                       : "unknown");
         printf("  Mode:     %06o\n", (unsigned)(st_mode & 0777));
         printf("  Links:    %u\n", (unsigned)st_nlink);
         printf("  Size:     %u bytes\n", (unsigned)st_size);
@@ -1713,60 +2366,129 @@ static int dispatch_command(int argc, char **argv)
         printf("\n");
         return 0;
     }
-    if (strcmp(cmd, "chmod") == 0) {
-        if (argc < 3) { ui_err("Usage: chmod <path> <mode>"); return -1; }
+    if (strcmp(cmd, "chmod") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: chmod <path> <mode>");
+            return -1;
+        }
         uint16_t new_mode;
-        if (parse_octal_mode(argv[2], &new_mode) != 0) { ui_err("Mode must be octal, e.g. 0755"); return -1; }
-        if (vfs_chmod(argv[1], new_mode) != 0) { ui_err("chmod failed (permission denied?)"); return -1; }
-        vfs_sync_all(); ui_ok("Mode changed"); return 0;
+        if (parse_octal_mode(argv[2], &new_mode) != 0)
+        {
+            ui_err("Mode must be octal, e.g. 0755");
+            return -1;
+        }
+        if (vfs_chmod(argv[1], new_mode) != 0)
+        {
+            ui_err("chmod failed (permission denied?)");
+            return -1;
+        }
+        vfs_sync_all();
+        ui_ok("Mode changed");
+        return 0;
     }
-    if (strcmp(cmd, "useradd") == 0) {
-        if (argc < 3) { ui_err("Usage: useradd <name> <password>"); return -1; }
+    if (strcmp(cmd, "useradd") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: useradd <name> <password>");
+            return -1;
+        }
         return cmd_useradd(argv[1], argv[2]);
     }
-    if (strcmp(cmd, "login") == 0) {
-        if (argc < 3) { ui_err("Usage: login <name> <password>"); return -1; }
+    if (strcmp(cmd, "login") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: login <name> <password>");
+            return -1;
+        }
         return cmd_login(argv[1], argv[2]);
     }
-    if (strcmp(cmd, "su") == 0) return cmd_su(argc > 1 ? argv[1] : NULL);
-    if (strcmp(cmd, "logout") == 0) return cmd_logout();
-    if (strcmp(cmd, "whoami") == 0) return cmd_whoami();
-    if (strcmp(cmd, "passwd") == 0) {
-        if (argc < 3) { ui_err("Usage: passwd <name> <new_password>"); return -1; }
+    if (strcmp(cmd, "su") == 0)
+        return cmd_su(argc > 1 ? argv[1] : NULL);
+    if (strcmp(cmd, "logout") == 0)
+        return cmd_logout();
+    if (strcmp(cmd, "whoami") == 0)
+        return cmd_whoami();
+    if (strcmp(cmd, "passwd") == 0)
+    {
+        if (argc < 3)
+        {
+            ui_err("Usage: passwd <name> <new_password>");
+            return -1;
+        }
         return cmd_passwd(argv[1], argv[2]);
     }
-    if (strcmp(cmd, "users") == 0) return cmd_users();
-    if (strcmp(cmd, "run") == 0) { if (argc < 2) { ui_err("Usage: run <binary>"); return -1; } return cmd_run(argv[1]); }
-    if (strcmp(cmd, "kill") == 0) return cmd_kill_cmd(argc, argv);
-    if (strcmp(cmd, "mkfifo") == 0) {
-        if (argc < 2) { ui_err("Usage: mkfifo </path>"); return -1; }
+    if (strcmp(cmd, "users") == 0)
+        return cmd_users();
+    if (strcmp(cmd, "run") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: run <binary>");
+            return -1;
+        }
+        return cmd_run(argv[1]);
+    }
+    if (strcmp(cmd, "kill") == 0)
+        return cmd_kill_cmd(argc, argv);
+    if (strcmp(cmd, "mkfifo") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: mkfifo </path>");
+            return -1;
+        }
         return cmd_mkfifo(argv[1]);
     }
     if (strcmp(cmd, "design_debug") == 0 || strcmp(cmd, "dd") == 0)
         return cmd_design_debug(argc, argv);
-    if (strcmp(cmd, "ps") == 0) return cmd_ps();
-    if (strcmp(cmd, "env") == 0) return cmd_env();
-    if (strcmp(cmd, "export") == 0) { if (argc < 2) { ui_err("Usage: export KEY=VALUE"); return -1; } return cmd_export(argv[1]); }
-    if (strcmp(cmd, "unset") == 0) { if (argc < 2) { ui_err("Usage: unset KEY"); return -1; } return cmd_unset(argv[1]); }
-
+    if (strcmp(cmd, "ps") == 0)
+        return cmd_ps();
+    if (strcmp(cmd, "env") == 0)
+        return cmd_env();
+    if (strcmp(cmd, "export") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: export KEY=VALUE");
+            return -1;
+        }
+        return cmd_export(argv[1]);
+    }
+    if (strcmp(cmd, "unset") == 0)
+    {
+        if (argc < 2)
+        {
+            ui_err("Usage: unset KEY");
+            return -1;
+        }
+        return cmd_unset(argv[1]);
+    }
 
     {
         const char *path_env = env_get_path();
-        if (path_env != NULL) {
+        if (path_env != NULL)
+        {
             char path_buf[512];
             strncpy(path_buf, path_env, sizeof(path_buf) - 1);
             path_buf[sizeof(path_buf) - 1] = '\0';
 
             char *save = NULL;
             char *dir = strtok_r(path_buf, ":", &save);
-            while (dir != NULL) {
+            while (dir != NULL)
+            {
                 char full_path[CWD_BUF_SIZE];
                 snprintf(full_path, sizeof(full_path), "%s/%s", dir, cmd);
                 MemINode *ip = namei(full_path);
-                if (ip != NULL) {
+                if (ip != NULL)
+                {
                     int is_reg = (ip->m_dinode.d_mode & IFREG) != 0;
                     iput(ip);
-                    if (is_reg) return cmd_run(full_path);
+                    if (is_reg)
+                        return cmd_run(full_path);
                 }
                 dir = strtok_r(NULL, ":", &save);
             }
@@ -1779,85 +2501,120 @@ static int dispatch_command(int argc, char **argv)
 
 extern int dup2(int oldfd, int newfd);
 
-// Shell 主循环：挂载磁盘并处理命令
+// Shell会话主循环：挂载磁盘并处理命令
 int upfs_session(int in_fd, int out_fd)
 {
-    vfs_upfs_register(); 
+    vfs_upfs_register(); // 注册UPFS文件系统操作表
 
-    if (g_kernel == NULL) kernel_local_init(); 
+    if (g_kernel == NULL)
+        kernel_local_init(); // 初始化本地内核
 
-    if (dup2(out_fd, 1) < 0) return 1;
-    if (dup2(out_fd, 2) < 0) return 1;
-    if (dup2(in_fd,  0) < 0) return 1;
+    // 重定向到stdin和stdout
+    if (dup2(out_fd, 1) < 0)
+        return 1;
+    if (dup2(out_fd, 2) < 0)
+        return 1;
+    if (dup2(in_fd, 0) < 0)
+        return 1;
 
-    char line[LINE_BUF_SIZE];
-    char *argv[MAX_ARGS];
-    int exit_flag = 0;
+    char line[LINE_BUF_SIZE]; // 输入行缓冲
+    char *argv[MAX_ARGS];     // 参数指针数组
+    int exit_flag = 0;        // 推出标志位
 
+    // 关闭标准输入输出缓冲
     setvbuf(stdout, NULL, _IONBF, 0);
-    setvbuf(stdin,  NULL, _IONBF, 0);
-    ui_banner();
-    const char *shared = shared_disk_path();
-    if (shared && shared[0]) {
+    setvbuf(stdin, NULL, _IONBF, 0);
+
+    ui_banner(); // 打印启动横幅
+
+    const char *shared = shared_disk_path(); // 统一单机模式与网络模式的磁盘发现机制
+    if (shared && shared[0])                 // 网络模式
+    {
         strncpy(g_disk_path, shared, sizeof(g_disk_path) - 1);
         g_disk_path[sizeof(g_disk_path) - 1] = '\0';
-        if (disk_file_exists(g_disk_path)) {
+        if (disk_file_exists(g_disk_path))
+        {
             printf("\n");
             ui_ok("Shared disk detected");
             printf("    %sLocation:%s %s\n", ANSI_DIM, ANSI_RESET, g_disk_path);
             shell_mount(g_disk_path);
-        } else {
+        }
+        else
+        {
             printf("\n");
             ui_info("Shared disk not accessible, scanning locally...");
             startup_disk_probe();
         }
-    } else {
+    }
+    else
+    {
         startup_disk_probe();
     }
-    if (!g_mounted) ui_info("Type  help  for command list");
+    if (!g_mounted)
+        ui_info("Type  help  for command list");
     fflush(stdout);
 
-    while (!exit_flag) {
-        ui_prompt();
-        if (fgets(line, sizeof(line), stdin) == NULL) { printf("\n"); break; }
-        if (trim(line)[0] == '\0') continue;
+    // 会话循环
+    while (!exit_flag)
+    {
+        ui_prompt(); // 打印 user:/path
+        if (fgets(line, sizeof(line), stdin) == NULL) //EOF就是返回NULL
+        {
+            printf("\n");
+            break; //结束会话
+        }
+        if (trim(line)[0] == '\0') //输入为空，重新循环
+            continue;
 
         {
-            char pipe_buf[LINE_BUF_SIZE];
-            strncpy(pipe_buf, line, sizeof(pipe_buf) - 1);
-            pipe_buf[sizeof(pipe_buf) - 1] = '\0';
-            int prc = try_run_pipeline(pipe_buf);
-            if (prc == 1) continue;
-            if (prc < 0) continue;
+            char pipe_buf[LINE_BUF_SIZE]; // 临时缓冲区
+            strncpy(pipe_buf, line, sizeof(pipe_buf) - 1); // 将行缓冲备份一份到pipe_buf
+            pipe_buf[sizeof(pipe_buf) - 1] = '\0'; //添加字符串结束标识
+            int prc = try_run_pipeline(pipe_buf); //检查管道符并执行
+            if (prc == 1) // 执行成功
+                continue;
+            if (prc < 0) // 执行失败
+                continue;
+
+            // prc == 0，无管道
         }
 
-        int argc = parse_command_line(line, argv, MAX_ARGS);
-        if (g_mounted) (void)fs_reload_super();
-        if (dispatch_command(argc, argv) == 1) exit_flag = 1;
+        int argc = parse_command_line(line, argv, MAX_ARGS);// argc argv拆分
+        if (g_mounted)
+            (void)fs_reload_super(); // 重载超级块
+        if (dispatch_command(argc, argv) == 1) // 执行命令
+            exit_flag = 1;
     }
 
+    // 结束会话
 
     int is_shared_session = (shared_disk_path() != NULL);
-    if (g_mounted) {
+
+    //保存并释放资源
+    if (g_mounted)
+    {
         user_db_save();
         env_system_save();
-        if (!is_shared_session) {
+        if (!is_shared_session)
+        {
             proc_shutdown();
             mem_shutdown();
         }
         vfs_umount();
     }
     ui_ok("Goodbye");
-    fflush(stdout);
+    fflush(stdout);// 刷新输出流
     return 0;
 }
 
 // 程序入口，--serve 时启动网络服务
 int main(int argc, char *argv[])
 {
-    if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
+    if (argc >= 2 && strcmp(argv[1], "--serve") == 0)
+    {
         int port = 4096;
-        if (argc >= 3) port = atoi(argv[2]);  
+        if (argc >= 3)
+            port = atoi(argv[2]);
         return serve_main(port);
     }
     return upfs_session(0, 1);
